@@ -103,6 +103,7 @@ const SEEDS: &[(&str, &[&str])] = &[
     ("o que a gente falou sobre as férias?", &["memory.search"]),
     ("lembra daquela conversa do orçamento?", &["memory.search"]),
     ("anota que meu aniversário é em março", &["memory.remember"]),
+    ("lembra que dia 20 eu preciso abrir o discord e falar com a equipe", &["memory.remember"]),
     ("esquece o que eu disse do meu endereço", &["memory.forget"]),
     ("pede pro codex consertar os testes do projeto", &["agent.delegate"]),
     ("já acabou aquela tarefa do claude?", &["agent.jobs"]),

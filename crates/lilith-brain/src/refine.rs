@@ -30,11 +30,25 @@ const TILE_WORDS: &[&str] = &[
     "todas as janelas", "side by side", "tile",
 ];
 
+/// O pedido começa com um verbo de guardar na memória?
+fn is_remember_request(t: &str) -> bool {
+    let t = t.trim_start_matches(['/', ' ']);
+    ["lembra que", "lembra de que", "lembre que", "lembre-se que", "anota que", "anota aí que", "guarda que", "salva que"]
+        .iter()
+        .any(|p| t.starts_with(p))
+}
+
 /// Aplica as regras ao plano do intérprete para o pedido `text`.
 pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<String> {
     let t = text.to_lowercase();
     let mut plan = plan;
     let is = |plan: &[String], a: &str| plan.iter().any(|p| p == a);
+
+    // "Lembra que…" é guardar um fato, mesmo que cite o Discord, uma pessoa ou
+    // "me lembre quando eu abrir o chat": nunca é mandar mensagem.
+    if is_remember_request(&t) {
+        return vec!["memory.remember".to_string()];
+    }
 
     // Continuação de um pedido de chat ("e do user z?") herda o caminho.
     let chat_followup = (t.starts_with("e ") || t.starts_with("agora ") || has(&t, &["o mesmo", "também", "tambem"]))
@@ -220,6 +234,18 @@ mod tests {
         assert_eq!(plan("o que o user x mandou no whatsapp?", steps.clone()), steps);
         assert_eq!(plan("põe o chrome e o vscode um do lado do outro", p(&["window.tile"])), p(&["window.tile"]));
         assert_eq!(plan("o que a gente conversou sobre o wifi?", p(&["memory.search"])), p(&["memory.search"]));
+    }
+
+    #[test]
+    fn remember_requests_never_send_messages() {
+        let wrong = p(&["ui.open_chat", "ui.type"]);
+        assert_eq!(
+            plan("lembra que dia 12/10, quando eu abrir o chat, me lembre que preciso abrir o discord", wrong.clone()),
+            p(&["memory.remember"])
+        );
+        assert_eq!(plan("lembra que meu time é o time a", wrong), p(&["memory.remember"]));
+        // "lembra quando…" continua sendo busca na memória.
+        assert_eq!(plan("lembra quando eu falei do monitor?", p(&["memory.search"])), p(&["memory.search"]));
     }
 
     #[test]
