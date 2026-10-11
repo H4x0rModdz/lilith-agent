@@ -5,7 +5,7 @@
 mod error;
 mod handlers;
 mod paths;
-mod uia;
+pub mod uia;
 pub mod window;
 
 pub use error::WinError;
@@ -44,6 +44,8 @@ pub const ACTIONS: &[&str] = &[
     "window.close",
     "window.move",
     "window.tile",
+    "ui.find",
+    "ui.click",
 ];
 
 pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
@@ -70,11 +72,33 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "system.power" => power::run(params).await,
         "web.search" => web::search(params).await,
         "web.fetch" => web::fetch(params).await,
+        "ui.find" | "ui.click" => {
+            let a = action.to_string();
+            handlers::blocking(move || ui_action(&a, &params)).await
+        }
         a if a.starts_with("window.") => {
             let a = a.to_string();
             handlers::blocking(move || window::handle(&a, &params)).await
         }
         other => Err(WinError::NotFound(format!("ação '{other}'"))),
+    }
+}
+
+/// ui.find / ui.click sem animação (o app anima o cursor por cima).
+fn ui_action(action: &str, params: &Value) -> Result<Value, WinError> {
+    let target = params["target"].as_str().unwrap_or("active");
+    let element = req_str(params, "element")?;
+    let w = window::find(target)?;
+    match action {
+        "ui.find" => {
+            let found = uia::find_elements(w.id, element, 8)?;
+            Ok(serde_json::json!({ "window": w.title, "results": found }))
+        }
+        _ => {
+            let index = params["index"].as_u64().unwrap_or(0) as usize;
+            let clicked = uia::activate(w.id, element, index)?;
+            Ok(serde_json::json!({ "window": w.title, "clicked": clicked }))
+        }
     }
 }
 

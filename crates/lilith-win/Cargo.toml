@@ -8,8 +8,10 @@ repository.workspace = true
 
 [dependencies]
 arboard = "3.6.1"
+chrono.workspace = true
 dirs.workspace = true
 futures-util.workspace = true
+regex = "1.13.1"
 reqwest.workspace = true
 scraper = "0.27.0"
 serde.workspace = true

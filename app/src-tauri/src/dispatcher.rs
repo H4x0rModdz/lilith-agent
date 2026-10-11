@@ -68,6 +68,7 @@ const TAINT_SOURCES: &[&str] = &["window.read", "file.read", "web.fetch", "web.s
 /// sem canal de saída. (web.fetch fica de fora: uma URL escolhida por texto
 /// injetado é um jeito de mandar dados para fora.)
 const OBSERVE_ONLY: &[&str] = &[
+    "ui.find",
     "window.list",
     "window.read",
     "file.read",
@@ -213,6 +214,7 @@ impl Dispatcher for GuardedDispatcher {
             a if a.starts_with("window.") && !matches!(a, "window.list" | "window.read") => {
                 self.screen_action(action, &call.params).await
             }
+            "ui.click" => self.ui_click(&call.params).await,
             "window.read" => {
                 // Gesto de "olhar" a janela antes de ler.
                 use tauri::Manager;
@@ -268,6 +270,33 @@ async fn blocking<T: Send + 'static>(
 }
 
 impl GuardedDispatcher {
+    /// Clique dentro de um programa: o cursor vai até o item, "clica", e o
+    /// item é acionado por acessibilidade (o mouse do usuário fica livre).
+    async fn ui_click(&self, params: &Value) -> Result<Value, lilith_win::WinError> {
+        use lilith_win::{uia, window};
+        use tauri::Manager;
+        let screen = self.app.state::<Arc<crate::screen::Screen>>().inner().clone();
+        let _presence = screen.begin();
+        let target = params["target"].as_str().unwrap_or("active").to_string();
+        let element = params["element"].as_str().unwrap_or("").trim().to_string();
+        if element.is_empty() {
+            return Err(lilith_win::WinError::InvalidParams("parâmetro 'element' obrigatório".into()));
+        }
+        let index = params["index"].as_u64().unwrap_or(0) as usize;
+        let w = blocking(move || window::find(&target)).await?;
+        let id = w.id;
+        // Traz a janela para frente, para o usuário ver onde ela clica.
+        let _ = blocking(move || window::focus(id)).await;
+        let (q, i) = (element.clone(), index);
+        let spot = blocking(move || uia::locate(id, &q, i)).await?;
+        screen.fly_to(spot.rect.center()).await;
+        screen.click().await;
+        let clicked = blocking(move || uia::activate(id, &element, index)).await?;
+        // Dá tempo do programa trocar de tela antes de uma leitura em seguida.
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        Ok(json!({ "window": w.title, "clicked": clicked }))
+    }
+
     /// Ações de tela feitas "à mão" pela Lilith: borda rosa + cursor dela
     /// indo até o lugar, gesto, e a ação real por API.
     async fn screen_action(&self, action: &str, params: &Value) -> Result<Value, lilith_win::WinError> {

@@ -104,6 +104,7 @@ export function actionIcon(action: string): IconName {
     case "agent":
       return "bot";
     case "cursor":
+    case "ui":
       return "pointer";
     default:
       return "sparkles";

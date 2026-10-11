@@ -169,8 +169,41 @@ pub fn all_tools() -> Vec<Tool> {
             action: "window.read",
             description: "Lê o texto que está aberto num PROGRAMA/JANELA agora (Bloco de Notas, Word, \
                           navegador, chat…), mesmo sem estar salvo. Use para 'lê o que está escrito no \
-                          bloco de notas', 'o que diz essa janela'. `target`: app ou título.",
-            schema: obj(json!({ "target": { "type": "string" } }), &["target"]),
+                          bloco de notas', 'o que diz essa janela'. `target`: app ou título. Em chats \
+                          (Discord…) traz só as mensagens dos últimos 5 minutos. Passe `since_minutes` \
+                          SÓ se o usuário disser um período ('da última hora' = 60, 'de hoje' = 1440); \
+                          sem período dito, omita.",
+            schema: obj(
+                json!({ "target": { "type": "string" }, "since_minutes": { "type": "integer" } }),
+                &["target"],
+            ),
+        },
+        Tool {
+            action: "ui.click",
+            description: "Clica num item DENTRO de um programa pelo nome visível: uma conversa ou \
+                          servidor do Discord, um contato do WhatsApp, uma aba, um botão, um menu. Use \
+                          para navegar: 'lê o chat da <pessoa> no discord' = ui.click(target='discord', \
+                          element='<pessoa>') e depois window.read; 'abre o servidor <nome>' = \
+                          ui.click(target='discord', element='<nome>'). Se o programa não estiver \
+                          aberto, abra antes com app.open. `index` escolhe entre itens de mesmo nome.",
+            schema: obj(
+                json!({
+                    "target": { "type": "string", "description": "Programa (ex.: 'discord')" },
+                    "element": { "type": "string", "description": "Nome visível do item, como o usuário disse" },
+                    "index": { "type": "integer" }
+                }),
+                &["target", "element"],
+            ),
+        },
+        Tool {
+            action: "ui.find",
+            description: "Procura itens num programa pelo nome e diz onde cada um está (ex.: 'Mensagens \
+                          diretas' x um servidor/grupo). Use quando não souber se o nome é uma pessoa \
+                          ou um grupo, ou houver vários parecidos; depois use ui.click com o `index`.",
+            schema: obj(
+                json!({ "target": { "type": "string" }, "element": { "type": "string" } }),
+                &["target", "element"],
+            ),
         },
         Tool {
             action: "window.move",

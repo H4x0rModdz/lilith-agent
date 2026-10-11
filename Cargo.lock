@@ -1996,8 +1996,10 @@ name = "lilith-win"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "chrono",
  "dirs 6.0.0",
  "futures-util",
+ "regex",
  "reqwest 0.12.28",
  "scraper",
  "serde",

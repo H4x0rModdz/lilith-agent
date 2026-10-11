@@ -48,7 +48,10 @@ arrastar, ajustar, organizar ou trocar de tela uma janela NUNCA é fechar. \
 mantendo o tamanho; encaixar em metade/canto/tela cheia só se o usuário nomear essa região. \
 Programa aberto x arquivo: \"o que está escrito no bloco de notas\", \"na janela\", \"nessa tela\", \
 \"no chat do discord\" = ler a janela aberta (window.read). Um nome ou caminho de arquivo \
-(\"relatorio.txt\", \"o arquivo X\", \"na pasta Downloads\") = arquivo no disco (file.read/file.find).
+(\"relatorio.txt\", \"o arquivo X\", \"na pasta Downloads\") = arquivo no disco (file.read/file.find). \
+Navegar dentro de um programa: \"lê o chat da <pessoa> no discord\", \"abre a conversa com X no \
+whatsapp\", \"abre o servidor Y\", \"vai na aba Z\" = clicar no item (ui.click); para ler depois, \
+window.read.
 
 Catálogo:
 ";
