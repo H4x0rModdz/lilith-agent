@@ -174,7 +174,7 @@ impl Dispatcher for GuardedDispatcher {
             // "Enviar"…) pede aprovação. Decide pelo elemento de verdade.
             "ui.click" if !self.click_is_navigation(&call.params).await => "ui.click_effect",
             // Fechar uma aba pode perder um formulário não salvo: pede, como fechar janela.
-            "browser.tab" if matches!(call.params["op"].as_str(), Some("close" | "fechar")) => "window.close",
+            "browser.tab" if is_tab_close(&call.params) => "window.close",
             // Memória entra no contexto de todo pedido futuro: só grava/apaga
             // direto quando o usuário pediu isso NESTA mensagem do chat
             // ("lembra que…"); se a ideia foi do modelo, pergunta.
@@ -279,6 +279,16 @@ impl Dispatcher for GuardedDispatcher {
         self.audit.record(&self.channel, action, &call.params, &outcome, &json!({ "scope": scope, "response": envelope }));
         envelope
     }
+}
+
+/// A operação de aba é "fechar"? Usa o MESMO parser do executor
+/// (`TabOp::parse`, que ignora maiúsculas, acentos e espaços): comparar o
+/// texto cru deixava "Close" ou " FECHAR " passar sem aprovação.
+fn is_tab_close(params: &Value) -> bool {
+    params["op"]
+        .as_str()
+        .and_then(lilith_win::browsers::TabOp::parse)
+        .is_some_and(|op| op == lilith_win::browsers::TabOp::Close)
 }
 
 /// Ações que o próprio app executa (não o `lilith-win`).
@@ -633,6 +643,17 @@ mod tests {
 
     fn allow() -> Decision {
         Decision::Allow { scope: "x" }
+    }
+
+    #[test]
+    fn every_spelling_of_close_tab_is_gated() {
+        for op in ["close", "Close", "CLOSE", " close ", "fechar", "Fechar", "FECHAR ", "	close"] {
+            assert!(is_tab_close(&json!({ "op": op })), "{op:?}");
+        }
+        for op in ["new", "next", "reopen", "Reabrir", "address", "", "closer"] {
+            assert!(!is_tab_close(&json!({ "op": op })), "{op:?}");
+        }
+        assert!(!is_tab_close(&json!({})));
     }
 
     #[test]
