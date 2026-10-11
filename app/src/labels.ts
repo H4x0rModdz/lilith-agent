@@ -28,6 +28,7 @@ const ACTION_LABELS: Record<string, string> = {
   "memory.remember": "Guardando na memória",
   "memory.forget": "Esquecendo",
   "ui.click": "Clicando",
+  "ui.type": "Digitando",
   "window.read": "Lendo a janela",
   "file.read": "Lendo o arquivo",
   "window.move": "Arrastando a janela",
@@ -69,6 +70,7 @@ const ACTION_VERBS: Record<string, string> = {
   "window.close": "fechar a janela",
   "agent.delegate": "acionar um agente",
   "ui.click": "clicar num item",
+  "ui.type": "digitar num app",
   "memory.remember": "guardar algo na memória",
   "memory.forget": "apagar algo da memória",
 };

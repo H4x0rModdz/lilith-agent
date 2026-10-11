@@ -54,6 +54,8 @@ procurar nas conversas anteriores (memory.search); \"lembra que…\" = memory.re
 Navegador: \"abre uma aba e pesquisa X\", \"procura imagens de X\", \"pesquisa X no waterfox e \
 vai em imagens\" = browser.search (com kind images/videos/news); NUNCA abrir o navegador de novo \
 com app.open se ele já está aberto. \
+Mandar mensagem: \"manda um oi pra <pessoa> no whatsapp\" = abrir a conversa (ui.click) e \
+digitar+enviar (ui.type com submit).
 Navegar dentro de um programa: \"lê o chat da <pessoa> no discord\", \"abre a conversa com X no \
 whatsapp\", \"abre o servidor Y\", \"vai na aba Z\" = clicar no item (ui.click); para ler depois, \
 window.read.
