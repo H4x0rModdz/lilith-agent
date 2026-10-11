@@ -102,15 +102,9 @@ pub async fn close(params: Value) -> Result<Value, WinError> {
 }
 
 pub async fn browser_open(params: Value) -> Result<Value, WinError> {
-    let url = req_str(&params, "url")?;
-    let url = if url.contains("://") {
-        url.to_string()
-    } else {
-        format!("https://{url}")
-    };
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err(WinError::InvalidParams("só URLs http(s)".into()));
-    }
+    let raw = req_str(&params, "url")?;
+    let raw = if raw.contains("://") { raw.to_string() } else { format!("https://{raw}") };
+    let url = normalize_url(&raw)?;
     let via = open_url_in(&url, params["browser"].as_str()).await?;
     Ok(json!({ "opened": url, "browser": via }))
 }
@@ -141,6 +135,36 @@ pub(crate) fn search_url(query: &str, kind: &str) -> Result<String, WinError> {
         url.query_pairs_mut().append_pair("tbm", t);
     }
     Ok(url.to_string())
+}
+
+/// URL canônica http(s): espaços, aspas e afins saem codificados (%20,
+/// %22…). Ela vira argumento de linha de comando do navegador — sem isso,
+/// "https://a.com --gpu-launcher=calc" viraria uma flag do Chromium.
+pub(crate) fn normalize_url(raw: &str) -> Result<String, WinError> {
+    let url = reqwest::Url::parse(raw.trim()).map_err(|e| WinError::InvalidParams(format!("url inválida: {e}")))?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err(WinError::InvalidParams("só URLs http(s)".into()));
+    }
+    let s = url.to_string();
+    if s.chars().any(|c| c.is_whitespace() || c == '"') {
+        return Err(WinError::InvalidParams("url com caracteres inválidos".into()));
+    }
+    Ok(s)
+}
+
+/// Nome de navegador conhecido (família), ou None. Só esses podem ser
+/// lançados por browser.*: o parâmetro vem do modelo e não pode virar
+/// "abrir qualquer executável".
+pub(crate) fn known_browser(name: &str) -> Option<&'static str> {
+    let n = fold(name);
+    let n = n.trim().trim_end_matches(".exe");
+    let n = match n {
+        "edge" | "microsoft edge" => "msedge",
+        "google chrome" => "chrome",
+        "zen browser" => "zen",
+        other => other,
+    };
+    BROWSERS.iter().copied().find(|b| n == *b)
 }
 
 const BROWSERS: &[&str] = &[
@@ -184,27 +208,49 @@ async fn open_url_in(url: &str, browser: Option<&str>) -> Result<String, WinErro
         shell_open(url.to_string()).await?;
         return Ok("padrão".into());
     };
-    let name = browser.to_string();
-    let running = blocking(move || Ok(crate::window::find_app(&name).and_then(|w| crate::window::exe_of(w.id))))
-        .await?;
-    let exe = match running {
-        Some(path) => path,
-        // Não está aberto: App Paths do Windows resolve "waterfox.exe" etc.
-        None => std::path::PathBuf::from(format!("{}.exe", fold(browser).trim_end_matches(".exe"))),
+    let Some(browser) = known_browser(browser) else {
+        return Err(WinError::InvalidParams(format!(
+            "'{browser}' não é um navegador conhecido ({})",
+            BROWSERS.join(", ")
+        )));
     };
-    // Sem shell: a URL é um argumento, nunca texto interpretado por cmd.exe.
-    let mut cmd = std::process::Command::new(&exe);
-    cmd.args(tab_args(&exe, url));
-    match cmd.spawn() {
-        Ok(_) => Ok(exe.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()),
-        Err(_) => {
-            // Último recurso: ShellExecute com parâmetros (App Paths).
-            shell_exec_with(&format!("{}.exe", fold(browser).trim_end_matches(".exe")), &tab_args(&exe, url).join(" "))
-                .await
-                .map(|_| browser.to_string())
-                .map_err(|_| WinError::NotFound(format!("navegador '{browser}'")))
+    let url = normalize_url(url)?;
+    // Executável da janela aberta — só se o processo for mesmo esse navegador.
+    let running = blocking(move || {
+        Ok(crate::window::find_app(browser)
+            .filter(|w| known_browser(&w.app) == Some(browser))
+            .and_then(|w| crate::window::exe_of(w.id)))
+    })
+    .await?;
+    let exe_name = format!("{browser}.exe");
+    if let Some(exe) = running {
+        // Sem shell: cada argumento vai separado, nunca reinterpretado.
+        let spawned = std::process::Command::new(&exe).args(tab_args(&exe, &url)).spawn();
+        if spawned.is_ok() {
+            return Ok(browser.to_string());
         }
     }
+    // Não está aberto: App Paths do Windows resolve "waterfox.exe" etc.
+    let args = tab_args(std::path::Path::new(&exe_name), &url);
+    shell_exec_with(&exe_name, &quote_args(&args)?)
+        .await
+        .map(|_| browser.to_string())
+        .map_err(|_| WinError::NotFound(format!("navegador '{browser}'")))
+}
+
+/// Linha de parâmetros para ShellExecute: cada argumento entre aspas;
+/// argumento com aspas é recusado (não há como escapar com segurança).
+fn quote_args(args: &[String]) -> Result<String, WinError> {
+    args.iter()
+        .map(|a| {
+            if a.contains('"') {
+                Err(WinError::InvalidParams("argumento com aspas".into()))
+            } else {
+                Ok(format!("\"{a}\""))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(|v| v.join(" "))
 }
 
 async fn shell_exec_with(file: &str, args: &str) -> Result<(), WinError> {
@@ -395,6 +441,29 @@ mod tests {
         assert!(search_url("x", "holograma").is_err());
         // Caracteres especiais vão codificados, nunca crus na URL.
         assert!(search_url("a&b=c", "web").unwrap().contains("q=a%26b%3Dc"));
+    }
+
+    #[test]
+    fn only_known_browsers_can_be_launched() {
+        assert_eq!(known_browser("Waterfox"), Some("waterfox"));
+        assert_eq!(known_browser("waterfox.exe"), Some("waterfox"));
+        assert_eq!(known_browser("Microsoft Edge"), Some("msedge"));
+        for bad in ["calc", "cmd", "powershell", "notepad", "../../evil", "chrome2", ""] {
+            assert_eq!(known_browser(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn urls_cannot_smuggle_browser_flags() {
+        let u = normalize_url("https://a.com/x --gpu-launcher=calc").unwrap();
+        assert!(!u.contains(' '), "{u}");
+        assert!(u.contains("%20--gpu-launcher"));
+        assert!(normalize_url("https://a.com/\"x").unwrap().contains("%22"));
+        assert!(normalize_url("file:///C:/x.exe").is_err());
+        assert!(normalize_url("javascript:alert(1)").is_err());
+        assert!(normalize_url("--gpu-launcher=calc").is_err());
+        assert_eq!(quote_args(&["-new-tab".into(), "https://a.com/".into()]).unwrap(), "\"-new-tab\" \"https://a.com/\"");
+        assert!(quote_args(&["a\"b".into()]).is_err());
     }
 
     #[test]
