@@ -342,6 +342,24 @@ fn hide_window(label: String, app: AppHandle) {
     }
 }
 
+/// Erros do JavaScript das janelas, para o log do app.
+#[tauri::command]
+fn js_log(msg: String) {
+    tracing::warn!(target: "js", "{}", msg.chars().take(500).collect::<String>());
+}
+
+/// Alterna entre a forma 2D (orb) e a forma 3D.
+#[tauri::command]
+fn toggle_avatar(app: AppHandle) {
+    windows::toggle_avatar(&app);
+}
+
+/// O arquivo do modelo VRM, em binário (sem base64).
+#[tauri::command]
+fn avatar_model() -> Result<tauri::ipc::Response, String> {
+    config::avatar_model_bytes().map(tauri::ipc::Response::new)
+}
+
 #[tauri::command]
 fn lilith_avatar() -> Option<String> {
     config::avatar_data_url()
@@ -533,6 +551,10 @@ pub fn run() {
                 windows::place_orb(&orb);
             }
 
+            if std::env::args().any(|a| a == "--show-avatar") || std::env::var_os("LILITH_SHOW_AVATAR").is_some() {
+                windows::show_avatar(app.handle());
+            }
+
             // Início com o Windows (só na primeira execução instalada) e
             // busca de atualização a cada abertura.
             {
@@ -576,8 +598,9 @@ pub fn run() {
             // direito mostra o menu.
             let panel = MenuItem::with_id(app, "panel", "Painel da Lilith", true, None::<&str>)?;
             let chat = MenuItem::with_id(app, "chat", "Conversar", true, None::<&str>)?;
+            let form3d = MenuItem::with_id(app, "avatar", "Forma 3D", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&panel, &chat, &quit])?;
+            let menu = Menu::with_items(app, &[&panel, &chat, &form3d, &quit])?;
             TrayIconBuilder::with_id("lilith")
                 .icon(app.default_window_icon().cloned().expect("ícone padrão"))
                 .tooltip("Lilith")
@@ -586,6 +609,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "panel" => windows::show_panel(app),
                     "chat" => windows::show_chat(app),
+                    "avatar" => windows::toggle_avatar(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -636,6 +660,9 @@ pub fn run() {
             hide_window,
             chat_moved,
             lilith_avatar,
+            toggle_avatar,
+            js_log,
+            avatar_model,
             list_jobs,
             cancel_job,
             recent_activity,

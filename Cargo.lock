@@ -2272,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-agents"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2283,7 +2283,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-brain"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -2298,7 +2298,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-companion"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2327,7 +2327,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-guard"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "serde",
@@ -2337,7 +2337,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-memory"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rusqlite",
  "serde",
@@ -2348,7 +2348,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-win"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "arboard",
  "chrono",
