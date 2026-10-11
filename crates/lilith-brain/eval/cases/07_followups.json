@@ -1,0 +1,76 @@
+[
+  {
+    "cat": "followup",
+    "text": "e no chat do user y?",
+    "context": [["lê as mensagens do user x no discord", "No chat do user X está escrito: oi.\n[ações nesse pedido: ui.open_chat {\"name\":\"user x\",\"target\":\"discord\"} → window.read {\"target\":\"discord\"}]"]],
+    "plan": [["ui.open_chat", "window.read"]]
+  },
+  {
+    "cat": "followup",
+    "text": "e do user z?",
+    "context": [["lê o chat do user x no whatsapp", "No chat: oi.\n[ações nesse pedido: ui.open_chat {\"name\":\"user x\",\"target\":\"whatsapp\"} → window.read {\"target\":\"whatsapp\"}]"]],
+    "plan": [["ui.open_chat", "window.read"]]
+  },
+  {
+    "cat": "followup",
+    "text": "manda o mesmo pro user y",
+    "context": [["manda um oi pro user x no discord", "Mandei!\n[ações nesse pedido: ui.open_chat {\"name\":\"user x\",\"target\":\"discord\"} → ui.type {\"target\":\"discord\",\"text\":\"oi\"}]"]],
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "equals": "oi" }
+  },
+  {
+    "cat": "followup",
+    "text": "agora no whatsapp",
+    "context": [["manda um bom dia pro user x no discord", "Mandei!\n[ações nesse pedido: ui.open_chat {\"name\":\"user x\",\"target\":\"discord\"} → ui.type {\"target\":\"discord\",\"text\":\"bom dia\"}]"]],
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "equals": "bom dia" }
+  },
+  {
+    "cat": "followup",
+    "text": "agora pra outra tela",
+    "context": [["joga o discord pra direita", "Pronto!\n[ações nesse pedido: window.move {\"target\":\"discord\",\"position\":\"right\"}]"]],
+    "plan": [["window.move"]]
+  },
+  {
+    "cat": "followup",
+    "text": "e o spotify também",
+    "context": [["minimiza o discord", "Pronto!\n[ações nesse pedido: window.minimize {\"target\":\"discord\"}]"]],
+    "plan": [["window.minimize"]]
+  },
+  {
+    "cat": "followup",
+    "text": "agora mais um pouco",
+    "context": [["joga o whatsapp um pouco pra esquerda", "Pronto!\n[ações nesse pedido: window.move {\"target\":\"whatsapp\",\"nudge\":\"left\"}]"]],
+    "plan": [["window.move"]]
+  },
+  {
+    "cat": "followup",
+    "text": "pesquisa imagens disso também",
+    "context": [["pesquisa receita de bolo numa nova aba", "Pronto!\n[ações nesse pedido: browser.search {\"query\":\"receita de bolo\",\"kind\":\"web\"}]"]],
+    "plan": [["browser.search"]]
+  },
+  {
+    "cat": "followup",
+    "text": "e a pasta documentos?",
+    "context": [["o que tem na pasta downloads?", "Tem 3 itens.\n[ações nesse pedido: file.list {\"path\":\"Downloads\"}]"]],
+    "plan": [["file.list"]]
+  },
+  {
+    "cat": "followup",
+    "text": "e a música do user y?",
+    "context": [["oi", "Oi!"]],
+    "plan": [[]]
+  },
+  {
+    "cat": "followup",
+    "text": "obrigado, era isso",
+    "context": [["abre o spotify", "Abri!\n[ações nesse pedido: app.open {\"app\":\"spotify\"}]"]],
+    "plan": [[]]
+  },
+  {
+    "cat": "followup",
+    "text": "não, o outro",
+    "context": [["abre o bloco de notas", "Abri!\n[ações nesse pedido: app.open {\"app\":\"bloco de notas\"}]"]],
+    "plan": [[], ["app.open"]]
+  }
+]

@@ -1,0 +1,74 @@
+[
+  {
+    "cat": "memory",
+    "templates": ["o que eu te falei sobre {t}?", "lembra o que eu disse sobre {t}?", "o que a gente conversou sobre {t}?", "procura nas nossas conversas {t}"],
+    "slots": { "t": ["o wifi", "o projeto", "a reunião", "a viagem", "o aniversário"] },
+    "plan": [["memory.search"]]
+  },
+  {
+    "cat": "memory",
+    "templates": ["lembra quando eu falei de {t}?", "naquela conversa de ontem sobre {t}, o que ficou combinado?"],
+    "slots": { "t": ["comprar um monitor", "trocar de emprego", "o curso de inglês"] },
+    "plan": [["memory.search"]]
+  },
+  {
+    "cat": "memory",
+    "templates": ["lembra que meu {c} é {v}", "anota aí que meu {c} é {v}", "guarda: meu {c} é {v}"],
+    "slots": { "c": ["time", "filme favorito", "prato favorito"], "v": ["o time a", "o filme x", "lasanha"] },
+    "plan": [["memory.remember"]]
+  },
+  {
+    "cat": "memory",
+    "templates": ["esquece o que eu falei de {t}", "apaga da memória {t}", "esquece {t}"],
+    "slots": { "t": ["meu endereço", "o time", "o filme favorito"] },
+    "plan": [["memory.forget"]]
+  },
+  {
+    "cat": "agents",
+    "templates": ["pede pro claude {t}", "manda o codex {t}", "delega pro claude: {t}"],
+    "slots": { "t": ["arrumar o build do projeto", "criar testes para a pasta src", "revisar o último commit", "corrigir os warnings do compilador"] },
+    "plan": [["agent.delegate"]]
+  },
+  {
+    "cat": "agents",
+    "templates": ["como estão as tarefas?", "o claude já terminou?", "tem alguma tarefa rodando?", "status das tarefas em andamento"],
+    "plan": [["agent.jobs"]]
+  },
+  {
+    "cat": "ui",
+    "templates": ["clica em {x} no {app}", "aperta o {x} no {app}", "vai na aba {x} do {app}"],
+    "slots": { "x": ["configurações", "amigos", "downloads", "histórico"], "app": ["discord", "spotify", "steam"] },
+    "plan": [["ui.click"], ["ui.find", "ui.click"]]
+  },
+  {
+    "cat": "ui",
+    "templates": ["abre o servidor {s} no discord", "entra no servidor {s}"],
+    "slots": { "s": ["group a", "group b"] },
+    "plan": [["ui.open_chat"], ["ui.click"], ["app.open", "ui.click"], ["app.open", "ui.open_chat"]]
+  },
+  {
+    "cat": "talk",
+    "templates": ["oi", "oi, tudo bem?", "bom dia!", "boa noite", "e aí", "opa"],
+    "plan": [[]]
+  },
+  {
+    "cat": "talk",
+    "templates": ["quem é você?", "o que você sabe fazer?", "me conta uma piada", "me dá uma dica de produtividade", "tô entediado, me anima"],
+    "plan": [[]]
+  },
+  {
+    "cat": "talk",
+    "templates": ["qual a capital da frança?", "quanto é 15% de 240?", "traduz 'bom dia' pra inglês", "o que significa a palavra efêmero?", "quanto é 7 vezes 8?"],
+    "plan": [[]]
+  },
+  {
+    "cat": "talk",
+    "templates": ["obrigado!", "valeu", "tmj", "perfeito, era isso mesmo", "você é demais"],
+    "plan": [[]]
+  },
+  {
+    "cat": "talk",
+    "templates": ["hello, how are you?", "what can you do?", "tell me a joke", "thanks!"],
+    "plan": [[]]
+  }
+]

@@ -1,0 +1,99 @@
+[
+  {
+    "cat": "browser",
+    "templates": ["abre uma aba e pesquisa por {q}", "pesquisa {q} numa nova aba", "abre uma aba nova do navegador e procura {q}", "procura {q} no google"],
+    "slots": { "q": ["receita de bolo", "anime girl icon", "tutorial de rust", "preço do dólar"] },
+    "plan": [["browser.search"]],
+    "params": { "browser.search": { "query": "~" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["procura imagens de {q}", "pesquisa {q} e vai na aba de imagens", "me mostra fotos de {q}", "busca imagens de {q} no navegador"],
+    "slots": { "q": ["gatos", "anime girl icon", "paisagens", "wallpapers escuros"] },
+    "plan": [["browser.search"]],
+    "params": { "browser.search": { "kind": "images" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["procura vídeos de {q}", "pesquisa {q} em vídeos", "acha vídeo sobre {q}"],
+    "slots": { "q": ["como fazer pão", "tutorial de excel", "review de celular"] },
+    "plan": [["browser.search"]],
+    "params": { "browser.search": { "kind": "videos" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["procura notícias sobre {q}", "pesquisa {q} na aba de notícias"],
+    "slots": { "q": ["economia", "tecnologia", "esportes"] },
+    "plan": [["browser.search"]],
+    "params": { "browser.search": { "kind": "news" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["abre o {site}", "abre o site {site}", "entra no {site}", "vai pro {site}"],
+    "slots": { "site": ["youtube", "github", "wikipedia", "gmail"] },
+    "plan": [["browser.open"]]
+  },
+  {
+    "cat": "browser",
+    "templates": ["abre o {site} numa janela privada", "abre o {site} em uma aba anônima", "abre o {site} no modo anônimo"],
+    "slots": { "site": ["youtube", "github", "twitter"] },
+    "plan": [["browser.open"]],
+    "params": { "browser.open": { "mode": "private" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["abre o {site} numa janela nova do navegador", "abre o {site} em uma nova janela"],
+    "slots": { "site": ["youtube", "github"] },
+    "plan": [["browser.open"]],
+    "params": { "browser.open": { "mode": "window" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["fecha essa aba", "fecha a aba atual do navegador", "fecha a aba"],
+    "plan": [["browser.tab"]],
+    "params": { "browser.tab": { "op": "close" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["reabre a aba que eu fechei", "volta a última aba fechada", "reabre aquela aba"],
+    "plan": [["browser.tab"]],
+    "params": { "browser.tab": { "op": "reopen" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["vai pra próxima aba", "muda pra próxima aba do navegador"],
+    "plan": [["browser.tab"]],
+    "params": { "browser.tab": { "op": "next" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["volta pra aba anterior", "aba anterior do navegador"],
+    "plan": [["browser.tab"]],
+    "params": { "browser.tab": { "op": "previous" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["abre uma aba nova vazia", "nova aba no navegador", "abre uma nova tab"],
+    "plan": [["browser.tab"]],
+    "params": { "browser.tab": { "op": "new" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["recarrega a página", "atualiza a página do navegador", "dá um refresh nessa página"],
+    "plan": [["browser.tab"]],
+    "params": { "browser.tab": { "op": "reload" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["abre uma nova tab do {nav} e pesquise por: {q} e vá na tab de imagens dela", "no {nav}, abre uma aba, pesquisa {q} e entra em imagens"],
+    "slots": { "nav": ["waterfox", "firefox", "chrome", "edge"], "q": ["anime girl icon", "capas de livros"] },
+    "plan": [["browser.search"]],
+    "params": { "browser.search": { "kind": "images" } }
+  },
+  {
+    "cat": "browser",
+    "templates": ["open a new tab and search for {q}", "search images of {q} in the browser", "open {site} in a private window"],
+    "slots": { "q": ["cute cats", "wallpapers"], "site": ["youtube", "github"] },
+    "plan": [["browser.search"], ["browser.open"]]
+  }
+]
