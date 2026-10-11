@@ -49,6 +49,7 @@ pub const ACTIONS: &[&str] = &[
     "ui.find",
     "ui.click",
     "ui.type",
+    "ui.open_chat",
 ];
 
 pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
@@ -76,7 +77,7 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "system.power" => power::run(params).await,
         "web.search" => web::search(params).await,
         "web.fetch" => web::fetch(params).await,
-        "ui.find" | "ui.click" | "ui.type" => {
+        "ui.find" | "ui.click" | "ui.type" | "ui.open_chat" => {
             let a = action.to_string();
             handlers::blocking(move || ui_action(&a, &params)).await
         }
@@ -91,6 +92,10 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
 /// ui.find / ui.click sem animação (o app anima o cursor por cima).
 fn ui_action(action: &str, params: &Value) -> Result<Value, WinError> {
     let target = params["target"].as_str().unwrap_or("active");
+    if action == "ui.open_chat" {
+        let w = window::find(target)?;
+        return open_chat(&w, req_str(params, "name")?);
+    }
     let element = req_str(params, "element")?;
     let w = window::find(target)?;
     match action {
@@ -105,6 +110,57 @@ fn ui_action(action: &str, params: &Value) -> Result<Value, WinError> {
         }
         _ => type_into(&w, element, params),
     }
+}
+
+/// Como achar uma conversa pelo teclado em cada app: o atalho da busca do
+/// próprio app. É o caminho confiável — acha qualquer conversa (pessoa ou
+/// grupo) mesmo fora da lista visível, que em apps web é virtualizada.
+#[derive(Debug, PartialEq)]
+pub(crate) struct ChatSearch {
+    pub app: &'static str,
+    pub shortcut: char,
+}
+
+pub(crate) fn chat_search_for(process: &str) -> Option<ChatSearch> {
+    let p = paths::fold(process);
+    if p.contains("whatsapp") {
+        // Desktop: Ctrl+F busca na lista de conversas.
+        Some(ChatSearch { app: "whatsapp", shortcut: 'f' })
+    } else if p.contains("discord") {
+        // Seletor rápido: DMs, servidores e canais.
+        Some(ChatSearch { app: "discord", shortcut: 'k' })
+    } else {
+        None
+    }
+}
+
+/// Nome seguro para digitar na busca: uma linha, sem controle, até 60.
+pub(crate) fn clean_chat_name(raw: &str) -> Option<String> {
+    let name: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let name: String = name.chars().filter(|c| !c.is_control()).take(60).collect();
+    (!name.trim().is_empty()).then_some(name)
+}
+
+/// Abre uma conversa pelo nome usando a busca do app (atalho, nome, Enter).
+fn open_chat(w: &window::WindowInfo, raw_name: &str) -> Result<Value, WinError> {
+    let name = clean_chat_name(raw_name).ok_or_else(|| WinError::InvalidParams("'name' vazio".into()))?;
+    let search = chat_search_for(&w.app).ok_or_else(|| {
+        WinError::Unavailable(format!(
+            "não sei buscar conversas em '{}'; use ui.find + ui.click",
+            w.app
+        ))
+    })?;
+    let pause = |ms: u64| std::thread::sleep(std::time::Duration::from_millis(ms));
+    window::focus(w.id)?;
+    pause(350);
+    input::press_ctrl(search.shortcut)?;
+    pause(300);
+    input::type_text(&name)?;
+    // Os resultados chegam depois de uma pausa; Enter abre o primeiro.
+    pause(800);
+    input::press_enter()?;
+    pause(500);
+    Ok(serde_json::json!({ "window": w.title, "opened": name, "via": format!("busca do {}", search.app) }))
 }
 
 /// Digita no campo de texto chamado `element` (clica nele antes) e, com
@@ -135,4 +191,24 @@ pub(crate) fn req_str<'a>(params: &'a Value, key: &str) -> Result<&'a str, WinEr
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| WinError::InvalidParams(format!("parâmetro '{key}' obrigatório")))
+}
+
+#[cfg(test)]
+mod open_chat_tests {
+    use super::*;
+
+    #[test]
+    fn search_shortcuts_per_app() {
+        assert_eq!(chat_search_for("WhatsApp.Root"), Some(ChatSearch { app: "whatsapp", shortcut: 'f' }));
+        assert_eq!(chat_search_for("Discord"), Some(ChatSearch { app: "discord", shortcut: 'k' }));
+        assert_eq!(chat_search_for("notepad"), None);
+    }
+
+    #[test]
+    fn chat_names_are_one_clean_line() {
+        assert_eq!(clean_chat_name("  Família \n 🎉  ").as_deref(), Some("Família 🎉"));
+        assert_eq!(clean_chat_name("a\u{7}b").as_deref(), Some("ab"));
+        assert_eq!(clean_chat_name("   "), None);
+        assert_eq!(clean_chat_name(&"x".repeat(200)).unwrap().chars().count(), 60);
+    }
 }

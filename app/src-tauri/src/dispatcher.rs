@@ -229,6 +229,7 @@ impl Dispatcher for GuardedDispatcher {
             }
             "ui.click" => self.ui_click(&call.params).await,
             "ui.type" => self.ui_type(&call.params).await,
+            "ui.open_chat" => self.ui_open_chat(&call.params).await,
             "window.read" => {
                 // Gesto de "olhar" a janela antes de ler.
                 use tauri::Manager;
@@ -381,6 +382,23 @@ impl GuardedDispatcher {
         // Dá tempo do programa trocar de tela antes de uma leitura em seguida.
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
         Ok(json!({ "window": w.title, "clicked": clicked, "via": via }))
+    }
+
+    /// Abre uma conversa pela busca do app: o cursor aponta a janela
+    /// enquanto o atalho e o nome são digitados.
+    async fn ui_open_chat(&self, params: &Value) -> Result<Value, lilith_win::WinError> {
+        use lilith_win::window;
+        use tauri::Manager;
+        let screen = self.app.state::<Arc<crate::screen::Screen>>().inner().clone();
+        let _presence = screen.begin();
+        let target = params["target"].as_str().unwrap_or("active").to_string();
+        if let Ok(w) = blocking(move || window::find(&target)).await {
+            if !w.minimized {
+                screen.fly_to((w.frame.x + w.frame.w / 5, w.frame.y + 70)).await;
+                screen.click().await;
+            }
+        }
+        lilith_win::dispatch("ui.open_chat", params.clone()).await
     }
 
     /// Digita (e envia) num campo: o cursor vai até o campo, "clica", e o
