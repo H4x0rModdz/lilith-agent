@@ -11,6 +11,28 @@ pub fn data_dir() -> PathBuf {
         .join("Lilith")
 }
 
+/// Avatar da Lilith escolhido pelo usuário: `%APPDATA%\Lilith\avatar.{png,jpg,jpeg,webp}`
+/// como data URL. Fica fora do repositório (a imagem é do usuário); sem
+/// arquivo, a UI usa o sigilo padrão.
+pub fn avatar_data_url() -> Option<String> {
+    use base64::Engine;
+    const MAX_BYTES: u64 = 2 * 1024 * 1024;
+    ["png", "jpg", "jpeg", "webp"].iter().find_map(|ext| {
+        let path = data_dir().join(format!("avatar.{ext}"));
+        let meta = std::fs::metadata(&path).ok()?;
+        if meta.len() > MAX_BYTES {
+            tracing::warn!(path = %path.display(), "avatar maior que 2 MB — ignorado");
+            return None;
+        }
+        let bytes = std::fs::read(&path).ok()?;
+        let mime = if *ext == "jpg" { "jpeg" } else { ext };
+        Some(format!(
+            "data:image/{mime};base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ))
+    })
+}
+
 /// `%APPDATA%\Lilith\config.json`. Ausente/inválido → padrões.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]

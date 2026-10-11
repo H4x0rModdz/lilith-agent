@@ -222,11 +222,20 @@ body[data-window="panel"] #root {
 
 .sigil {
   position: relative;
-  width: 26px;
-  height: 26px;
+  flex: none;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
+  overflow: hidden;
   background: linear-gradient(150deg, #fff 0%, #ffe4f2 60%, #e8d6ff 100%);
   box-shadow: 0 0 0 1.5px var(--pink);
+}
+.sigil img,
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .glass-title {
@@ -291,7 +300,7 @@ body[data-window="panel"] #root {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   user-select: text;
 }
 
@@ -303,20 +312,88 @@ body[data-window="panel"] #root {
   white-space: pre-wrap;
   word-wrap: break-word;
 }
-.msg.user {
-  align-self: flex-end;
+/* Linha: avatar + (nome · hora) + bolha. Lilith à esquerda, "Eu" à direita. */
+.msg-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.msg-row.user {
+  flex-direction: row-reverse;
+}
+
+.avatar {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin-top: 2px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.msg-row.lilith .avatar {
+  box-shadow: 0 0 0 1.5px var(--pink);
+}
+.msg-row.user .avatar {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, #f3eff6, #ddd5e4);
+  box-shadow: 0 0 0 1px var(--glass-line);
+}
+.msg-row.user .avatar svg {
+  width: 22px;
+  height: 22px;
+  fill: #a99cb5;
+}
+.msg-row.user .avatar svg path {
+  fill: #a99cb5;
+}
+
+.msg-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 78%;
+  min-width: 0;
+}
+.msg-row.user .msg-body {
+  align-items: flex-end;
+}
+
+.msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 4px 3px;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+.msg-meta strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.msg-row.user .msg-meta {
+  flex-direction: row-reverse;
+}
+.msg-meta time {
+  font-variant-numeric: tabular-nums;
+}
+
+.msg-body .msg {
+  max-width: 100%;
+}
+.msg-row.user .msg {
   background: var(--pink);
   color: #fff;
-  border-bottom-right-radius: 4px;
+  border-top-right-radius: 4px;
 }
-.msg.lilith {
-  align-self: flex-start;
+.msg-row.lilith .msg {
   background: var(--glass-strong);
   border: 1px solid var(--glass-line);
   box-shadow: 0 1px 3px rgba(80, 40, 90, 0.06);
-  border-bottom-left-radius: 4px;
+  border-top-left-radius: 4px;
 }
-.msg.lilith[data-emotion="concerned"] {
+.msg-row.lilith .msg[data-emotion="concerned"] {
   border-left: 3px solid var(--danger);
 }
 .msg.system {

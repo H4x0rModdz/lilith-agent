@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { fillSigil } from "./avatar";
 import { makeDraggable } from "./drag";
 import { actionLabel } from "./labels";
 
@@ -68,6 +69,7 @@ export function mountPanel(root: HTMLElement) {
   const summary = root.querySelector<HTMLElement>(".panel-summary")!;
   const jobs = new Map<number, Job>();
   makeDraggable(root.querySelector(".glass-head")!);
+  fillSigil(root.querySelector(".glass-head .sigil")!);
   const expanded = new Set<number>();
 
   root.querySelector('[data-act="close"]')!.addEventListener("click", () =>

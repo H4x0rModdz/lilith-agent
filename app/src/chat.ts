@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { USER_AVATAR_SVG, fillSigil, lilithAvatar } from "./avatar";
 import { makeDraggable } from "./drag";
 import { actionLabel } from "./labels";
 
@@ -17,7 +18,12 @@ interface Approval {
   params: Record<string, unknown>;
 }
 
-export function mountChat(root: HTMLElement) {
+type Role = "user" | "lilith" | "system";
+
+const NAMES: Record<"user" | "lilith", string> = { user: "Eu", lilith: "Lilith" };
+
+export async function mountChat(root: HTMLElement) {
+  const avatarUrl = await lilithAvatar();
   root.innerHTML = `
     <section class="glass chat">
       <header class="glass-head">
@@ -44,18 +50,48 @@ export function mountChat(root: HTMLElement) {
   const sendBtn = form.querySelector<HTMLButtonElement>(".send")!;
   const status = root.querySelector<HTMLElement>(".chat-status")!;
   makeDraggable(root.querySelector(".glass-head")!, () => invoke("chat_moved"));
+  fillSigil(root.querySelector(".glass-head .sigil")!);
 
   // Bolha da resposta em streaming; cada passo do agente reinicia o texto.
-  let live: HTMLLIElement | null = null;
+  let live: HTMLElement | null = null;
   let liveStep = -1;
 
-  function add(role: "user" | "lilith" | "system", text: string): HTMLLIElement {
+  /// Adiciona uma mensagem e devolve a bolha (onde vai o texto). Mensagens
+  /// do usuário e da Lilith levam avatar, nome e hora; as de sistema não.
+  function add(role: Role, text: string): HTMLElement {
     const li = document.createElement("li");
-    li.className = `msg ${role}`;
-    li.textContent = text;
+    if (role === "system") {
+      li.className = "msg system";
+      li.textContent = text;
+    } else {
+      li.className = `msg-row ${role}`;
+      li.innerHTML = `
+        <span class="avatar"></span>
+        <div class="msg-body">
+          <div class="msg-meta"><strong></strong><time></time></div>
+          <div class="msg"></div>
+        </div>`;
+      const avatar = li.querySelector<HTMLElement>(".avatar")!;
+      if (role === "user") {
+        avatar.innerHTML = USER_AVATAR_SVG;
+      } else if (avatarUrl) {
+        const img = document.createElement("img");
+        img.src = avatarUrl;
+        img.alt = "";
+        avatar.append(img);
+      } else {
+        avatar.classList.add("sigil");
+      }
+      const now = new Date();
+      const time = li.querySelector("time")!;
+      time.dateTime = now.toISOString();
+      time.textContent = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      li.querySelector("strong")!.textContent = NAMES[role];
+      li.querySelector(".msg")!.textContent = text;
+    }
     log.append(li);
     log.scrollTop = log.scrollHeight;
-    return li;
+    return role === "system" ? li : li.querySelector<HTMLElement>(".msg")!;
   }
 
   function setBusy(busy: boolean) {
@@ -111,7 +147,7 @@ export function mountChat(root: HTMLElement) {
 
   listen<{ step: number; action: string }>("lilith://step", (e) => {
     // Texto que o modelo soltou antes de chamar a tool não é a resposta final.
-    if (live && !live.textContent?.trim()) live.remove();
+    if (live && !live.textContent?.trim()) live.closest("li")?.remove();
     live = null;
     const label = actionLabel(e.payload.action);
     add("system", `⚙ ${label}…`).classList.add("step");
