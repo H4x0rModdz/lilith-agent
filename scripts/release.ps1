@@ -50,7 +50,8 @@ $latest = @{
   }
 }
 $latestPath = "$dir/latest.json"
-$latest | ConvertTo-Json -Depth 5 | Set-Content $latestPath -Encoding utf8
+# Sem BOM: o atualizador não aceita BOM no início do JSON.
+[System.IO.File]::WriteAllText((Join-Path (Get-Location) $latestPath), ($latest | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
 
 $ghArgs = @("release", "create", $tag, $setup, $latestPath, "--title", "Lilith $tag", "--notes", $Notes, "--latest")
 if ($Draft) { $ghArgs += "--draft" }
