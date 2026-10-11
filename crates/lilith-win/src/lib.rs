@@ -5,6 +5,7 @@
 mod error;
 mod handlers;
 mod paths;
+pub mod window;
 
 pub use error::WinError;
 pub use paths::resolve as resolve_path;
@@ -32,6 +33,14 @@ pub const ACTIONS: &[&str] = &[
     "system.power",
     "web.search",
     "web.fetch",
+    "window.list",
+    "window.focus",
+    "window.minimize",
+    "window.maximize",
+    "window.restore",
+    "window.close",
+    "window.move",
+    "window.tile",
 ];
 
 pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
@@ -57,6 +66,10 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "system.power" => power::run(params).await,
         "web.search" => web::search(params).await,
         "web.fetch" => web::fetch(params).await,
+        a if a.starts_with("window.") => {
+            let a = a.to_string();
+            handlers::blocking(move || window::handle(&a, &params)).await
+        }
         other => Err(WinError::NotFound(format!("ação '{other}'"))),
     }
 }
