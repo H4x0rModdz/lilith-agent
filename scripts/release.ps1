@@ -15,7 +15,9 @@ param(
   [switch]$Draft
 )
 
-$ErrorActionPreference = "Stop"
+# Os programas nativos escrevem progresso em stderr; o Windows PowerShell 5.1
+# trata isso como erro com "Stop". Os códigos de saída são checados à mão.
+$ErrorActionPreference = "Continue"
 $conf = Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
 $version = $conf.version
 $tag = "v$version"
@@ -53,6 +55,9 @@ $latest | ConvertTo-Json -Depth 5 | Set-Content $latestPath -Encoding utf8
 $ghArgs = @("release", "create", $tag, $setup, $latestPath, "--title", "Lilith $tag", "--notes", $Notes, "--latest")
 if ($Draft) { $ghArgs += "--draft" }
 git tag -a $tag -m $tag
+if ($LASTEXITCODE -ne 0) { throw "Falha ao criar a tag" }
 git push origin $tag
+if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar a tag" }
 gh @ghArgs
+if ($LASTEXITCODE -ne 0) { throw "Falha ao criar o release" }
 Write-Host "Publicado: https://github.com/$repo/releases/tag/$tag"
