@@ -2,6 +2,7 @@
 //! SQLite, mais o que ela aprendeu — viram um contexto de sistema em cada
 //! pedido.
 
+use chrono::Datelike;
 use lilith_memory::Memory;
 use serde::{Deserialize, Serialize};
 
@@ -15,12 +16,15 @@ pub struct Settings {
     pub auto_learn: bool,
     /// Minutos de mensagens lidas num chat quando o usuário não diz quais.
     pub chat_minutes: u32,
+    /// Procurar e instalar atualizações sozinha ao abrir.
+    pub auto_update: bool,
 }
 
 const USER_NAME: &str = "user_name";
 const PERSONA: &str = "persona";
 const AUTO_LEARN: &str = "auto_learn";
 const CHAT_MINUTES: &str = "chat_minutes";
+const AUTO_UPDATE: &str = "auto_update";
 
 impl Settings {
     pub fn load(m: &Memory) -> Self {
@@ -29,6 +33,7 @@ impl Settings {
             persona: m.setting(PERSONA).unwrap_or_default(),
             auto_learn: m.setting(AUTO_LEARN).map(|v| v != "false").unwrap_or(true),
             chat_minutes: m.setting(CHAT_MINUTES).and_then(|v| v.parse().ok()).unwrap_or(5),
+            auto_update: m.setting(AUTO_UPDATE).map(|v| v != "false").unwrap_or(true),
         }
     }
 
@@ -38,6 +43,7 @@ impl Settings {
         m.set_setting(PERSONA, &clip(&self.persona, 800));
         m.set_setting(AUTO_LEARN, if self.auto_learn { "true" } else { "false" });
         m.set_setting(CHAT_MINUTES, &self.chat_minutes.clamp(1, 1440).to_string());
+        m.set_setting(AUTO_UPDATE, if self.auto_update { "true" } else { "false" });
     }
 }
 
@@ -89,6 +95,9 @@ pub fn save_quick_prompts(m: &Memory, prompts: &[String]) -> Vec<String> {
 pub fn context(m: &Memory) -> String {
     let s = Settings::load(m);
     let mut out = Vec::new();
+    // Para o modelo calcular datas ("amanhã", "dia 12/10") dos lembretes.
+    let now = chrono::Local::now();
+    out.push(format!("Hoje é {} ({}).", now.format("%Y-%m-%d"), weekday_pt(now.weekday())));
     if !s.user_name.trim().is_empty() {
         out.push(format!("Chame o usuário de \"{}\".", s.user_name.trim()));
     }
@@ -113,6 +122,19 @@ pub fn context(m: &Memory) -> String {
     out.join("\n\n")
 }
 
+fn weekday_pt(d: chrono::Weekday) -> &'static str {
+    use chrono::Weekday::*;
+    match d {
+        Mon => "segunda-feira",
+        Tue => "terça-feira",
+        Wed => "quarta-feira",
+        Thu => "quinta-feira",
+        Fri => "sexta-feira",
+        Sat => "sábado",
+        Sun => "domingo",
+    }
+}
+
 /// Uma linha só e curta: nada de quebra de linha ou "</dados>" escapando do bloco.
 fn one_line(s: &str, max: usize) -> String {
     s.split_whitespace()
@@ -131,8 +153,9 @@ mod tests {
     #[test]
     fn context_combines_settings_and_facts() {
         let m = Memory::in_memory().unwrap();
-        assert_eq!(context(&m), "");
-        Settings { user_name: "Alex".into(), persona: "fala com gírias".into(), auto_learn: true, chat_minutes: 5 }.save(&m);
+        assert!(context(&m).starts_with("Hoje é "), "só a data de hoje quando não há mais nada");
+        assert!(!context(&m).contains("Chame"));
+        Settings { user_name: "Alex".into(), persona: "fala com gírias".into(), auto_learn: true, chat_minutes: 5, auto_update: true }.save(&m);
         m.remember("time", "Corinthians", "learned");
         let ctx = context(&m);
         assert!(ctx.contains("Chame o usuário de \"Alex\""));
@@ -167,7 +190,7 @@ mod tests {
         let s = Settings::load(&m);
         assert!(s.auto_learn);
         assert_eq!(s.chat_minutes, 5);
-        Settings { user_name: "x".repeat(100), persona: String::new(), auto_learn: false, chat_minutes: 99999 }.save(&m);
+        Settings { user_name: "x".repeat(100), persona: String::new(), auto_learn: false, chat_minutes: 99999, auto_update: false }.save(&m);
         let s = Settings::load(&m);
         assert_eq!(s.user_name.chars().count(), 40);
         assert!(!s.auto_learn);

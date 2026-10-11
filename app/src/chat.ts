@@ -117,6 +117,18 @@ export async function mountChat(root: HTMLElement) {
   const open = new Map<string, Conversation>();
   // Menu da orb (botão direito → Nova conversa).
   listen("lilith://new-chat", () => void openTab());
+
+  // Lembretes com data: aparecem quando o chat abre (ou volta ao foco) a
+  // partir do dia combinado, uma vez só.
+  async function showDueReminders() {
+    const due = await invoke<{ id: number; due: string; text: string }[]>("due_reminders").catch(() => []);
+    for (const r of due) {
+      const [y, m, d] = r.due.split("-");
+      note(`Lembrete (${d}/${m}/${y}): ${r.text}`, "sparkles");
+    }
+  }
+  window.addEventListener("focus", () => void showDueReminders());
+  void showDueReminders();
   let active!: Conversation;
   let counter = 0;
 

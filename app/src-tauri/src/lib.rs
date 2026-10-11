@@ -1,5 +1,7 @@
 mod config;
 mod profile;
+mod reminders;
+mod update;
 mod dispatcher;
 mod know;
 pub mod elevated;
@@ -159,6 +161,47 @@ fn remove_term(term: String, app: AppHandle, state: State<'_, AppState>) -> bool
         let _ = app.emit("lilith://glossary", ());
     }
     ok
+}
+
+/// Lembretes vencidos (data <= hoje), mostrados uma vez só.
+#[tauri::command]
+fn due_reminders(state: State<'_, AppState>) -> Vec<lilith_memory::Reminder> {
+    state.store.take_due_reminders(&chrono::Local::now().format("%Y-%m-%d").to_string())
+}
+
+#[tauri::command]
+fn list_reminders(state: State<'_, AppState>) -> Vec<lilith_memory::Reminder> {
+    state.store.reminders()
+}
+
+#[tauri::command]
+fn remove_reminder(id: i64, app: AppHandle, state: State<'_, AppState>) -> bool {
+    let ok = state.store.remove_reminder(id);
+    if ok {
+        let _ = app.emit("lilith://reminders", ());
+    }
+    ok
+}
+
+/// Versão instalada e se inicia com o Windows.
+#[tauri::command]
+fn app_info(app: AppHandle) -> Value {
+    json!({ "version": app.package_info().version.to_string(), "autostart": update::autostart_enabled(&app) })
+}
+
+#[tauri::command]
+fn set_autostart(on: bool, app: AppHandle) -> bool {
+    update::set_autostart(&app, on)
+}
+
+/// Procura uma versão nova; com `install`, instala (o app reinicia).
+#[tauri::command]
+async fn check_update(install: bool, app: AppHandle) -> Result<Option<update::UpdateInfo>, String> {
+    let info = update::check(&app).await?;
+    if install && info.is_some() {
+        update::install(&app).await?;
+    }
+    Ok(info)
 }
 
 #[tauri::command]
@@ -452,6 +495,8 @@ pub fn run() {
                 .with_denylist(&["chat"])
                 .build(),
         )
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, shortcut, event| {
@@ -484,6 +529,21 @@ pub fn run() {
                 windows::PANEL_PLACED.store(true, std::sync::atomic::Ordering::Relaxed);
             } else if let Some(orb) = app.get_webview_window("orb") {
                 windows::place_orb(&orb);
+            }
+
+            // Início com o Windows (só na primeira execução instalada) e
+            // busca de atualização a cada abertura.
+            {
+                let store = app.state::<AppState>().store.clone();
+                let first_run = store.setting("autostart_init").is_none();
+                if first_run && !cfg!(debug_assertions) {
+                    store.set_setting("autostart_init", "done");
+                }
+                update::init_autostart(app.handle(), first_run);
+                if !cfg!(debug_assertions) {
+                    let auto = profile::Settings::load(&store).auto_update;
+                    tauri::async_runtime::spawn(update::on_startup(app.handle().clone(), auto));
+                }
             }
 
             // Ícone na área de notificação: clique esquerdo abre o painel,
@@ -529,6 +589,12 @@ pub fn run() {
             get_settings,
             save_settings,
             list_facts,
+            due_reminders,
+            list_reminders,
+            remove_reminder,
+            app_info,
+            set_autostart,
+            check_update,
             mark_wrong,
             list_glossary,
             add_term,

@@ -1618,3 +1618,16 @@ body[data-window^="border-"] #root {
 .quick-bar .quick-track {
   padding: 4px 2px 4px;
 }
+
+.update-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+}
+.update-btn {
+  padding: 6px 12px;
+  border-radius: 10px;
+  white-space: nowrap;
+}

@@ -38,6 +38,16 @@ fn is_remember_request(t: &str) -> bool {
         .any(|p| t.starts_with(p))
 }
 
+/// Pedido de lembrete com data: "me lembra dia 12/10…", "lembra que amanhã…".
+fn is_reminder_request(t: &str) -> bool {
+    let t = t.trim_start_matches(['/', ' ']);
+    let asks_me = ["me lembra", "me lembre", "me avisa", "me avise"].iter().any(|p| t.starts_with(p));
+    let has_date = t.as_bytes().windows(3).any(|w| w[0].is_ascii_digit() && w[1] == b'/' && w[2].is_ascii_digit())
+        || has(t, &["amanhã", "amanha", "depois de amanhã", "semana que vem", "próxima semana", "dia "]);
+    let when_opening = has(t, &["quando eu abrir", "quando abrir", "ao abrir", "quando eu entrar"]);
+    asks_me && (has_date || when_opening) || (is_remember_request(t) && has_date && has(t, &["me lembr", "me avis", "lembrete"]))
+}
+
 /// Aplica as regras ao plano do intérprete para o pedido `text`.
 pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<String> {
     let t = text.to_lowercase();
@@ -46,6 +56,9 @@ pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<S
 
     // "Lembra que…" é guardar um fato, mesmo que cite o Discord, uma pessoa ou
     // "me lembre quando eu abrir o chat": nunca é mandar mensagem.
+    if is_reminder_request(&t) {
+        return vec!["reminder.add".to_string()];
+    }
     if is_remember_request(&t) {
         return vec!["memory.remember".to_string()];
     }
@@ -240,10 +253,15 @@ mod tests {
     fn remember_requests_never_send_messages() {
         let wrong = p(&["ui.open_chat", "ui.type"]);
         assert_eq!(
-            plan("lembra que dia 12/10, quando eu abrir o chat, me lembre que preciso abrir o discord", wrong.clone()),
+            plan("lembra que a senha do wifi é example-pass e que o discord é do user x", wrong.clone()),
             p(&["memory.remember"])
         );
         assert_eq!(plan("lembra que meu time é o time a", wrong), p(&["memory.remember"]));
+        assert_eq!(
+            plan("lembra que dia 12/10, quando eu abrir o chat, me lembre que preciso abrir o discord", p(&["ui.type"])),
+            p(&["reminder.add"])
+        );
+        assert_eq!(plan("me lembra amanhã de ligar pro dentista", p(&[])), p(&["reminder.add"]));
         // "lembra quando…" continua sendo busca na memória.
         assert_eq!(plan("lembra quando eu falei do monitor?", p(&["memory.search"])), p(&["memory.search"]));
     }
