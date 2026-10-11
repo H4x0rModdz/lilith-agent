@@ -18,6 +18,8 @@ pub struct Settings {
     pub chat_minutes: u32,
     /// Procurar e instalar atualizações sozinha ao abrir.
     pub auto_update: bool,
+    /// Falar as respostas em voz alta (precisa da voz instalada).
+    pub voice: bool,
 }
 
 const USER_NAME: &str = "user_name";
@@ -25,6 +27,7 @@ const PERSONA: &str = "persona";
 const AUTO_LEARN: &str = "auto_learn";
 const CHAT_MINUTES: &str = "chat_minutes";
 const AUTO_UPDATE: &str = "auto_update";
+const VOICE: &str = "voice";
 
 impl Settings {
     pub fn load(m: &Memory) -> Self {
@@ -34,6 +37,7 @@ impl Settings {
             auto_learn: m.setting(AUTO_LEARN).map(|v| v != "false").unwrap_or(true),
             chat_minutes: m.setting(CHAT_MINUTES).and_then(|v| v.parse().ok()).unwrap_or(5),
             auto_update: m.setting(AUTO_UPDATE).map(|v| v != "false").unwrap_or(true),
+            voice: m.setting(VOICE).map(|v| v != "false").unwrap_or(true),
         }
     }
 
@@ -44,6 +48,7 @@ impl Settings {
         m.set_setting(AUTO_LEARN, if self.auto_learn { "true" } else { "false" });
         m.set_setting(CHAT_MINUTES, &self.chat_minutes.clamp(1, 1440).to_string());
         m.set_setting(AUTO_UPDATE, if self.auto_update { "true" } else { "false" });
+        m.set_setting(VOICE, if self.voice { "true" } else { "false" });
     }
 }
 
@@ -159,7 +164,7 @@ mod tests {
         let m = Memory::in_memory().unwrap();
         assert!(context(&m).starts_with("Hoje é "), "só a data de hoje quando não há mais nada");
         assert!(!context(&m).contains("Chame"));
-        Settings { user_name: "Alex".into(), persona: "fala com gírias".into(), auto_learn: true, chat_minutes: 5, auto_update: true }.save(&m);
+        Settings { user_name: "Alex".into(), persona: "fala com gírias".into(), auto_learn: true, chat_minutes: 5, auto_update: true, voice: true }.save(&m);
         m.remember("time", "Corinthians", "learned");
         let ctx = context(&m);
         assert!(ctx.contains("Chame o usuário de \"Alex\""));
@@ -194,7 +199,7 @@ mod tests {
         let s = Settings::load(&m);
         assert!(s.auto_learn);
         assert_eq!(s.chat_minutes, 5);
-        Settings { user_name: "x".repeat(100), persona: String::new(), auto_learn: false, chat_minutes: 99999, auto_update: false }.save(&m);
+        Settings { user_name: "x".repeat(100), persona: String::new(), auto_learn: false, chat_minutes: 99999, auto_update: false, voice: false }.save(&m);
         let s = Settings::load(&m);
         assert_eq!(s.user_name.chars().count(), 40);
         assert!(!s.auto_learn);

@@ -1759,3 +1759,16 @@ body[data-window="avatar"] {
   60% { transform: scale(1.2); opacity: 1; filter: brightness(1.4) drop-shadow(0 0 12px #ff3d9a); }
   100% { transform: scale(1); opacity: 1; filter: none; }
 }
+
+.voice-row {
+  margin-bottom: 6px;
+}
+.voice-actions {
+  display: flex;
+  gap: 8px;
+}
+.voice-actions button {
+  padding: 6px 12px;
+  border-radius: 10px;
+  white-space: nowrap;
+}

@@ -8,6 +8,12 @@ interface Settings {
   auto_learn: boolean;
   chat_minutes: number;
   auto_update: boolean;
+  voice: boolean;
+}
+
+interface VoiceStatus {
+  installed: boolean;
+  installing: boolean;
 }
 
 interface Reminder {
@@ -66,6 +72,18 @@ export function mountSettings(view: HTMLElement) {
           <span class="switch-track"><span class="switch-thumb"></span></span>
           <span>Atualizar sozinha ao abrir</span>
         </label>
+        <label class="switch">
+          <input name="voice" type="checkbox" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span>Falar as respostas em voz alta</span>
+        </label>
+        <div class="update-row voice-row">
+          <small class="hint voice-status"></small>
+          <span class="voice-actions">
+            <button type="button" class="neon-soft voice-test" hidden>Testar</button>
+            <button type="button" class="neon-soft voice-install" hidden>Instalar a voz (≈85 MB)</button>
+          </span>
+        </div>
         <label class="switch">
           <input name="autostart" type="checkbox" />
           <span class="switch-track"><span class="switch-thumb"></span></span>
@@ -264,6 +282,38 @@ export function mountSettings(view: HTMLElement) {
   }
   listen("lilith://reminders", () => loadReminders());
 
+  // Voz: instalação (Piper + voz em português) e teste.
+  const voiceStatus = view.querySelector<HTMLElement>(".voice-status")!;
+  const voiceInstall = view.querySelector<HTMLButtonElement>(".voice-install")!;
+  const voiceTest = view.querySelector<HTMLButtonElement>(".voice-test")!;
+
+  async function loadVoice() {
+    const st = await invoke<VoiceStatus>("voice_status");
+    voiceInstall.hidden = st.installed;
+    voiceInstall.disabled = st.installing;
+    voiceTest.hidden = !st.installed;
+    voiceStatus.textContent = st.installed
+      ? "Voz instalada."
+      : st.installing
+        ? "Instalando a voz…"
+        : "A voz ainda não está instalada. Ela é baixada uma vez (≈85 MB) e fica só no seu PC.";
+  }
+  voiceInstall.addEventListener("click", async () => {
+    voiceInstall.disabled = true;
+    voiceStatus.textContent = "Iniciando o download…";
+    try {
+      await invoke("voice_install");
+    } catch (e) {
+      voiceStatus.textContent = `Não consegui instalar a voz: ${String(e)}`;
+    }
+    await loadVoice();
+  });
+  voiceTest.addEventListener("click", () => void invoke("voice_test"));
+  listen<{ stage: string; percent: number }>("lilith://voice-install", (e) => {
+    const { stage, percent } = e.payload;
+    voiceStatus.textContent = stage.startsWith("erro") || stage === "pronto" ? stage : `${stage}… ${percent}%`;
+  });
+
   // Versão, início com o Windows e atualização.
   const updateStatus = view.querySelector<HTMLElement>(".update-status")!;
   const updateBtn = view.querySelector<HTMLButtonElement>(".update-btn")!;
@@ -303,6 +353,8 @@ export function mountSettings(view: HTMLElement) {
     field("chat_minutes").value = String(s.chat_minutes);
     field("auto_learn").checked = s.auto_learn;
     field("auto_update").checked = s.auto_update;
+    field("voice").checked = s.voice;
+    await loadVoice();
     const info = await invoke<AppInfo>("app_info");
     version = info.version;
     field("autostart").checked = info.autostart;
@@ -353,6 +405,7 @@ export function mountSettings(view: HTMLElement) {
       chat_minutes: Math.max(1, Math.min(1440, Number(field("chat_minutes").value) || 5)),
       auto_learn: field("auto_learn").checked,
       auto_update: field("auto_update").checked,
+      voice: field("voice").checked,
     };
     field("autostart").checked = await invoke<boolean>("set_autostart", { on: field("autostart").checked });
     await invoke("save_settings", { settings });

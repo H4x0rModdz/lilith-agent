@@ -96,6 +96,8 @@ export async function mountAvatar(root: HTMLElement) {
   // ── carrega o modelo ──────────────────────────────────────────────────
 
   let vrm: VRM | null = null;
+  /// Escondida (forma 2D): não renderiza nem consulta o cursor.
+  let paused = false;
   let waistY = 0;
   let topY = 1;
   const lookTarget = new THREE.Object3D();
@@ -209,6 +211,7 @@ export async function mountAvatar(root: HTMLElement) {
   let lookY = 0;
   let overBody = false;
   async function pollCursor() {
+    if (paused) return;
     try {
       const [pos, win_pos, size] = await Promise.all([cursorPosition(), win.outerPosition(), win.outerSize()]);
       const cx = win_pos.x + size.width / 2;
@@ -247,6 +250,22 @@ export async function mountAvatar(root: HTMLElement) {
 
   function frameTick() {
     requestAnimationFrame(frameTick);
+
+  // A janela fica carregada quando volta para a forma 2D: pausa, e na volta
+  // toca a animação de entrada de novo.
+  void listen<boolean>("lilith://avatar-visible", (e) => {
+    paused = !e.payload;
+    if (!e.payload) return;
+    leaving = false;
+    dockHint.hidden = true;
+    stage.classList.remove("outro", "near-corner");
+    stage.classList.add("intro");
+    sparkles();
+    window.setTimeout(() => stage.classList.remove("intro"), 900);
+    clock.getDelta();
+    acc = 0;
+  });
+    if (paused) return;
     acc += clock.getDelta();
     if (acc < 1 / FPS) return;
     const dt = acc;

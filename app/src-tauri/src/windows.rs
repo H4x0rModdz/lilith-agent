@@ -5,6 +5,12 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
 static AVATAR_MOVES: AtomicU64 = AtomicU64::new(0);
 /// A janela 3D está encostada num canto da tela (avisa a UI uma vez por mudança).
 static AVATAR_NEAR_CORNER: AtomicBool = AtomicBool::new(false);
+/// A janela 3D escondida fica pronta (sem renderizar) por este tempo; passado
+/// isso é destruída para devolver memória e GPU.
+const AVATAR_KEEP_WARM_SECS: u64 = 600;
+/// Invalida o "destruir depois" quando a janela volta a ser usada.
+static AVATAR_HIDE_GEN: AtomicU64 = AtomicU64::new(0);
+
 /// Quanto o arrasto precisa parar no canto para guardar a Lilith.
 const DOCK_SETTLE_MS: u64 = 450;
 /// Folga (px lógicos) para considerar a janela encostada nas bordas do canto.
@@ -33,7 +39,7 @@ pub fn place_orb(orb: &WebviewWindow) {
 /// Posiciona o chat logo acima da orb (ou abaixo, se não couber), alinhado
 /// pela direita e preso dentro do monitor onde a orb está.
 fn place_chat(app: &AppHandle, chat: &WebviewWindow) {
-    if let Some(av) = app.get_webview_window("avatar") {
+    if let Some(av) = app.get_webview_window("avatar").filter(|w| w.is_visible().unwrap_or(false)) {
         if place_beside(&av, chat) {
             return;
         }
@@ -149,21 +155,36 @@ pub fn toggle_panel(app: &AppHandle) {
 /// Tamanho (lógico) da janela da forma 3D.
 const AVATAR_SIZE: (f64, f64) = (340.0, 420.0);
 
+/// A forma 3D está na tela (existir escondida não conta).
 pub fn avatar_open(app: &AppHandle) -> bool {
-    app.get_webview_window("avatar").is_some()
+    app.get_webview_window("avatar").is_some_and(|w| w.is_visible().unwrap_or(false))
 }
 
 /// Abre a forma 3D. A janela só existe enquanto ela está ativa: ao voltar
 /// para a forma 2D é destruída, e a GPU e a memória voltam ao normal.
 pub fn show_avatar(app: &AppHandle) {
+    // Criar janelas na thread principal (handler de menu/evento) trava no
+    // Windows: faz fora dela.
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move { show_avatar_now(&app) });
+}
+
+fn show_avatar_now(app: &AppHandle) {
     // Sem o arquivo do modelo, fica na forma 2D (a orb continua).
     if !crate::config::avatar_model_exists() {
         tracing::warn!("sem lilith.vrm em %APPDATA%\\Lilith — ficando na forma 2D");
         return;
     }
+    AVATAR_HIDE_GEN.fetch_add(1, Ordering::SeqCst);
     if let Some(w) = app.get_webview_window("avatar") {
+        // Já carregada (escondida): reposiciona, mostra e toca a entrada.
+        if let Some((x, y)) = avatar_position(app) {
+            let _ = w.set_position(tauri::LogicalPosition::new(x, y));
+        }
         let _ = w.show();
+        let _ = app.emit_to("avatar", "lilith://avatar-visible", true);
         hide_orb(app);
+        remember_form(app, "3d");
         return;
     }
     let mut builder = tauri::WebviewWindowBuilder::new(app, "avatar", tauri::WebviewUrl::App("index.html".into()))
@@ -258,6 +279,9 @@ fn remember_form(app: &AppHandle, form: &str) {
 /// atual — o inverso de `avatar_position`.
 fn sync_orb_to_avatar(app: &AppHandle) {
     let (Some(av), Some(orb)) = (app.get_webview_window("avatar"), app.get_webview_window("orb")) else { return };
+    if !av.is_visible().unwrap_or(false) {
+        return;
+    }
     let (Ok(ap), Ok(asz), Ok(osz)) = (av.outer_position(), av.outer_size(), orb.outer_size()) else { return };
     let x = ap.x + asz.width as i32 - osz.width as i32;
     let y = ap.y + asz.height as i32 - (osz.height as f64 * 0.45) as i32;
@@ -284,7 +308,21 @@ fn avatar_position(app: &AppHandle) -> Option<(f64, f64)> {
 pub fn hide_avatar(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("avatar") {
         sync_orb_to_avatar(app);
-        let _ = w.destroy();
+        let _ = app.emit_to("avatar", "lilith://avatar-visible", false);
+        let _ = w.hide();
+        // Fica pronta por um tempo (voltar ao 3D é instantâneo); depois sai.
+        let gen = AVATAR_HIDE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(AVATAR_KEEP_WARM_SECS)).await;
+            if AVATAR_HIDE_GEN.load(Ordering::SeqCst) == gen {
+                if let Some(w) = handle.get_webview_window("avatar") {
+                    if !w.is_visible().unwrap_or(false) {
+                        let _ = w.destroy();
+                    }
+                }
+            }
+        });
     }
     AVATAR_NEAR_CORNER.store(false, Ordering::Relaxed);
     if let Some(orb) = app.get_webview_window("orb") {
