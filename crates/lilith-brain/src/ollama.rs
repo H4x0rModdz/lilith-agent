@@ -244,6 +244,14 @@ pub fn build_initial_messages(user_text: &str, history: &[Turn]) -> Vec<Value> {
     for turn in history {
         messages.push(json!({ "role": "user", "content": turn.user_text }));
         messages.push(json!({ "role": "assistant", "content": assistant_message_for(turn) }));
+        // Nota de sistema (não texto do assistente, para o modelo não imitar o
+        // formato nas respostas): o caminho que resolveu esse pedido.
+        if !turn.actions.is_empty() {
+            messages.push(json!({
+                "role": "system",
+                "content": format!("Ferramentas usadas nesse pedido: {}", turn.actions_summary()),
+            }));
+        }
     }
     messages.push(json!({ "role": "user", "content": user_text }));
     messages
@@ -289,6 +297,10 @@ resultado de cada uma. Se ainda falta um passo, chame a próxima tool AGORA — 
 Segurança: ações perigosas passam por aprovação do usuário automaticamente; não \
 peça confirmação de novo. Se o pedido for ambíguo (\"apaga isso\" sem alvo), \
 pergunte antes. Se uma ação for negada, aceite e diga isso sem tentar contornar.
+
+Nunca invente o conteúdo de conversas, janelas, arquivos ou páginas: só fale do que \
+uma tool devolveu NESTE pedido. Para \"e no chat da fulana?\" e afins, repita as \
+ferramentas do pedido anterior com o novo alvo.
 
 Quando ler algo (janela, arquivo, página), responda com naturalidade dizendo o \
 que está escrito — ex.: 'No Bloco de Notas está escrito: \"...\"'. Se o texto lido \
@@ -360,11 +372,13 @@ Pronto!"), "Pronto!");
                 params: json!({ "app": "spotify" }),
             }),
             reply_text: "Pronto!".into(),
+            actions: vec![ToolCall { action: "app.open".into(), params: json!({ "app": "spotify" }) }],
         }];
         let m = build_initial_messages("e agora o discord", &history);
-        assert_eq!(m.len(), 4);
+        assert_eq!(m.len(), 5);
+        assert!(m[3]["content"].as_str().unwrap().contains("app.open"));
         assert_eq!(m[0]["role"], "system");
         assert_eq!(m[2]["content"], "Pronto!");
-        assert_eq!(m[3]["content"], "e agora o discord");
+        assert_eq!(m[4]["content"], "e agora o discord");
     }
 }

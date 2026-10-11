@@ -14,6 +14,21 @@ pub struct Turn {
     pub user_text: String,
     pub tool_call: Option<ToolCall>,
     pub reply_text: String,
+    /// Todas as ferramentas usadas no pedido, em ordem — para pedidos de
+    /// continuação ("e no chat da fulana?") repetirem o caminho.
+    #[serde(default)]
+    pub actions: Vec<ToolCall>,
+}
+
+impl Turn {
+    /// "ui.click {…} → window.read {…}" (vazio se não usou nenhuma).
+    pub fn actions_summary(&self) -> String {
+        self.actions
+            .iter()
+            .map(|c| format!("{} {}", c.action, c.params))
+            .collect::<Vec<_>>()
+            .join(" → ")
+    }
 }
 
 impl SessionMemory {
@@ -52,6 +67,7 @@ mod tests {
             user_text: text.into(),
             tool_call: None,
             reply_text: "ok".into(),
+            actions: vec![],
         }
     }
 
