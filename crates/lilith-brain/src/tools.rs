@@ -160,16 +160,21 @@ pub fn all_tools() -> Vec<Tool> {
         },
         Tool {
             action: "window.move",
-            description: "Arrasta uma janela com o seu cursor: para uma posição da tela e/ou outro monitor. \
-                          Use para 'joga pro lado', 'põe na outra tela', 'coloca na esquerda', 'centraliza'. \
-                          `target`: nome do app ou trecho do título ('active' = a janela em uso). \
-                          `position`: left, right, top, bottom, top_left, top_right, bottom_left, \
+            description: "Arrasta uma janela com o seu cursor. Três jeitos: \
+                          `nudge` (left/right/up/down) DESLOCA um pouco sem mudar o tamanho — use para \
+                          'mais pro lado', 'um pouquinho pra esquerda', 'ajusta pra cima'; `amount`: \
+                          small (padrão), medium, large ou pixels. \
+                          `position` ENCAIXA numa região (muda o tamanho) — só quando o usuário nomear a \
+                          região: left/right (metade), top/bottom, top_left, top_right, bottom_left, \
                           bottom_right, left_third, center_third, right_third, left_two_thirds, \
-                          right_two_thirds, center, maximize. `monitor`: número (1 = principal), \
-                          'next' ou 'previous'.",
+                          right_two_thirds, center, maximize. \
+                          `monitor` leva para outra tela: número (1 = principal), 'next' ou 'previous'. \
+                          `target`: nome do app ou trecho do título ('active' = a janela em uso).",
             schema: obj(
                 json!({
                     "target": { "type": "string" },
+                    "nudge": { "type": "string", "enum": ["left", "right", "up", "down"] },
+                    "amount": { "type": ["string", "integer"] },
                     "position": { "type": "string" },
                     "monitor": { "type": ["integer", "string"] }
                 }),

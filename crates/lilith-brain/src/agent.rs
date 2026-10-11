@@ -56,7 +56,7 @@ impl Agent {
     pub async fn process(&self, text: &str, dispatcher: &dyn Dispatcher, sink: Arc<dyn Sink>) -> Reply {
         let history = self.memory.recent(HISTORY_TURNS);
         let mut messages = build_initial_messages(text, &history);
-        let tools = all_tools();
+        let mut tools = all_tools();
 
         // Interpreta antes de agir (gírias, referências, "mover ≠ fechar").
         let recent: Vec<(String, String)> = history
@@ -69,6 +69,7 @@ impl Agent {
         if let Some(i) = interpret::run(self.ollama.as_ref(), text, &recent, &tools).await {
             let last = messages.len() - 1;
             messages.insert(last, serde_json::json!({ "role": "system", "content": interpret::hint(&i) }));
+            tools = interpret::narrow(tools, &i.tools);
         }
         let mut last_call: Option<ToolCall> = None;
         let mut last_step_reply = String::new();
