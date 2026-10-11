@@ -15,6 +15,17 @@ use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 pub async fn open(params: Value) -> Result<Value, WinError> {
     let app = req_str(&params, "app")?.to_string();
 
+    // Já aberto: traz para frente em vez de abrir outra instância (pedir
+    // "abre o waterfox" com ele aberto não deve criar mais janelas).
+    if !params["new_window"].as_bool().unwrap_or(false) {
+        let exe_hint = alias(&app).map(|a| a.trim_end_matches(".exe").to_string()).unwrap_or(app.clone());
+        if let Some(w) = blocking(move || Ok(crate::window::find_app(&exe_hint))).await? {
+            let id = w.id;
+            blocking(move || crate::window::focus(id)).await?;
+            return Ok(json!({ "focused": w.title, "already_open": true }));
+        }
+    }
+
     if let Some(target) = alias(&app) {
         shell_open(target.to_string()).await?;
         return Ok(json!({ "opened": app, "via": "alias" }));
@@ -100,8 +111,121 @@ pub async fn browser_open(params: Value) -> Result<Value, WinError> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(WinError::InvalidParams("só URLs http(s)".into()));
     }
-    shell_open(url.clone()).await?;
-    Ok(json!({ "opened": url }))
+    let via = open_url_in(&url, params["browser"].as_str()).await?;
+    Ok(json!({ "opened": url, "browser": via }))
+}
+
+/// Pesquisa numa NOVA ABA do navegador (o que já está aberto, se houver).
+/// `kind`: web (padrão), images, videos, news — vai direto para a aba de
+/// resultados certa, sem simular teclado nem clicar na página.
+pub async fn browser_search(params: Value) -> Result<Value, WinError> {
+    let query = req_str(&params, "query")?;
+    let kind = params["kind"].as_str().unwrap_or("web");
+    let url = search_url(query, kind)?;
+    let via = open_url_in(&url, params["browser"].as_str()).await?;
+    Ok(json!({ "searched": query, "kind": kind, "url": url, "browser": via }))
+}
+
+/// URL de busca do Google para o tipo pedido.
+pub(crate) fn search_url(query: &str, kind: &str) -> Result<String, WinError> {
+    let mut url = reqwest::Url::parse("https://www.google.com/search").expect("url fixa");
+    url.query_pairs_mut().append_pair("q", query);
+    let tbm = match fold(kind).as_str() {
+        "web" | "" | "todos" | "all" => None,
+        "images" | "imagens" | "image" | "imagem" => Some("isch"),
+        "videos" | "video" => Some("vid"),
+        "news" | "noticias" => Some("nws"),
+        other => return Err(WinError::InvalidParams(format!("tipo de busca '{other}' (web, images, videos, news)"))),
+    };
+    if let Some(t) = tbm {
+        url.query_pairs_mut().append_pair("tbm", t);
+    }
+    Ok(url.to_string())
+}
+
+const BROWSERS: &[&str] = &[
+    "firefox", "waterfox", "librewolf", "floorp", "zen", "chrome", "msedge", "brave", "opera", "vivaldi",
+    "chromium", "arc",
+];
+
+/// Navegador com janela aberta, o de cima na ordem Z (o último usado).
+fn running_browser() -> Option<String> {
+    crate::window::list()
+        .into_iter()
+        .map(|w| fold(&w.app))
+        .find(|app| BROWSERS.iter().any(|b| app == b || app.starts_with(b)))
+}
+
+/// Família Firefox recebe `-new-tab URL`; Chromium aceita a URL como
+/// argumento. Ambos entregam para a instância aberta (nova aba).
+fn tab_args(exe: &std::path::Path, url: &str) -> Vec<String> {
+    let name = exe.file_stem().map(|s| fold(&s.to_string_lossy())).unwrap_or_default();
+    let firefox_like = ["firefox", "waterfox", "librewolf", "floorp", "zen", "mullvadbrowser", "palemoon"]
+        .iter()
+        .any(|f| name.contains(f));
+    if firefox_like {
+        vec!["-new-tab".into(), url.into()]
+    } else {
+        vec![url.into()]
+    }
+}
+
+/// Abre a URL numa nova aba: do navegador pedido (o processo que já está
+/// rodando, ou pelo nome registrado no Windows), ou do navegador padrão.
+async fn open_url_in(url: &str, browser: Option<&str>) -> Result<String, WinError> {
+    // Sem navegador citado: o que já está aberto (o mais recente em uso);
+    // só sem nenhum aberto cai no navegador padrão do Windows.
+    let named = browser.map(str::trim).filter(|b| !b.is_empty()).map(str::to_string);
+    let named = match named {
+        Some(b) => Some(b),
+        None => blocking(|| Ok(running_browser())).await?,
+    };
+    let Some(browser) = named.as_deref() else {
+        shell_open(url.to_string()).await?;
+        return Ok("padrão".into());
+    };
+    let name = browser.to_string();
+    let running = blocking(move || Ok(crate::window::find_app(&name).and_then(|w| crate::window::exe_of(w.id))))
+        .await?;
+    let exe = match running {
+        Some(path) => path,
+        // Não está aberto: App Paths do Windows resolve "waterfox.exe" etc.
+        None => std::path::PathBuf::from(format!("{}.exe", fold(browser).trim_end_matches(".exe"))),
+    };
+    // Sem shell: a URL é um argumento, nunca texto interpretado por cmd.exe.
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.args(tab_args(&exe, url));
+    match cmd.spawn() {
+        Ok(_) => Ok(exe.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()),
+        Err(_) => {
+            // Último recurso: ShellExecute com parâmetros (App Paths).
+            shell_exec_with(&format!("{}.exe", fold(browser).trim_end_matches(".exe")), &tab_args(&exe, url).join(" "))
+                .await
+                .map(|_| browser.to_string())
+                .map_err(|_| WinError::NotFound(format!("navegador '{browser}'")))
+        }
+    }
+}
+
+async fn shell_exec_with(file: &str, args: &str) -> Result<(), WinError> {
+    let (file, args) = (file.to_string(), args.to_string());
+    blocking(move || unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        let h = ShellExecuteW(
+            None,
+            &HSTRING::from("open"),
+            &HSTRING::from(file.as_str()),
+            &HSTRING::from(args.as_str()),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
+        if h.0 as usize > 32 {
+            Ok(())
+        } else {
+            Err(WinError::Failed(format!("ShellExecute '{file}'")))
+        }
+    })
+    .await
 }
 
 /// Abre pastas e documentos. Qualquer outro tipo (executáveis, scripts,
@@ -259,6 +383,28 @@ mod tests {
         assert_eq!(best_match(&apps, "spotify").unwrap().name, "Spotify");
         assert_eq!(best_match(&apps, "code").unwrap().name, "Visual Studio Code");
         assert!(best_match(&apps, "discord").is_none());
+    }
+
+    #[test]
+    fn search_urls_per_kind() {
+        let u = search_url("anime girl icon", "imagens").unwrap();
+        assert!(u.starts_with("https://www.google.com/search?q=anime+girl+icon"));
+        assert!(u.ends_with("&tbm=isch"));
+        assert!(!search_url("x", "web").unwrap().contains("tbm"));
+        assert!(search_url("x", "videos").unwrap().ends_with("tbm=vid"));
+        assert!(search_url("x", "holograma").is_err());
+        // Caracteres especiais vão codificados, nunca crus na URL.
+        assert!(search_url("a&b=c", "web").unwrap().contains("q=a%26b%3Dc"));
+    }
+
+    #[test]
+    fn new_tab_args_by_browser_family() {
+        use std::path::Path;
+        let url = "https://x.y";
+        assert_eq!(tab_args(Path::new(r"C:\Program Files\Waterfox\waterfox.exe"), url), vec!["-new-tab", url]);
+        assert_eq!(tab_args(Path::new("firefox.exe"), url), vec!["-new-tab", url]);
+        assert_eq!(tab_args(Path::new("chrome.exe"), url), vec![url]);
+        assert_eq!(tab_args(Path::new("msedge.exe"), url), vec![url]);
     }
 
     #[test]

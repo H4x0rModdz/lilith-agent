@@ -41,7 +41,11 @@ const HISTORY_TURNS: usize = 8;
 
 /// Código de erro do dispatcher para ação que não veio do chat.
 pub const BLOCKED_NOT_FROM_CHAT: &str = "BLOCKED_NOT_FROM_CHAT";
-const MAX_STEPS: usize = 8;
+/// Sem teto de passos (os guardrails cuidam do que é perigoso): ela segue
+/// até terminar. A única parada automática é repetição — a mesma ação com
+/// os mesmos parâmetros esta quantidade de vezes = modelo empacado, que
+/// rodaria para sempre prendendo a GPU. O kill switch para qualquer coisa.
+const MAX_SAME_CALL: usize = 3;
 
 pub struct Agent {
     ollama: Arc<dyn Ollama>,
@@ -68,7 +72,8 @@ impl Agent {
     }
 
     /// Um turno completo: pergunta ao LLM, executa tools uma por vez (até
-    /// `MAX_STEPS`) devolvendo cada resultado, e termina com texto.
+    /// parar sozinho ou empacar repetindo a mesma ação) devolvendo cada
+    /// resultado, e termina com texto.
     pub async fn process(&self, text: &str, dispatcher: &dyn Dispatcher, sink: Arc<dyn Sink>) -> Reply {
         self.process_with_context(text, None, dispatcher, sink).await
     }
@@ -124,7 +129,10 @@ impl Agent {
         // pedido injetado for bloqueado).
         let mut last_read: Option<(String, Value)> = None;
 
-        for step in 0..MAX_STEPS {
+        let mut next_step = 0usize;
+        loop {
+            let step = next_step;
+            next_step += 1;
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
             let fwd_sink = sink.clone();
             let step_idx = step as u32;
@@ -212,7 +220,25 @@ impl Agent {
             }
 
             // Uma tool por passo; se o modelo quiser as outras, re-emite depois.
-            let call = reply.tool_calls.into_iter().next().expect("não vazio");
+            let mut call = reply.tool_calls.into_iter().next().expect("não vazio");
+            // Outra instância de um app só se o usuário pediu com essas palavras
+            // ("abre mais um bloco de notas"); senão reaproveita a janela aberta.
+            if call.action == "app.open" && call.params["new_window"] == true && !asks_for_new_window(text) {
+                call.params["new_window"] = serde_json::Value::Bool(false);
+            }
+            // Empacou: a mesma ação, com os mesmos parâmetros, pela N-ésima vez.
+            if calls.iter().filter(|c| **c == call).count() + 1 >= MAX_SAME_CALL {
+                tracing::warn!(step, action = %call.action, "ação repetida — parando");
+                return self.finish(
+                    text,
+                    last_call,
+                    calls,
+                    format!(
+                        "Parei: eu estava repetindo a mesma ação ({}) sem sair do lugar. Me diz como quer seguir?",
+                        call.action
+                    ),
+                );
+            }
             tracing::info!(step, action = %call.action, "tool escolhida");
             sink.step(step_idx, &call.action).await;
 
@@ -245,14 +271,6 @@ impl Agent {
             calls.push(call.clone());
             last_call = Some(call);
         }
-
-        tracing::warn!(steps = MAX_STEPS, "limite de passos");
-        self.finish(
-            text,
-            last_call,
-            calls,
-            format!("(parei após {MAX_STEPS} passos) {last_step_reply}"),
-        )
     }
 
     fn finish(&self, user_text: &str, call: Option<ToolCall>, actions: Vec<ToolCall>, reply: String) -> Reply {
@@ -269,6 +287,14 @@ impl Agent {
             action,
         }
     }
+}
+
+/// O usuário pediu outra instância/janela? Só palavras explícitas.
+fn asks_for_new_window(user_text: &str) -> bool {
+    let t = user_text.to_lowercase();
+    ["mais um", "mais uma", "outro ", "outra ", "nova janela", "novo janela", "segunda janela", "another", "new window"]
+        .iter()
+        .any(|w| t.contains(w))
 }
 
 const READ_ACTIONS: &[&str] = &["window.read", "file.read", "web.fetch"];
@@ -586,12 +612,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn step_cap_stops_runaway_model() {
+    async fn repeating_the_same_call_stops_the_turn() {
         let a = agent((0..10).map(|_| tool("audio.get_volume")).collect());
         let d = MockDispatcher::default();
         let r = a.process("loop", &d, Arc::new(NullSink)).await;
-        assert_eq!(d.0.lock().unwrap().len(), MAX_STEPS);
-        assert!(r.reply.starts_with("(parei após"));
+        assert_eq!(d.0.lock().unwrap().len(), MAX_SAME_CALL - 1, "a repetição N não executa");
+        assert!(r.reply.starts_with("Parei: eu estava repetindo"));
+    }
+
+    #[test]
+    fn new_window_needs_explicit_words() {
+        assert!(asks_for_new_window("abre mais um bloco de notas"));
+        assert!(asks_for_new_window("abre outra janela do waterfox"));
+        assert!(asks_for_new_window("open another notepad"));
+        assert!(!asks_for_new_window("abre o bloco de notas"));
+        assert!(!asks_for_new_window("abre uma nova tab do waterfox"), "aba nova não é janela nova");
+    }
+
+    #[tokio::test]
+    async fn long_chains_of_different_steps_are_allowed() {
+        // Mais que o antigo teto de 8 passos, todos diferentes.
+        let mut replies: Vec<_> = (0..12)
+            .map(|i| {
+                Ok(OllamaReply {
+                    text: String::new(),
+                    tool_calls: vec![ToolCall { action: "audio.set_volume".into(), params: json!({ "level": i }) }],
+                })
+            })
+            .collect();
+        replies.push(text("Pronto!"));
+        let a = agent(replies);
+        let d = MockDispatcher::default();
+        let r = a.process("sobe o volume aos poucos", &d, Arc::new(NullSink)).await;
+        assert_eq!(d.0.lock().unwrap().len(), 12);
+        assert_eq!(r.reply, "Pronto!");
     }
 
     #[tokio::test]

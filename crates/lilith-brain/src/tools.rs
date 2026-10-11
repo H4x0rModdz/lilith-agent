@@ -29,8 +29,12 @@ pub fn all_tools() -> Vec<Tool> {
         Tool {
             action: "app.open",
             description: "Abre um aplicativo pelo nome (ex.: 'spotify', 'discord', 'bloco de notas'). \
-                          Procura nos atalhos do Menu Iniciar.",
-            schema: obj(json!({ "app": { "type": "string" } }), &["app"]),
+                          Se ele JÁ estiver aberto, só traz a janela para frente — não abre outra. \
+                          Use `new_window: true` só se o usuário pedir outra janela.",
+            schema: obj(
+                json!({ "app": { "type": "string" }, "new_window": { "type": "boolean" } }),
+                &["app"],
+            ),
         },
         Tool {
             action: "app.close",
@@ -47,8 +51,29 @@ pub fn all_tools() -> Vec<Tool> {
         },
         Tool {
             action: "browser.open",
-            description: "Abre uma URL no navegador padrão.",
-            schema: obj(json!({ "url": { "type": "string" } }), &["url"]),
+            description: "Abre uma URL numa NOVA ABA do navegador (o padrão, ou o `browser` pedido, \
+                          ex.: 'waterfox' — usa a janela que já está aberta).",
+            schema: obj(
+                json!({ "url": { "type": "string" }, "browser": { "type": "string" } }),
+                &["url"],
+            ),
+        },
+        Tool {
+            action: "browser.search",
+            description: "Pesquisa no Google numa NOVA ABA do navegador já aberto — ela mesma abre a \
+                          aba, então NÃO chame browser.open antes. Use para 'abre uma aba e pesquisa X', \
+                          'procura imagens de X'. `kind`: web (padrão), images, videos ou news — já abre \
+                          na aba de resultados certa (não precisa clicar em 'Imagens'). `browser`: o \
+                          navegador que o usuário citou (ex.: 'waterfox'); sem citar, usa o que já está \
+                          aberto.",
+            schema: obj(
+                json!({
+                    "query": { "type": "string" },
+                    "kind": { "type": "string", "enum": ["web", "images", "videos", "news"] },
+                    "browser": { "type": "string" }
+                }),
+                &["query"],
+            ),
         },
         // ── arquivos ────────────────────────────────────────────────────
         Tool {
