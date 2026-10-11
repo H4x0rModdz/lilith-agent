@@ -379,7 +379,7 @@ pub fn all_tools() -> Vec<Tool> {
             action: "reminder.add",
             description: "Cria um LEMBRETE com data: a Lilith avisa no chat quando ele abrir naquele dia (ou \
                           depois). Use para 'me lembra dia 12/10 de…', 'lembra que amanhã eu preciso…'. \
-                          `date`: AAAA-MM-DD (calcule a partir da data de hoje); `text`: o que lembrar.",
+                          `date`: se o usuário disse uma data numérica (dia/mês, formato BRASILEIRO: 12/10 = 12 de OUTUBRO), \n                          passe exatamente como ele disse (ex.: '12/10'); senão AAAA-MM-DD calculado da data de hoje. \n                          `text`: o que lembrar.",
             schema: obj(
                 json!({ "date": { "type": "string" }, "text": { "type": "string" } }),
                 &["date", "text"],

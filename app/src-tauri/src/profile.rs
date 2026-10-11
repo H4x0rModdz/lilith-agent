@@ -97,7 +97,11 @@ pub fn context(m: &Memory) -> String {
     let mut out = Vec::new();
     // Para o modelo calcular datas ("amanhã", "dia 12/10") dos lembretes.
     let now = chrono::Local::now();
-    out.push(format!("Hoje é {} ({}).", now.format("%Y-%m-%d"), weekday_pt(now.weekday())));
+    out.push(format!(
+        "Hoje é {} ({}). Datas do usuário são no formato brasileiro dia/mês (12/10 = 12 de outubro).",
+        now.format("%Y-%m-%d"),
+        weekday_pt(now.weekday())
+    ));
     if !s.user_name.trim().is_empty() {
         out.push(format!("Chame o usuário de \"{}\".", s.user_name.trim()));
     }
