@@ -63,6 +63,9 @@ const DANGEROUS_SCOPES: &[&str] = &[
     "input.control",
     // Um agente de código edita arquivos e roda ferramentas por conta própria.
     "agent.delegate",
+    // Ler o conteúdo de arquivos fora das pastas pessoais (ou com cara de
+    // segredo). Nome sem ponto de propósito: não herda de `filesystem.read`.
+    "filesystem.read_protected",
     // Fechar um app/janela pode perder trabalho não salvo — e um modelo
     // pequeno já confundiu "joga o WhatsApp pro lado" com fechar.
     "app.terminate",
@@ -77,6 +80,8 @@ pub fn scope_for(action: &str) -> &'static str {
         "window.list" | "window.focus" | "window.minimize" | "window.maximize" | "window.restore" | "window.move"
         | "window.tile" | "cursor.point" => "window.control",
         "file.find" | "file.list" | "file.read" => "filesystem.read",
+        // Escalonado pelo app quando o caminho não é pessoal (ver lilith_win::is_personal_read).
+        "file.read_protected" => "filesystem.read_protected",
         // Ler a tela pode entregar senhas e conversas: pede aprovação.
         "window.read" => "screen.read",
         // Executar um arquivo = rodar código arbitrário.
@@ -109,6 +114,7 @@ mod tests {
         assert_eq!(classify(scope_for("app.close")), Verdict::Dangerous);
         assert_eq!(classify(scope_for("window.close")), Verdict::Dangerous);
         assert_eq!(classify(scope_for("window.move")), Verdict::Safe);
+        assert_eq!(classify(scope_for("file.read_protected")), Verdict::Dangerous);
     }
 
     #[test]
@@ -135,6 +141,7 @@ mod tests {
             "file.find",
             "file.list",
             "file.read",
+            "file.read_protected",
             "window.read",
             "file.move",
             "file.copy",

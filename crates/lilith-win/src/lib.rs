@@ -9,7 +9,7 @@ mod uia;
 pub mod window;
 
 pub use error::WinError;
-pub use paths::resolve as resolve_path;
+pub use paths::{is_personal_read, resolve as resolve_path};
 use serde_json::Value;
 
 /// Ações que este crate sabe executar.
