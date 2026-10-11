@@ -50,9 +50,9 @@ $latest = @{
 $latestPath = "$dir/latest.json"
 $latest | ConvertTo-Json -Depth 5 | Set-Content $latestPath -Encoding utf8
 
-$args = @("release", "create", $tag, $setup, $latestPath, "--title", "Lilith $tag", "--notes", $Notes, "--latest")
-if ($Draft) { $args += "--draft" }
+$ghArgs = @("release", "create", $tag, $setup, $latestPath, "--title", "Lilith $tag", "--notes", $Notes, "--latest")
+if ($Draft) { $ghArgs += "--draft" }
 git tag -a $tag -m $tag
 git push origin $tag
-gh @args
+gh @ghArgs
 Write-Host "Publicado: https://github.com/$repo/releases/tag/$tag"
