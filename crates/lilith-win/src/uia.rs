@@ -103,7 +103,8 @@ use windows::Win32::UI::Accessibility::{
     UIA_CheckBoxControlTypeId, UIA_ComboBoxControlTypeId, UIA_DataItemControlTypeId, UIA_ExpandCollapsePatternId,
     UIA_HyperlinkControlTypeId, UIA_InvokePatternId, UIA_LegacyIAccessiblePatternId, UIA_ListItemControlTypeId,
     UIA_MenuItemControlTypeId, UIA_RadioButtonControlTypeId, UIA_SelectionItemPatternId, UIA_TabItemControlTypeId,
-    UIA_TogglePatternId, UIA_TreeItemControlTypeId, UIA_CONTROLTYPE_ID,
+    UIA_TogglePatternId, UIA_TreeItemControlTypeId, UIA_CONTROLTYPE_ID, UIA_ControlTypePropertyId,
+    TreeScope_Descendants,
 };
 
 /// Teto de nós na busca (a árvore do Discord/navegador é grande).
@@ -332,6 +333,51 @@ pub fn activate(id: isize, query: &str, index: usize) -> Result<UiElement, WinEr
     Err(WinError::Failed(format!("'{}' não aceita clique por acessibilidade", info.name)))
 }
 
+/// Onde está o campo de mensagem, usando a memória de interface: se já
+/// descobrimos onde ele fica neste programa, devolve o retângulo na hora
+/// (milissegundos); senão varre uma vez (~2 s no WhatsApp) e guarda.
+/// O retângulo guardado NÃO é validado aqui: quem clicar nele confirma com
+/// [`focused_is_text_input`] e chama [`forget_message_input`] se errou.
+pub fn message_input_for(w: &crate::window::WindowInfo) -> Result<UiElement, WinError> {
+    if let Some(rect) = crate::ui_map::lookup(&w.app, MESSAGE_INPUT, w.frame) {
+        return Ok(UiElement::field(rect));
+    }
+    discover_message_input(w)
+}
+
+/// Varre, guarda e devolve (ignora o que estava guardado).
+pub fn discover_message_input(w: &crate::window::WindowInfo) -> Result<UiElement, WinError> {
+    let found = message_input(w.id)?;
+    crate::ui_map::remember(&w.app, MESSAGE_INPUT, &found.kind, found.rect, w.frame);
+    Ok(found)
+}
+
+pub fn confirm_message_input(app: &str) {
+    crate::ui_map::confirm(app, MESSAGE_INPUT);
+}
+
+pub fn forget_message_input(app: &str) {
+    crate::ui_map::forget(app, MESSAGE_INPUT);
+}
+
+const MESSAGE_INPUT: &str = "message_input";
+
+/// O elemento com o foco do teclado é um campo de texto? Uma chamada só —
+/// é como confirmamos que o clique caiu no campo certo (o teste "o que existe
+/// neste ponto" não serve em apps web: devolve só um painel genérico).
+pub fn focused_is_text_input() -> bool {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let Ok(uia) = CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER) else {
+            return false;
+        };
+        uia.GetFocusedElement()
+            .and_then(|el| el.CurrentControlType())
+            .map(|ct| ct == UIA_EditControlTypeId)
+            .unwrap_or(false)
+    }
+}
+
 /// Campo de mensagem da janela, sem depender do nome (que muda em cada app
 /// e idioma): entre os campos de texto visíveis e focáveis, o mais baixo —
 /// e, em empate, o mais largo. A busca fica acima e é mais estreita.
@@ -342,43 +388,42 @@ pub fn message_input(id: isize) -> Result<UiElement, WinError> {
         let root = uia.ElementFromHandle(HWND(id as *mut _)).map_err(|_| {
             WinError::Unavailable("não consegui acessar essa janela (app de administrador?)".into())
         })?;
-        let walker = uia.ControlViewWalker()?;
-        let mut stack = vec![root];
+        // Uma busca por TIPO feita pelo próprio app, de uma vez: caminhar a
+        // árvore nó a nó custava ~2 s no WhatsApp (milhares de chamadas entre
+        // processos); assim são só os campos de texto.
+        let edit = windows::Win32::System::Variant::VARIANT::from(UIA_EditControlTypeId.0);
+        let condition = uia.CreatePropertyCondition(UIA_ControlTypePropertyId, &edit)?;
+        let found = root.FindAll(TreeScope_Descendants, &condition)?;
         let mut best: Option<UiElement> = None;
-        let mut visited = 0usize;
-        while let Some(el) = stack.pop() {
-            visited += 1;
-            if visited > FIND_MAX_NODES {
-                break;
+        for i in 0..found.Length().unwrap_or(0) {
+            let Ok(el) = found.GetElement(i) else { continue };
+            let offscreen = el.CurrentIsOffscreen().map(|b| b.as_bool()).unwrap_or(false);
+            let focusable = el.CurrentIsKeyboardFocusable().map(|b| b.as_bool()).unwrap_or(false);
+            let r = el.CurrentBoundingRectangle().unwrap_or_default();
+            let rect = Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top };
+            if offscreen || !focusable || rect.w <= 0 || rect.h <= 0 {
+                continue;
             }
-            if el.CurrentControlType().unwrap_or_default() == UIA_EditControlTypeId {
-                let offscreen = el.CurrentIsOffscreen().map(|b| b.as_bool()).unwrap_or(false);
-                let focusable = el.CurrentIsKeyboardFocusable().map(|b| b.as_bool()).unwrap_or(false);
-                let r = el.CurrentBoundingRectangle().unwrap_or_default();
-                let rect = Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top };
-                if !offscreen && focusable && rect.w > 0 && rect.h > 0 {
-                    let cand = UiElement {
-                        name: short(&el.CurrentName().map(|b| b.to_string()).unwrap_or_default(), MAX_NAME),
-                        kind: "campo de texto".into(),
-                        context: String::new(),
-                        rect,
-                        clickable: true,
-                    };
-                    best = Some(match best {
-                        Some(b) if is_lower_input(&b.rect, &cand.rect) => b,
-                        _ => cand,
-                    });
-                }
-            }
-            let mut children = Vec::new();
-            let mut next = walker.GetFirstChildElement(&el);
-            while let Ok(child) = next {
-                next = walker.GetNextSiblingElement(&child);
-                children.push(child);
-            }
-            stack.extend(children.into_iter().rev());
+            let cand = UiElement {
+                name: short(&el.CurrentName().map(|b| b.to_string()).unwrap_or_default(), MAX_NAME),
+                kind: "campo de texto".into(),
+                context: String::new(),
+                rect,
+                clickable: true,
+            };
+            best = Some(match best {
+                Some(b) if is_lower_input(&b.rect, &cand.rect) => b,
+                _ => cand,
+            });
         }
         best.ok_or_else(|| WinError::NotFound("campo de mensagem nessa janela".into()))
+    }
+}
+
+impl UiElement {
+    /// Campo conhecido só pelo retângulo (já localizado antes).
+    pub fn field(rect: Rect) -> Self {
+        UiElement { name: String::new(), kind: "campo de texto".into(), context: String::new(), rect, clickable: true }
     }
 }
 

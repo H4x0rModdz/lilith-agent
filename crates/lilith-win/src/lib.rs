@@ -6,6 +6,7 @@ mod error;
 mod handlers;
 mod paths;
 pub mod input;
+pub mod ui_map;
 pub mod uia;
 pub mod window;
 
@@ -166,6 +167,13 @@ fn open_chat(w: &window::WindowInfo, raw_name: &str) -> Result<Value, WinError> 
     Ok(serde_json::json!({ "window": w.title, "opened": name, "via": format!("busca do {}", search.app) }))
 }
 
+/// Retângulo do campo já localizado pelo app (evita uma segunda busca).
+fn rect_param(params: &Value) -> Option<window::Rect> {
+    let r = &params["field_rect"];
+    let (x, y, w, h) = (r["x"].as_i64()?, r["y"].as_i64()?, r["w"].as_i64()?, r["h"].as_i64()?);
+    (w > 0 && h > 0).then_some(window::Rect { x: x as i32, y: y as i32, w: w as i32, h: h as i32 })
+}
+
 /// Digita no campo de texto chamado `element` (clica nele antes) e, com
 /// `submit`, aperta Enter. Sempre depois de trazer a janela para frente.
 fn type_into(w: &window::WindowInfo, element: &str, params: &Value) -> Result<Value, WinError> {
@@ -173,22 +181,50 @@ fn type_into(w: &window::WindowInfo, element: &str, params: &Value) -> Result<Va
     if text.is_empty() || text.chars().count() > 2000 {
         return Err(WinError::InvalidParams("'text' obrigatório (até 2000 caracteres)".into()));
     }
-    window::focus(w.id)?;
-    std::thread::sleep(std::time::Duration::from_millis(250));
-    // O campo: pelo nome, se o modelo acertou; senão (e é o comum — cada app
+    // Já está em primeiro plano (o comum: o chat acabou de abrir)? Não espera.
+    if !window::is_foreground(w.id) {
+        window::focus(w.id)?;
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    // O campo: o que o app já achou (rect no pedido), pelo nome, se o modelo acertou; senão (e é o comum — cada app
     // chama o campo de um jeito) o campo de mensagem da janela: o campo de
     // texto mais baixo e largo. O clique dá foco nele.
-    let by_name = if element.is_empty() { None } else { uia::click(w.id, element, 0).ok().map(|(f, _)| f) };
+    let known = rect_param(params);
+    let by_name = if element.is_empty() || known.is_some() {
+        None
+    } else {
+        uia::click(w.id, element, 0).ok().map(|(f, _)| f)
+    };
     let field = match by_name {
         Some(f) => f,
         None => {
-            let f = uia::message_input(w.id)?;
-            let (x, y) = f.rect.center();
-            input::click_at(x, y)?;
-            f
+            // O ponto lembrado (arquivo ui-map.json) ou o que o app já achou:
+            // clica e confere quem ficou com o foco. Só se errou, varre de novo.
+            let remembered = known.or_else(|| uia::message_input_for(w).ok().map(|f| f.rect));
+            let mut done = None;
+            if let Some(rect) = remembered {
+                let (x, y) = rect.center();
+                input::click_at(x, y)?;
+                std::thread::sleep(std::time::Duration::from_millis(90));
+                if uia::focused_is_text_input() {
+                    uia::confirm_message_input(&w.app);
+                    done = Some(uia::UiElement::field(rect));
+                } else {
+                    uia::forget_message_input(&w.app);
+                }
+            }
+            match done {
+                Some(f) => f,
+                None => {
+                    let f = uia::discover_message_input(w)?;
+                    let (x, y) = f.rect.center();
+                    input::click_at(x, y)?;
+                    f
+                }
+            }
         }
     };
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    std::thread::sleep(std::time::Duration::from_millis(120));
     // Como uma pessoa digitando (e @menções de verdade), nunca a mensagem
     // inteira de uma vez.
     input::reset_cancel();
@@ -197,7 +233,7 @@ fn type_into(w: &window::WindowInfo, element: &str, params: &Value) -> Result<Va
     // envia se `submit` for false (ex.: "escreve mas não envia").
     let submit = params["submit"].as_bool().unwrap_or(true);
     if submit {
-        std::thread::sleep(std::time::Duration::from_millis(150));
+        std::thread::sleep(std::time::Duration::from_millis(100));
         input::press_enter()?;
     }
     Ok(serde_json::json!({ "window": w.title, "field": field.name, "typed_chars": text.chars().count(), "sent": submit }))
