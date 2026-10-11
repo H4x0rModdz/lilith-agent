@@ -1,5 +1,5 @@
 use super::blocking;
-use super::web::http_client;
+use super::web::{http_client, public_get};
 use crate::paths::resolve;
 use crate::{req_str, WinError};
 use serde_json::{json, Value};
@@ -64,13 +64,9 @@ pub async fn set_wallpaper(params: Value) -> Result<Value, WinError> {
 }
 
 async fn download_to(url: &str, dest: &Path) -> Result<(), WinError> {
-    let bytes = http_client()?
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| WinError::Unavailable(format!("download {url}: {e}")))?
-        .error_for_status()
-        .map_err(|e| WinError::Failed(format!("download {url}: {e}")))?
+    // Wallpaper é scope seguro: a URL do modelo não pode alcançar a rede local.
+    let bytes = public_get(url)
+        .await?
         .bytes()
         .await
         .map_err(|e| WinError::Failed(format!("leitura: {e}")))?;
