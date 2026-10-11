@@ -85,6 +85,45 @@ fn expand_env(s: &str) -> String {
     out
 }
 
+/// Leitura "pessoal" e inofensiva: dentro das pastas de conteúdo do usuário
+/// (Documentos, Área de Trabalho, Downloads, Imagens, Músicas, Vídeos) e sem
+/// nada com cara de segredo no caminho. Fora disso, ler o conteúdo pede
+/// aprovação — senão um prompt injection lê `~/.ssh` e manda pela web.
+pub fn is_personal_read(input: &str) -> bool {
+    let path = resolve(input);
+    // Canonicaliza para `..` e links não escaparem das pastas permitidas.
+    let Ok(real) = std::fs::canonicalize(&path) else { return false };
+    let roots = [
+        dirs::document_dir(),
+        dirs::desktop_dir(),
+        dirs::download_dir(),
+        dirs::picture_dir(),
+        dirs::audio_dir(),
+        dirs::video_dir(),
+    ];
+    let inside = roots
+        .into_iter()
+        .flatten()
+        .filter_map(|r| std::fs::canonicalize(r).ok())
+        .any(|root| real.starts_with(root));
+    inside && !looks_sensitive(&real)
+}
+
+/// Nomes que costumam guardar credenciais ou chaves.
+fn looks_sensitive(path: &Path) -> bool {
+    const NAME_HINTS: &[&str] = &["credential", "secret", "password", "senha", "token", "id_rsa", "id_ed25519", "id_ecdsa"];
+    const EXTS: &[&str] = &["pem", "key", "pfx", "p12", "kdbx", "ppk", "ovpn", "rdp", "keychain", "gpg", "asc"];
+    path.components().any(|c| {
+        let name = fold(&c.as_os_str().to_string_lossy());
+        name.starts_with('.') // .ssh, .aws, .env, .git-credentials…
+            || name == "appdata"
+            || NAME_HINTS.iter().any(|h| name.contains(h))
+    }) || path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| EXTS.contains(&e.to_lowercase().as_str()))
+}
+
 /// `dest` livre: se já existe, tenta "nome (1).ext", "nome (2).ext", …
 pub fn unique(dest: &Path) -> PathBuf {
     if !dest.exists() {
@@ -121,6 +160,31 @@ mod tests {
         assert_eq!(resolve("%LILITH_TEST_DIR%\\a.txt"), PathBuf::from("C:\\tmp\\a.txt"));
         assert_eq!(resolve("C:/x/y"), PathBuf::from("C:\\x\\y"));
         assert_eq!(resolve("%NAO_EXISTE%"), PathBuf::from("%NAO_EXISTE%"));
+    }
+
+    #[test]
+    fn personal_reads_only_inside_content_folders() {
+        let docs = dirs::document_dir().unwrap();
+        // Prefixo sem ponto: o padrão ".tmpXXXX" seria (corretamente) sensível.
+        let dir = tempfile::Builder::new().prefix("lilith-teste-").tempdir_in(&docs).unwrap();
+        let ok = dir.path().join("lista.txt");
+        std::fs::write(&ok, "x").unwrap();
+        assert!(is_personal_read(&ok.to_string_lossy()));
+
+        for name in [".env", "senhas.txt", "server.pem", "id_rsa"] {
+            let p = dir.path().join(name);
+            std::fs::write(&p, "x").unwrap();
+            assert!(!is_personal_read(&p.to_string_lossy()), "{name}");
+        }
+        // `..` não escapa da pasta permitida.
+        let escape = dir.path().join("..").join("..").join("..");
+        assert!(!is_personal_read(&escape.to_string_lossy()) || escape.canonicalize().unwrap().starts_with(&docs));
+
+        let outside = tempfile::tempdir().unwrap();
+        let p = outside.path().join("a.txt");
+        std::fs::write(&p, "x").unwrap();
+        assert!(!is_personal_read(&p.to_string_lossy()));
+        assert!(!is_personal_read("Z:\\nao\\existe.txt"));
     }
 
     #[test]
