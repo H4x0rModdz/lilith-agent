@@ -29,13 +29,11 @@ export function mountOrb(root: HTMLElement) {
         </span>
         <span class="orb-badge" hidden></span>
       </button>
-      <span class="orb-bubble" hidden></span>
     </div>`;
   const stage = root.querySelector<HTMLElement>(".orb-stage")!;
   const orb = root.querySelector<HTMLButtonElement>(".orb")!;
   const face = root.querySelector<HTMLElement>(".orb-face")!;
   const badge = root.querySelector<HTMLElement>(".orb-badge")!;
-  const bubble = root.querySelector<HTMLElement>(".orb-bubble")!;
   const win = getCurrentWindow();
 
   let baseMood: Mood = "neutral";
@@ -80,9 +78,19 @@ export function mountOrb(root: HTMLElement) {
   function summon3D() {
     // Duplo clique: abre a forma 3D (o orb continua no canto).
     setMood("happy");
-    flash("forma 3D ✦");
-    invoke("toggle_avatar");
+    // A orb se desfaz num brilho e, então, a Lilith 3D aparece.
+    orb.classList.add("morph-out");
+    window.setTimeout(() => {
+      void invoke("toggle_avatar");
+      window.setTimeout(() => orb.classList.remove("morph-out"), 400);
+    }, 280);
   }
+
+  // Voltou da forma 3D: a orb pula de volta.
+  listen("lilith://orb-pop", () => {
+    orb.classList.add("pop");
+    window.setTimeout(() => orb.classList.remove("pop"), 700);
+  });
 
   // ── menu rápido (botão direito) ─────────────────────────────────────
 
@@ -109,12 +117,6 @@ export function mountOrb(root: HTMLElement) {
   function setMood(mood: Mood) {
     baseMood = mood;
     orb.dataset.mood = mood;
-  }
-
-  function flash(text: string) {
-    bubble.textContent = text;
-    bubble.hidden = false;
-    window.setTimeout(() => (bubble.hidden = true), 2200);
   }
 
   /// Pisca em intervalos irregulares (às vezes duas vezes seguidas).

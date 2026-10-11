@@ -551,7 +551,9 @@ pub fn run() {
                 windows::place_orb(&orb);
             }
 
-            if std::env::args().any(|a| a == "--show-avatar") || std::env::var_os("LILITH_SHOW_AVATAR").is_some() {
+            // Reabre na última forma usada (3D), ou quando forçado para testes.
+            let wants_3d = app.state::<AppState>().store.setting("form").as_deref() == Some("3d");
+            if wants_3d || std::env::args().any(|a| a == "--show-avatar") || std::env::var_os("LILITH_SHOW_AVATAR").is_some() {
                 windows::show_avatar(app.handle());
             }
 

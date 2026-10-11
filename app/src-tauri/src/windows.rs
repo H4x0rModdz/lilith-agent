@@ -1,5 +1,14 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{AppHandle, Manager, PhysicalPosition, WebviewWindow};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
+
+/// Contador de movimentos da janela 3D (para saber quando o arrasto parou).
+static AVATAR_MOVES: AtomicU64 = AtomicU64::new(0);
+/// A janela 3D está encostada num canto da tela (avisa a UI uma vez por mudança).
+static AVATAR_NEAR_CORNER: AtomicBool = AtomicBool::new(false);
+/// Quanto o arrasto precisa parar no canto para guardar a Lilith.
+const DOCK_SETTLE_MS: u64 = 450;
+/// Folga (px lógicos) para considerar a janela encostada nas bordas do canto.
+const DOCK_TOLERANCE: f64 = 36.0;
 
 /// O usuário arrastou o chat nesta sessão — não reposicionar ao lado da orb.
 pub static CHAT_MOVED: AtomicBool = AtomicBool::new(false);
@@ -24,7 +33,36 @@ pub fn place_orb(orb: &WebviewWindow) {
 /// Posiciona o chat logo acima da orb (ou abaixo, se não couber), alinhado
 /// pela direita e preso dentro do monitor onde a orb está.
 fn place_chat(app: &AppHandle, chat: &WebviewWindow) {
+    if let Some(av) = app.get_webview_window("avatar") {
+        if place_beside(&av, chat) {
+            return;
+        }
+    }
     place_above_orb(app, chat, GAP);
+}
+
+/// Põe `win` ao lado de `anchor` (à esquerda; à direita se não couber), com a
+/// base alinhada, dentro da área útil do monitor. `false` se não deu.
+fn place_beside(anchor: &WebviewWindow, win: &WebviewWindow) -> bool {
+    let (Ok(ap), Ok(asz), Ok(wsz)) = (anchor.outer_position(), anchor.outer_size(), win.outer_size()) else {
+        return false;
+    };
+    let (min_x, min_y, max_x, max_y) = match anchor.current_monitor().ok().flatten() {
+        Some(m) => {
+            let a = m.work_area();
+            (a.position.x, a.position.y, a.position.x + a.size.width as i32, a.position.y + a.size.height as i32)
+        }
+        None => return false,
+    };
+    let (w, h) = (wsz.width as i32, wsz.height as i32);
+    let mut x = ap.x - w - GAP;
+    if x < min_x {
+        x = ap.x + asz.width as i32 + GAP;
+    }
+    let y = (ap.y + asz.height as i32 - h).clamp(min_y, (max_y - h).max(min_y));
+    let x = x.clamp(min_x, (max_x - w).max(min_x));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    true
 }
 
 /// Põe `win` logo acima da orb, alinhada pela direita (ou abaixo, se não couber).
@@ -118,8 +156,14 @@ pub fn avatar_open(app: &AppHandle) -> bool {
 /// Abre a forma 3D. A janela só existe enquanto ela está ativa: ao voltar
 /// para a forma 2D é destruída, e a GPU e a memória voltam ao normal.
 pub fn show_avatar(app: &AppHandle) {
+    // Sem o arquivo do modelo, fica na forma 2D (a orb continua).
+    if !crate::config::avatar_model_exists() {
+        tracing::warn!("sem lilith.vrm em %APPDATA%\\Lilith — ficando na forma 2D");
+        return;
+    }
     if let Some(w) = app.get_webview_window("avatar") {
         let _ = w.show();
+        hide_orb(app);
         return;
     }
     let mut builder = tauri::WebviewWindowBuilder::new(app, "avatar", tauri::WebviewUrl::App("index.html".into()))
@@ -132,20 +176,92 @@ pub fn show_avatar(app: &AppHandle) {
         .skip_taskbar(true)
         .resizable(false)
         .focused(false);
-    // Já nasce acima da orb (no canto onde o usuário a deixou).
+    // Já nasce no lugar da orb (no canto onde o usuário a deixou).
     if let Some((x, y)) = avatar_position(app) {
         builder = builder.position(x, y);
     }
     let built = builder
         // Erros do JavaScript desta janela vão para o log do app.
         .initialization_script(
-            "window.addEventListener('error',e=>window.__TAURI_INTERNALS__.invoke('js_log',{msg:'erro: '+e.message+' @'+e.filename+':'+e.lineno}));             window.addEventListener('unhandledrejection',e=>window.__TAURI_INTERNALS__.invoke('js_log',{msg:'promessa: '+String(e.reason)}));",
+            "window.addEventListener('error',e=>window.__TAURI_INTERNALS__.invoke('js_log',{msg:'erro: '+e.message+' @'+e.filename+':'+e.lineno}));\
+             window.addEventListener('unhandledrejection',e=>window.__TAURI_INTERNALS__.invoke('js_log',{msg:'promessa: '+String(e.reason)}));",
         )
         .build();
     match built {
-        Ok(_) => {}
+        Ok(w) => {
+            // Ao arrastar a Lilith 3D, a orb acompanha escondida: voltar para
+            // 2D a deixa no mesmo lugar.
+            let handle = app.clone();
+            w.on_window_event(move |e| {
+                if matches!(e, tauri::WindowEvent::Moved(_)) {
+                    sync_orb_to_avatar(&handle);
+                    on_avatar_moved(&handle);
+                }
+            });
+            hide_orb(app);
+            remember_form(app, "3d");
+        }
         Err(e) => tracing::warn!(error = %e, "não abri a forma 3D"),
     }
+}
+
+/// A janela 3D encosta em duas bordas perpendiculares da área útil (um canto)?
+fn avatar_near_corner(app: &AppHandle) -> bool {
+    let Some(av) = app.get_webview_window("avatar") else { return false };
+    let (Ok(pos), Ok(size), Ok(Some(monitor))) = (av.outer_position(), av.outer_size(), av.current_monitor()) else {
+        return false;
+    };
+    let tol = (DOCK_TOLERANCE * av.scale_factor().unwrap_or(1.0)) as i32;
+    let a = monitor.work_area();
+    let (left, top) = (a.position.x, a.position.y);
+    let (right, bottom) = (left + a.size.width as i32, top + a.size.height as i32);
+    let (w, h) = (size.width as i32, size.height as i32);
+    let at_x = pos.x <= left + tol || pos.x + w >= right - tol;
+    let at_y = pos.y <= top + tol || pos.y + h >= bottom - tol;
+    at_x && at_y
+}
+
+/// Chamado a cada movimento da janela 3D: avisa quando ela chega perto de um
+/// canto e, se o arrasto para ali, pede para a Lilith se guardar na orb.
+fn on_avatar_moved(app: &AppHandle) {
+    let seq = AVATAR_MOVES.fetch_add(1, Ordering::Relaxed) + 1;
+    let near = avatar_near_corner(app);
+    if near != AVATAR_NEAR_CORNER.swap(near, Ordering::Relaxed) {
+        let _ = app.emit_to("avatar", "lilith://avatar-dock-hint", near);
+    }
+    if near {
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(DOCK_SETTLE_MS)).await;
+            // Soltou: nenhum movimento novo desde então e ainda no canto.
+            if AVATAR_MOVES.load(Ordering::Relaxed) == seq && avatar_near_corner(&handle) {
+                let _ = handle.emit_to("avatar", "lilith://avatar-dock", ());
+            }
+        });
+    }
+}
+
+fn hide_orb(app: &AppHandle) {
+    if let Some(orb) = app.get_webview_window("orb") {
+        let _ = orb.hide();
+    }
+}
+
+/// Guarda a forma escolhida ("2d"/"3d") para a próxima abertura.
+fn remember_form(app: &AppHandle, form: &str) {
+    if let Some(state) = app.try_state::<crate::AppState>() {
+        state.store.set_setting("form", form);
+    }
+}
+
+/// Coloca a orb (escondida) onde ficaria para a janela 3D estar no lugar
+/// atual — o inverso de `avatar_position`.
+fn sync_orb_to_avatar(app: &AppHandle) {
+    let (Some(av), Some(orb)) = (app.get_webview_window("avatar"), app.get_webview_window("orb")) else { return };
+    let (Ok(ap), Ok(asz), Ok(osz)) = (av.outer_position(), av.outer_size(), orb.outer_size()) else { return };
+    let x = ap.x + asz.width as i32 - osz.width as i32;
+    let y = ap.y + asz.height as i32 - (osz.height as f64 * 0.45) as i32;
+    let _ = orb.set_position(PhysicalPosition::new(x, y));
 }
 
 /// Posição lógica da janela 3D: alinhada à direita da orb, com a base
@@ -167,8 +283,16 @@ fn avatar_position(app: &AppHandle) -> Option<(f64, f64)> {
 
 pub fn hide_avatar(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("avatar") {
+        sync_orb_to_avatar(app);
         let _ = w.destroy();
     }
+    AVATAR_NEAR_CORNER.store(false, Ordering::Relaxed);
+    if let Some(orb) = app.get_webview_window("orb") {
+        let _ = orb.show();
+        // A orb "pula" de volta (animação no front).
+        let _ = app.emit_to("orb", "lilith://orb-pop", ());
+    }
+    remember_form(app, "2d");
 }
 
 pub fn toggle_avatar(app: &AppHandle) {
