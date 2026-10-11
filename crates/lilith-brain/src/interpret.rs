@@ -18,6 +18,12 @@ pub struct Interpretation {
     /// Tools do catálogo que resolvem o pedido (0 = é só conversa).
     #[serde(default)]
     pub tools: Vec<String>,
+    /// Texto exato a enviar quando o pedido é mandar uma mensagem: o que o
+    /// usuário ditou (entre aspas), ou, se ele só descreveu, uma mensagem
+    /// curta na VOZ DELE. Vazio quando não há mensagem. O interpretador só
+    /// lê o chat do usuário, então isto nunca vem de conteúdo externo.
+    #[serde(default)]
+    pub message: String,
 }
 
 /// JSON Schema enviado ao Ollama em `format` — força a forma da resposta.
@@ -26,9 +32,10 @@ pub fn schema() -> Value {
         "type": "object",
         "properties": {
             "intent": { "type": "string" },
-            "tools": { "type": "array", "items": { "type": "string" }, "maxItems": 12 }
+            "tools": { "type": "array", "items": { "type": "string" }, "maxItems": 12 },
+            "message": { "type": "string" }
         },
-        "required": ["intent", "tools"]
+        "required": ["intent", "tools", "message"]
     })
 }
 
@@ -43,6 +50,18 @@ monitor, \"some com\" = minimizar).
 tarefas do pedido, na ordem de uso, REPETINDO a ferramenta quando a tarefa se repete. Um \
 pedido com duas tarefas tem as ferramentas das duas: \"oi pra A no whatsapp e oi pra B no \
 discord\" = [ui.open_chat, ui.type, ui.open_chat, ui.type]. Lista vazia se for só conversa.
+
+3. Em `message`, quando o pedido é MANDAR uma mensagem a alguém: o texto exato a enviar. \
+Se o usuário ditou o texto (entre aspas ou \"manda um oi\"), use exatamente isso, \nletra por letra, sem acrescentar pontuação, emoji nem maiúscula (\"manda um oi\" = \"oi\"). Se ele só \
+descreveu o que quer dizer (\"chama ele pra jogar\", \"pergunta se ele vem\"), escreva você uma \
+mensagem curta e natural, na voz DO USUÁRIO, em primeira pessoa, falando COM a pessoa (nunca \
+sobre ela), sem inventar fatos. Se não há mensagem, deixe vazio.
+
+Gírias de chat (leia com o sentido certo, nunca como nome próprio): cmg = comigo, ctg = contigo, \
+vc/voce = você, pq = porque, tb/tbm = também, blz = beleza, mt/mto = muito, hj = hoje, \
+amnh = amanhã, q = que, n/nn = não, tmj = estamos juntos, vlw = valeu, flw = falou, bora = vamos. \
+\"Chama ele pra jogar cmg\" = convidar a pessoa para jogar COM O USUÁRIO — mensagem do tipo \
+\"bora jogar comigo?\"; não é ligar para ninguém.
 
 Regras: fechar/encerrar/apagar só se o usuário disser isso explicitamente. Mover, \
 arrastar, ajustar, organizar ou trocar de tela uma janela NUNCA é fechar. \
@@ -108,10 +127,17 @@ pub fn hint(i: &Interpretation) -> String {
     if i.tools.is_empty() {
         format!("Interpretação do pedido: {}. (Parece conversa — responda em texto.)", i.intent)
     } else {
+        let message = i.message.trim();
+        let message_note = if message.is_empty() {
+            String::new()
+        } else {
+            // O texto já está pronto e na voz do usuário: o modelo principal não reescreve.
+            format!(" Mensagem a enviar (use EXATAMENTE este texto em ui.type, sem mudar nada): «{message}».")
+        };
         format!(
             "Interpretação do pedido: {}. Plano completo, em ordem: {}. Faça TODAS as etapas, \
              uma por vez, e só responda em texto no final. Use as ferramentas em vez de dizer \
-             que não é possível.",
+             que não é possível.{message_note}",
             i.intent,
             i.tools.join(", ")
         )
@@ -205,7 +231,18 @@ mod tests {
 
     #[test]
     fn hint_mentions_tools() {
-        let h = hint(&Interpretation { intent: "mover o WhatsApp".into(), tools: vec!["window.move".into()] });
+        let h = hint(&Interpretation { intent: "mover o WhatsApp".into(), tools: vec!["window.move".into()], message: String::new() });
         assert!(h.contains("window.move"));
+        assert!(!h.contains("Mensagem a enviar"));
+    }
+
+    #[test]
+    fn composed_message_goes_into_the_hint_verbatim() {
+        let i = Interpretation {
+            intent: "convidar o user X para jogar".into(),
+            tools: vec!["ui.open_chat".into(), "ui.type".into()],
+            message: "Bora jogar comigo?".into(),
+        };
+        assert!(hint(&i).contains("«Bora jogar comigo?»"));
     }
 }
