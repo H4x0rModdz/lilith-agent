@@ -412,13 +412,26 @@ impl GuardedDispatcher {
         let element = params["element"].as_str().unwrap_or("").trim().to_string();
         let w = blocking(move || window::find(&target)).await?;
         let id = w.id;
-        let _ = blocking(move || window::focus(id)).await;
+        if !window::is_foreground(id) {
+            let _ = blocking(move || window::focus(id)).await;
+        }
+        // UMA busca do campo (no WhatsApp cada varredura custa ~2 s); o
+        // resultado vai junto no pedido para a digitação não buscar de novo.
         let q = element.clone();
-        if let Ok(spot) = blocking(move || uia::locate(id, &q, 0)).await {
+        let win = w.clone();
+        let spot = blocking(move || {
+            if q.is_empty() { uia::message_input_for(&win) } else { uia::locate(id, &q, 0) }
+        })
+        .await;
+        let mut params = params.clone();
+        if let Ok(spot) = spot {
             screen.fly_to(spot.rect.center()).await;
             screen.click().await;
+            params["field_rect"] = json!({
+                "x": spot.rect.x, "y": spot.rect.y, "w": spot.rect.w, "h": spot.rect.h
+            });
         }
-        lilith_win::dispatch("ui.type", params.clone()).await
+        lilith_win::dispatch("ui.type", params).await
     }
 
     /// Ações de tela feitas "à mão" pela Lilith: borda rosa + cursor dela

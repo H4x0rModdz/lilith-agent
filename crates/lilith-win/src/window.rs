@@ -338,6 +338,11 @@ fn find_in(windows: &[WindowInfo], target: &str, exclude: &[isize]) -> Result<Wi
 
 // ── ações instantâneas ────────────────────────────────────────────────────
 
+/// A janela já é a de primeiro plano?
+pub fn is_foreground(id: isize) -> bool {
+    unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() == hwnd(id) }
+}
+
 pub fn focus(id: isize) -> Result<(), WinError> {
     let h = hwnd(id);
     unsafe {

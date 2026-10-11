@@ -363,6 +363,9 @@ pub fn run() {
 
     let cfg = config::Config::load();
     let data = config::data_dir();
+    // O que ela já descobriu sobre cada programa (ex.: onde fica o campo de
+    // mensagem do WhatsApp) — legível e editável.
+    lilith_win::ui_map::init(data.join("ui-map.json"));
     tracing::info!(model = %cfg.ollama.model, dir = %data.display(), "Lilith iniciando");
 
     // Ctrl+Alt+Esc: kill switch global, funciona com qualquer janela em foco.

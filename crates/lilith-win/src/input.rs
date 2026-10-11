@@ -80,7 +80,7 @@ fn send(inputs: &[INPUT]) -> Result<(), WinError> {
 
 /// Clique esquerdo em (x, y), devolvendo o mouse do usuário ao lugar.
 pub fn click_at(x: i32, y: i32) -> Result<(), WinError> {
-    wait_for_idle_mouse(Duration::from_millis(300), Duration::from_secs(3));
+    wait_for_idle_mouse(Duration::from_millis(120), Duration::from_secs(3));
     let (ox, oy) = cursor();
     let result = (|| {
         unsafe { SetCursorPos(x, y)? };

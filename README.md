@@ -74,6 +74,7 @@ Lilith keeps her files in `%APPDATA%\Lilith\`:
 | `logs\audit.jsonl` | One line per action: channel, params, scope, outcome |
 | `avatar.png` / `.jpg` / `.webp` | Optional picture for Lilith in the chat and panel (max 2 MB). It isn't shipped, so you can pick your own. |
 | `lilith.db` | Long-term memory (SQLite): every conversation with full-text search, what she knows about you (set in the panel or learned while chatting), and the panel settings |
+| `ui-map.json` | What she has learned about each program, e.g. where WhatsApp's message box sits in its window (`message_input`). Readable and editable; she uses it to skip a slow ~2 s search. Delete it to make her relearn. No names or chats are stored. |
 
 Rules match by dotted prefix, and the most specific rule wins. For example, `filesystem` covers
 `filesystem.write.downloads`. You can also set the environment variables `LILITH_MODEL` and `OLLAMA_HOST`;
