@@ -1,11 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Orb, chat e painel da Lilith",
+  "description": "Janelas da Lilith: orb, chat, painel, cursor e bordas de tela",
   "windows": [
     "orb",
     "chat",
-    "panel"
+    "panel",
+    "cursor",
+    "border-*"
   ],
   "permissions": [
     "core:default",

@@ -1,5 +1,6 @@
 mod config;
 mod dispatcher;
+mod screen;
 mod windows;
 
 use dispatcher::{Answer, Approvals, EventSink, GuardedDispatcher};
@@ -120,6 +121,9 @@ fn kill_switch(app: &AppHandle, state: &AppState) {
         task.abort();
         tracing::warn!("kill switch acionado");
         state.audit.record(CHANNEL_LOCAL, "kill_switch", &json!({}), "aborted", &json!({}));
+        if let Some(screen) = app.try_state::<Arc<screen::Screen>>() {
+            screen.hide_now();
+        }
         let _ = app.emit("lilith://cancelled", ());
         let _ = app.emit("lilith://state", "idle");
     }
@@ -168,6 +172,10 @@ pub fn run() {
                     tracing::info!(id = job.id, agent = %job.agent, status = ?job.status, "job");
                 }
             });
+            app.manage(screen::Screen::new(app.handle().clone()));
+            if let Some(cursor) = app.get_webview_window("cursor") {
+                let _ = cursor.set_ignore_cursor_events(true);
+            }
             let audit_path = data.join("logs").join("audit.jsonl");
             app.manage(AppState {
                 agent: Arc::new(Agent::new(Arc::new(OllamaClient::new(cfg.ollama)))),

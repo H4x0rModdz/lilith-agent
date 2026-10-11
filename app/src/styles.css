@@ -642,3 +642,88 @@ body[data-window="panel"] #root {
 .activity-item[data-outcome^="denied"] .outcome {
   color: var(--danger);
 }
+
+/* ───────────────────────── presença na tela ───────────────────────── */
+
+body[data-window="cursor"] #root,
+body[data-window^="border-"] #root {
+  height: 100%;
+}
+
+/* Cursor da Lilith: seta rosa com contorno branco + etiqueta com o nome,
+   como cursores de colaboração. A ponta fica em (6, 4) — ver screen.rs. */
+.lilith-cursor {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.lilith-cursor svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 26px;
+  height: 30px;
+  filter: drop-shadow(0 2px 4px rgba(232, 69, 143, 0.45));
+  transform-origin: 6px 4px;
+  transition: transform 0.12s ease;
+}
+.lilith-cursor[data-state="press"] svg {
+  transform: scale(0.82);
+}
+.lilith-cursor[data-state="point"] svg {
+  animation: nudge 0.35s ease 2;
+}
+.lilith-cursor .tag {
+  position: absolute;
+  left: 22px;
+  top: 22px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--pink);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(232, 69, 143, 0.35);
+}
+@keyframes nudge {
+  50% {
+    transform: translate(-3px, -3px);
+  }
+}
+
+/* Borda translúcida: "a Lilith está mexendo na tela". */
+.screen-border {
+  position: fixed;
+  inset: 0;
+  border: 4px solid rgba(232, 69, 143, 0.55);
+  box-shadow: inset 0 0 28px rgba(232, 69, 143, 0.35);
+  animation: border-glow 1.8s ease-in-out infinite;
+}
+.screen-border .notice {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(232, 69, 143, 0.4);
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.screen-border .notice b {
+  color: var(--pink);
+}
+@keyframes border-glow {
+  50% {
+    border-color: rgba(232, 69, 143, 0.3);
+    box-shadow: inset 0 0 16px rgba(232, 69, 143, 0.2);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen-border {
+    animation: none;
+  }
+}

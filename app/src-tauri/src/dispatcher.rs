@@ -94,7 +94,9 @@ impl Dispatcher for GuardedDispatcher {
         };
 
         let result = match action {
+            "cursor.point" => self.screen_action(action, &call.params).await,
             a if APP_ACTIONS.contains(&a) => self.agent_action(action, &call.params),
+            a if a.starts_with("window.") && a != "window.list" => self.screen_action(action, &call.params).await,
             _ => lilith_win::dispatch(action, call.params.clone()).await,
         };
         let envelope = match result {
@@ -113,9 +115,80 @@ impl Dispatcher for GuardedDispatcher {
 }
 
 /// Ações que o próprio app executa (não o `lilith-win`).
-pub const APP_ACTIONS: &[&str] = &["agent.delegate", "agent.jobs"];
+pub const APP_ACTIONS: &[&str] = &["agent.delegate", "agent.jobs", "cursor.point"];
+
+/// Win32 bloqueante fora do runtime async.
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, lilith_win::WinError> + Send + 'static,
+) -> Result<T, lilith_win::WinError> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| lilith_win::WinError::Failed(e.to_string()))?
+}
 
 impl GuardedDispatcher {
+    /// Ações de tela feitas "à mão" pela Lilith: borda rosa + cursor dela
+    /// indo até o lugar, gesto, e a ação real por API.
+    async fn screen_action(&self, action: &str, params: &Value) -> Result<Value, lilith_win::WinError> {
+        use crate::screen::{caption_button, Screen};
+        use lilith_win::window;
+        use tauri::Manager;
+
+        let screen = self.app.state::<Arc<Screen>>().inner().clone();
+        let _presence = screen.begin();
+        let target = params["target"].as_str().unwrap_or("active").to_string();
+
+        match action {
+            "window.move" => {
+                let p = params.clone();
+                let plan = blocking(move || window::plan_move(&p)).await?;
+                screen.drag(&plan).await?;
+                Ok(json!({ "moved": plan.title, "to": plan.to, "maximized": plan.maximize_after }))
+            }
+            "window.tile" => {
+                let p = params.clone();
+                let plans = blocking(move || window::plan_tile(&p)).await?;
+                for plan in &plans {
+                    screen.drag(plan).await?;
+                }
+                Ok(json!({ "tiled": plans.iter().map(|p| &p.title).collect::<Vec<_>>() }))
+            }
+            "cursor.point" => {
+                let spec = params["monitor"].clone();
+                let at = if !spec.is_null() && params["target"].is_null() {
+                    let mons = window::monitors();
+                    let idx = spec.as_u64().map(|n| n as usize).unwrap_or(1);
+                    let m = mons.iter().find(|m| m.index == idx).or(mons.first());
+                    m.map(|m| m.work.center())
+                        .ok_or_else(|| lilith_win::WinError::NotFound("monitor".into()))?
+                } else {
+                    let w = blocking(move || window::find(&target)).await?;
+                    w.frame.center()
+                };
+                screen.point(at).await;
+                Ok(json!({ "pointed_at": at }))
+            }
+            _ => {
+                // focus / minimize / maximize / restore / close: vai até o
+                // botão (ou a barra de título), "clica" e executa. Janela
+                // minimizada não tem onde mirar — executa direto.
+                let w = blocking(move || window::find(&target)).await?;
+                if !w.minimized {
+                    let spot = if action == "window.focus" {
+                        (w.frame.x + w.frame.w / 3, w.frame.y + 14)
+                    } else {
+                        caption_button(w.frame, action)
+                    };
+                    screen.fly_to(spot).await;
+                    screen.click().await;
+                }
+                let mut p = params.clone();
+                p["target"] = json!(format!("id:{}", w.id));
+                lilith_win::dispatch(action, p).await
+            }
+        }
+    }
+
     fn agent_action(&self, action: &str, params: &Value) -> Result<Value, lilith_win::WinError> {
         use lilith_win::WinError;
         if action == "agent.jobs" {
