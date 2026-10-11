@@ -17,6 +17,13 @@ Options:
   calls, and is about three times slower.
 - `--cat NAME`: only one category (repeatable). `--limit N`: an evenly spaced
   sample. `--verbose`: also list the passing cases.
+- Incremental by default: results are stored per case in
+  `target/eval-state/`, and later runs execute only the cases that failed or
+  are new/edited, reporting the whole pack with the stored results. Use
+  `--all` for a full run (required for final numbers and before a PR, since
+  regressions in previously passing cases are otherwise hidden).
+- "core" metric: like "plan" but ignores preparatory steps that do not change
+  the outcome (`window.list`, `window.focus`, `file.find`, `ui.find`).
 
 The model is the one in `config.json` (or `LILITH_MODEL`).
 

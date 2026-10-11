@@ -9,15 +9,18 @@
 //!   --limit N                  no máximo N casos (amostra espaçada, repetível)
 //!   --json CAMINHO             grava o resumo (para comparar antes/depois)
 //!   --verbose                  mostra também os acertos
+//!   --all                      roda TODOS os casos (padrão: só os que falharam
+//!                              e os novos/editados desde a última rodada)
 //!
 //! Os casos ficam em `eval/cases/*.json` como especificações com modelos de
 //! frase (`{app}`, `{person}`…) que são expandidos aqui. Só nomes anônimos.
 
 use async_trait::async_trait;
 use lilith_brain::{all_tools, interpret, Agent, Dispatcher, OllamaClient, OllamaConfig, Sink, ToolCall};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -177,6 +180,50 @@ impl Sink for Quiet {
     async fn step(&self, _: u32, _: &str) {}
 }
 
+/// Resultado de um caso. Fica guardado entre rodadas para reexecutar só o
+/// que falhou.
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct Outcome {
+    cat: String,
+    text: String,
+    plan_ok: bool,
+    core_ok: bool,
+    /// `None` quando o caso não checa mensagem.
+    msg: Option<bool>,
+    params_n: usize,
+    params_ok: usize,
+    ms: u128,
+    /// O que ela fez de errado (vazio se passou).
+    note: String,
+}
+
+impl Outcome {
+    fn passed(&self) -> bool {
+        self.plan_ok && self.msg.unwrap_or(true) && self.params_n == self.params_ok
+    }
+}
+
+/// Assinatura do caso: muda se a frase, o contexto ou qualquer expectativa
+/// for editada — aí o caso volta a ser executado.
+fn signature(c: &Case) -> String {
+    let params: BTreeMap<_, _> = c.params.iter().collect();
+    json!({
+        "cat": c.cat, "text": c.text, "plan": c.plan, "params": params, "context": c.context,
+        "message": c.message.as_ref().map(|m| json!([m.equals, m.contains, m.contains_any])),
+    })
+    .to_string()
+}
+
+fn state_path(agent_mode: bool, model: &str) -> PathBuf {
+    let safe: String = model.chars().map(|ch| if ch.is_alphanumeric() { ch } else { '_' }).collect();
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("target")
+        .join("eval-state")
+        .join(format!("{}-{safe}.json", if agent_mode { "agent" } else { "interpreter" }))
+}
+
 #[derive(Default, Clone)]
 struct Tally {
     n: usize,
@@ -196,6 +243,7 @@ async fn main() {
     let value = |name: &str| flag(name).and_then(|i| args.get(i + 1)).cloned();
     let agent_mode = value("--mode").as_deref() == Some("agent");
     let verbose = flag("--verbose").is_some();
+    let run_all = flag("--all").is_some();
     let only: Vec<String> = args
         .iter()
         .enumerate()
@@ -211,17 +259,35 @@ async fn main() {
     }
 
     let cfg = OllamaConfig::default();
-    println!("modelo={} modo={} casos={}", cfg.model, if agent_mode { "agent" } else { "interpreter" }, cases.len());
+    let path = state_path(agent_mode, &cfg.model);
+    let mut state: HashMap<String, Outcome> = if run_all {
+        HashMap::new()
+    } else {
+        std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    };
+    // Roda o que nunca rodou, o que falhou e o que foi editado.
+    let pending: Vec<&Case> = cases
+        .iter()
+        .filter(|c| state.get(&signature(c)).is_none_or(|o| !o.passed()))
+        .collect();
+    let carried = cases.len() - pending.len();
+    println!(
+        "modelo={} modo={} casos={} | a executar={} | já aprovados antes={carried}",
+        cfg.model,
+        if agent_mode { "agent" } else { "interpreter" },
+        cases.len(),
+        pending.len()
+    );
+
     let ollama = Arc::new(OllamaClient::new(cfg));
     let tools = all_tools();
-    // Aquecimento: o primeiro pedido paga o carregamento do modelo.
-    let _ = interpret::run(ollama.as_ref(), "oi", &[], &tools).await;
-
-    let mut by_cat: BTreeMap<String, Tally> = BTreeMap::new();
-    let mut failures: Vec<String> = Vec::new();
     let started = Instant::now();
+    if !pending.is_empty() {
+        // Aquecimento: o primeiro pedido paga o carregamento do modelo.
+        let _ = interpret::run(ollama.as_ref(), "oi", &[], &tools).await;
+    }
 
-    for c in &cases {
+    for c in &pending {
         let t = Instant::now();
         let (plan, message, calls): (Vec<String>, String, Vec<ToolCall>) = if agent_mode {
             let agent = Agent::new(ollama.clone());
@@ -245,63 +311,87 @@ async fn main() {
             let (p, m) = got.map(|i| (i.tools, i.message)).unwrap_or_default();
             (p, m, Vec::new())
         };
-        let ms = t.elapsed().as_millis();
 
-        let tally = by_cat.entry(c.cat.clone()).or_default();
-        tally.n += 1;
-        tally.ms += ms;
-        let ok = c.plan.iter().any(|p| *p == plan);
-        if ok {
-            tally.plan_ok += 1;
-        }
-        if c.plan.iter().any(|p| core(p) == core(&plan)) {
-            tally.core_ok += 1;
-        }
+        let mut out = Outcome {
+            cat: c.cat.clone(),
+            text: c.text.clone(),
+            plan_ok: c.plan.iter().any(|p| *p == plan),
+            core_ok: c.plan.iter().any(|p| core(p) == core(&plan)),
+            ms: t.elapsed().as_millis(),
+            ..Default::default()
+        };
         let mut notes = String::new();
         if let Some(check) = &c.message {
-            tally.msg_n += 1;
-            if message_ok(check, &message) {
-                tally.msg_ok += 1;
-            } else {
+            let good = message_ok(check, &message);
+            out.msg = Some(good);
+            if !good {
                 notes += &format!(" | msg={message:?}");
             }
         }
         if agent_mode {
             for (action, expected) in &c.params {
-                tally.param_n += 1;
-                let good = calls.iter().any(|x| &x.action == action && params_ok(expected, &x.params));
-                if good {
-                    tally.param_ok += 1;
+                out.params_n += 1;
+                if calls.iter().any(|x| &x.action == action && params_ok(expected, &x.params)) {
+                    out.params_ok += 1;
                 } else {
                     let got = calls.iter().find(|x| &x.action == action).map(|x| x.params.to_string()).unwrap_or_default();
                     notes += &format!(" | {action} params={got}");
                 }
             }
         }
-        if !ok || !notes.is_empty() {
-            failures.push(format!("  ✗ [{}] {} ({ms} ms) plano={plan:?}{notes}", c.cat, c.text));
+        if !out.passed() {
+            out.note = format!("plano={plan:?}{notes}");
         } else if verbose {
-            println!("  ✓ [{}] {} ({ms} ms)", c.cat, c.text);
+            println!("  ✓ [{}] {} ({} ms)", c.cat, c.text, out.ms);
         }
+        state.insert(signature(c), out);
     }
 
+    // Guarda para a próxima rodada (sem apagar o que esta rodada não tocou).
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, serde_json::to_string(&state).unwrap());
+
+    // Relatório do conjunto selecionado, com os resultados guardados.
+    let selected: Vec<&Outcome> = cases.iter().filter_map(|c| state.get(&signature(c))).collect();
+    let mut failures: Vec<String> = Vec::new();
+    let mut by_cat: BTreeMap<String, Tally> = BTreeMap::new();
+    for o in &selected {
+        let t = by_cat.entry(o.cat.clone()).or_default();
+        t.n += 1;
+        t.ms += o.ms;
+        t.plan_ok += o.plan_ok as usize;
+        t.core_ok += o.core_ok as usize;
+        if let Some(m) = o.msg {
+            t.msg_n += 1;
+            t.msg_ok += m as usize;
+        }
+        t.param_n += o.params_n;
+        t.param_ok += o.params_ok;
+        if !o.passed() {
+            failures.push(format!("  ✗ [{}] {} ({} ms) {}", o.cat, o.text, o.ms, o.note));
+        }
+    }
     for f in &failures {
         println!("{f}");
     }
-    println!("\n{:<14} {:>5} {:>8} {:>9} {:>9} {:>8}", "categoria", "casos", "plano", "mensagem", "params", "ms/caso");
+    println!("\n{:<14} {:>5} {:>8} {:>8} {:>9} {:>9} {:>8}", "categoria", "casos", "plano", "núcleo", "mensagem", "params", "ms/caso");
     let mut total = Tally::default();
     for (cat, t) in &by_cat {
         let pct = |a: usize, b: usize| if b == 0 { "-".to_string() } else { format!("{:.0}%", 100.0 * a as f64 / b as f64) };
         println!(
-            "{cat:<14} {:>5} {:>8} {:>9} {:>9} {:>8}",
+            "{cat:<14} {:>5} {:>8} {:>8} {:>9} {:>9} {:>8}",
             t.n,
             pct(t.plan_ok, t.n),
+            pct(t.core_ok, t.n),
             pct(t.msg_ok, t.msg_n),
             pct(t.param_ok, t.param_n),
             t.ms / t.n.max(1) as u128
         );
         total.n += t.n;
         total.plan_ok += t.plan_ok;
+        total.core_ok += t.core_ok;
         total.msg_n += t.msg_n;
         total.msg_ok += t.msg_ok;
         total.param_n += t.param_n;
@@ -310,9 +400,10 @@ async fn main() {
     }
     let pct = |a: usize, b: usize| if b == 0 { 0.0 } else { 100.0 * a as f64 / b as f64 };
     println!(
-        "TOTAL: {} casos | plano {:.1}% | mensagem {:.1}% ({}) | params {:.1}% ({}) | {} ms/caso | {:.0}s",
+        "TOTAL: {} casos | plano {:.1}% | núcleo {:.1}% | mensagem {:.1}% ({}) | params {:.1}% ({}) | {} ms/caso | {:.0}s",
         total.n,
         pct(total.plan_ok, total.n),
+        pct(total.core_ok, total.n),
         pct(total.msg_ok, total.msg_n),
         total.msg_n,
         pct(total.param_ok, total.param_n),
@@ -320,16 +411,21 @@ async fn main() {
         total.ms / total.n.max(1) as u128,
         started.elapsed().as_secs_f32()
     );
+    if carried > 0 {
+        println!("⚠ {carried} casos aprovados em rodadas anteriores não foram reexecutados; use --all para confirmar que nada regrediu.");
+    }
     if let Some(path) = value("--json") {
         let summary = json!({
             "mode": if agent_mode { "agent" } else { "interpreter" },
             "cases": total.n,
             "plan_pct": pct(total.plan_ok, total.n),
+            "core_pct": pct(total.core_ok, total.n),
             "message_pct": pct(total.msg_ok, total.msg_n),
             "params_pct": pct(total.param_ok, total.param_n),
             "ms_per_case": total.ms / total.n.max(1) as u128,
             "by_category": by_cat.iter().map(|(k, t)| (k.clone(), json!({
-                "cases": t.n, "plan_pct": pct(t.plan_ok, t.n), "message_pct": pct(t.msg_ok, t.msg_n),
+                "cases": t.n, "plan_pct": pct(t.plan_ok, t.n), "core_pct": pct(t.core_ok, t.n),
+                "message_pct": pct(t.msg_ok, t.msg_n),
             }))).collect::<BTreeMap<_, _>>(),
             "failures": failures,
         });
