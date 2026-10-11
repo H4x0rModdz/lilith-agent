@@ -27,12 +27,15 @@ pub struct Interpretation {
 }
 
 /// JSON Schema enviado ao Ollama em `format` — força a forma da resposta.
-pub fn schema() -> Value {
+/// Os nomes de ferramenta ficam travados no catálogo (`enum`): o modelo não
+/// consegue inventar uma ação.
+pub fn schema(tools: &[Tool]) -> Value {
+    let names: Vec<&str> = tools.iter().map(|t| t.action).collect();
     json!({
         "type": "object",
         "properties": {
             "intent": { "type": "string" },
-            "tools": { "type": "array", "items": { "type": "string" }, "maxItems": 12 },
+            "tools": { "type": "array", "items": { "type": "string", "enum": names }, "maxItems": 12 },
             "message": { "type": "string" }
         },
         "required": ["intent", "tools", "message"]
@@ -57,12 +60,6 @@ descreveu o que quer dizer (\"chama ele pra jogar\", \"pergunta se ele vem\"), e
 mensagem curta e natural, na voz DO USUÁRIO, em primeira pessoa, falando COM a pessoa (nunca \
 sobre ela), sem inventar fatos. Se não há mensagem, deixe vazio.
 
-Gírias de chat (leia com o sentido certo, nunca como nome próprio): cmg = comigo, ctg = contigo, \
-vc/voce = você, pq = porque, tb/tbm = também, blz = beleza, mt/mto = muito, hj = hoje, \
-amnh = amanhã, q = que, n/nn = não, tmj = estamos juntos, vlw = valeu, flw = falou, bora = vamos. \
-\"Chama ele pra jogar cmg\" = convidar a pessoa para jogar COM O USUÁRIO — mensagem do tipo \
-\"bora jogar comigo?\"; não é ligar para ninguém.
-
 Regras: fechar/encerrar/apagar só se o usuário disser isso explicitamente. Mover, \
 arrastar, ajustar, organizar ou trocar de tela uma janela NUNCA é fechar. \
 \"Mais pro lado\", \"um pouco\", \"um pouquinho\", \"ajusta\" = deslocar levemente (nudge), \
@@ -85,6 +82,50 @@ window.read.
 Catálogo:
 ";
 
+/// Gírias de chat: só entram no prompt as que aparecem no pedido (economiza
+/// tokens e evita distrair o modelo com o que não foi dito).
+const SLANG: &[(&str, &str)] = &[
+    ("cmg", "comigo"),
+    ("ctg", "contigo"),
+    ("vc", "você"),
+    ("voce", "você"),
+    ("pq", "porque"),
+    ("tb", "também"),
+    ("tbm", "também"),
+    ("blz", "beleza"),
+    ("mt", "muito"),
+    ("mto", "muito"),
+    ("hj", "hoje"),
+    ("amnh", "amanhã"),
+    ("q", "que"),
+    ("n", "não"),
+    ("nn", "não"),
+    ("tmj", "estamos juntos"),
+    ("vlw", "valeu"),
+    ("flw", "falou"),
+    ("bora", "vamos"),
+];
+
+/// Nota de glossário para as gírias presentes no texto (vazia se não houver).
+fn slang_note(text: &str) -> String {
+    let lower = text.to_lowercase();
+    let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let found: Vec<String> =
+        SLANG.iter().filter(|(g, _)| words.contains(g)).map(|(g, m)| format!("{g} = {m}")).collect();
+    if found.is_empty() {
+        return String::new();
+    }
+    let mut note = format!(
+        "
+Gírias neste pedido (leia com o sentido certo, nunca como nome próprio): {}.",
+        found.join(", ")
+    );
+    if words.contains(&"cmg") {
+        note += " \"Chama ele pra jogar cmg\" = convidar a pessoa para jogar COM O USUÁRIO (mensagem do tipo \"bora jogar comigo?\"); não é ligar para ninguém.";
+    }
+    note
+}
+
 /// Monta as mensagens do intérprete: prompt + catálogo resumido + últimas
 /// falas (contexto) + o pedido atual.
 pub fn messages(user_text: &str, recent: &[(String, String)], tools: &[Tool]) -> Vec<Value> {
@@ -92,7 +133,7 @@ pub fn messages(user_text: &str, recent: &[(String, String)], tools: &[Tool]) ->
         .iter()
         .map(|t| format!("- {}: {}\n", t.action, first_sentence(t.description)))
         .collect();
-    let mut out = vec![json!({ "role": "system", "content": format!("{PROMPT}{catalog}") })];
+    let mut out = vec![json!({ "role": "system", "content": format!("{PROMPT}{catalog}{}", slang_note(user_text)) })];
     for (user, reply) in recent {
         out.push(json!({ "role": "user", "content": user }));
         out.push(json!({ "role": "assistant", "content": reply }));
@@ -164,7 +205,7 @@ pub fn narrow(tools: Vec<Tool>, suggested: &[String]) -> Vec<Tool> {
 
 pub async fn run(ollama: &dyn Ollama, user_text: &str, recent: &[(String, String)], tools: &[Tool]) -> Option<Interpretation> {
     let started = std::time::Instant::now();
-    let raw = ollama.structured(&messages(user_text, recent, tools), &schema()).await;
+    let raw = ollama.structured(&messages(user_text, recent, tools), &schema(tools)).await;
     let parsed = match raw {
         Ok(v) => parse(&v, tools),
         Err(e) => {
