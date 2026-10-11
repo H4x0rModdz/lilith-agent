@@ -1,10 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { call } from "./ipc";
 
 /// Avatar da Lilith (`%APPDATA%\Lilith\avatar.*`), carregado uma vez por janela.
 /// `null` quando o usuário não escolheu um — a UI cai no sigilo padrão.
 let cached: Promise<string | null> | null = null;
 export function lilithAvatar(): Promise<string | null> {
-  cached ??= invoke<string | null>("lilith_avatar").catch(() => null);
+  cached ??= call<string | null>("lilith_avatar", undefined, null);
   return cached;
 }
 

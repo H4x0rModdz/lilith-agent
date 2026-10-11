@@ -351,7 +351,36 @@ pub fn run() {
     // Ctrl+Alt+Esc: kill switch global, funciona com qualquer janela em foco.
     let panic_key = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Escape);
 
+    // O estado é registrado ANTES de qualquer janela existir: o chat carrega
+    // rápido e chama comandos logo de cara — com o .manage() dentro do setup,
+    // às vezes chegava antes ("state not managed") e o chat travava sem
+    // conversa. A única peça que precisa do AppHandle (avisar o painel sobre
+    // tarefas) recebe o handle quando o setup roda.
+    let app_handle: Arc<std::sync::OnceLock<AppHandle>> = Arc::new(std::sync::OnceLock::new());
+    let job_handle = app_handle.clone();
+    let jobs = Jobs::new(cfg.agents, move |event| {
+        if let Some(handle) = job_handle.get() {
+            let _ = handle.emit("lilith://job", &event);
+        }
+        if let JobEvent::Updated { job } = &event {
+            tracing::info!(id = job.id, agent = %job.agent, status = ?job.status, "job");
+        }
+    });
+    let audit_path = data.join("logs").join("audit.jsonl");
+    let state = AppState {
+        ollama: Arc::new(OllamaClient::new(cfg.ollama)),
+        conversations: Mutex::new(HashMap::new()),
+        store: Arc::new(open_memory(&data)),
+        policy: Arc::new(Policy::load(&data.join("permissions.json"))),
+        audit: Arc::new(AuditLog::new(&audit_path)),
+        audit_path,
+        approvals: Arc::new(Approvals::default()),
+        jobs,
+        running: Mutex::new(HashMap::new()),
+    };
+
     tauri::Builder::default()
+        .manage(state)
         // Lembra onde o usuário deixou a orb e o painel. Só posição: tamanho
         // é fixo e visibilidade é controlada pela Lilith.
         .plugin(
@@ -372,29 +401,11 @@ pub fn run() {
                 .build(),
         )
         .setup(move |app| {
-            let handle = app.handle().clone();
-            let jobs = Jobs::new(cfg.agents, move |event| {
-                let _ = handle.emit("lilith://job", &event);
-                if let JobEvent::Updated { job } = &event {
-                    tracing::info!(id = job.id, agent = %job.agent, status = ?job.status, "job");
-                }
-            });
+            let _ = app_handle.set(app.handle().clone());
             app.manage(screen::Screen::new(app.handle().clone()));
             if let Some(cursor) = app.get_webview_window("cursor") {
                 let _ = cursor.set_ignore_cursor_events(true);
             }
-            let audit_path = data.join("logs").join("audit.jsonl");
-            app.manage(AppState {
-                ollama: Arc::new(OllamaClient::new(cfg.ollama)),
-                conversations: Mutex::new(HashMap::new()),
-                store: Arc::new(open_memory(&data)),
-                policy: Arc::new(Policy::load(&data.join("permissions.json"))),
-                audit: Arc::new(AuditLog::new(&audit_path)),
-                audit_path,
-                approvals: Arc::new(Approvals::default()),
-                jobs,
-                running: Mutex::new(HashMap::new()),
-            });
 
             if let Err(e) = app.global_shortcut().register(panic_key) {
                 tracing::warn!(error = %e, "não registrei o kill switch Ctrl+Alt+Esc");

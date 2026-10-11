@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { USER_AVATAR_SVG, fillSigil, lilithAvatar } from "./avatar";
 import { makeDraggable } from "./drag";
 import { mountElectric } from "./electric";
+import { call } from "./ipc";
 import { type IconName, actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel, actionVerb } from "./labels";
 
@@ -107,7 +108,7 @@ export async function mountChat(root: HTMLElement) {
 
   const slashMenu = form.querySelector<HTMLUListElement>(".slash-menu")!;
   // Atalhos (bolhas em conversa nova + lista do "/"), editáveis no painel.
-  let prompts: string[] = await invoke<string[]>("get_quick_prompts");
+  let prompts: string[] = await call<string[]>("get_quick_prompts", undefined, []);
   listen<string[]>("lilith://quick-prompts", (e) => {
     prompts = e.payload;
     renderQuickBar();
@@ -824,11 +825,16 @@ export async function mountChat(root: HTMLElement) {
   renderQuickBar();
 
   // Começa pela conversa de hoje mais recente, se houver; senão, uma nova.
-  const recent = (await invoke<Summary[]>("list_conversations"))[0];
-  const saved = recent && isToday(recent.updated_ms)
-    ? await invoke<Saved | null>("load_conversation", { conversation: recent.id })
-    : null;
-  openTab(saved ?? undefined);
+  // Aconteça o que acontecer, abre uma aba: sem ela o chat fica sem Enter.
+  let saved: Saved | null = null;
+  try {
+    const recent = (await call<Summary[]>("list_conversations", undefined, []))[0];
+    if (recent && isToday(recent.updated_ms)) {
+      saved = await call<Saved | null>("load_conversation", { conversation: recent.id }, null);
+    }
+  } finally {
+    openTab(saved ?? undefined);
+  }
 }
 
 /// Minúsculas e sem acento, para filtrar atalhos.
