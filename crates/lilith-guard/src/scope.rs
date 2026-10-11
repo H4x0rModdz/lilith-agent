@@ -63,13 +63,19 @@ const DANGEROUS_SCOPES: &[&str] = &[
     "input.control",
     // Um agente de código edita arquivos e roda ferramentas por conta própria.
     "agent.delegate",
+    // Fechar um app/janela pode perder trabalho não salvo — e um modelo
+    // pequeno já confundiu "joga o WhatsApp pro lado" com fechar.
+    "app.terminate",
 ];
 
 /// Scope exigido por cada ação. Ação sem mapeamento vira `unknown` (negada) —
 /// ao adicionar uma ação, adicione aqui e no teste `no_action_is_unknown`.
 pub fn scope_for(action: &str) -> &'static str {
     match action {
-        "app.open" | "app.close" | "browser.open" | "file.open" => "app.launch",
+        "app.open" | "browser.open" | "file.open" => "app.launch",
+        "app.close" | "window.close" => "app.terminate",
+        "window.list" | "window.focus" | "window.minimize" | "window.maximize" | "window.restore" | "window.move"
+        | "window.tile" | "cursor.point" => "window.control",
         "file.find" | "file.list" => "filesystem.read",
         // Executar um arquivo = rodar código arbitrário.
         "file.run" => "terminal.execute",
@@ -98,6 +104,9 @@ mod tests {
         assert_eq!(classify("desktop.modify"), Verdict::Safe);
         assert_eq!(classify("filesystem.delete"), Verdict::Dangerous);
         assert_eq!(classify("input.control"), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("app.close")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("window.close")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("window.move")), Verdict::Safe);
     }
 
     #[test]
@@ -138,6 +147,15 @@ mod tests {
             "system.power",
             "agent.delegate",
             "agent.jobs",
+            "window.list",
+            "window.focus",
+            "window.minimize",
+            "window.maximize",
+            "window.restore",
+            "window.close",
+            "window.move",
+            "window.tile",
+            "cursor.point",
         ] {
             let scope = scope_for(action);
             assert_ne!(scope, "unknown", "{action} sem scope");

@@ -34,7 +34,9 @@ pub fn all_tools() -> Vec<Tool> {
         },
         Tool {
             action: "app.close",
-            description: "Fecha um aplicativo em execução pelo nome do processo (ex.: 'chrome', 'spotify').",
+            description: "ENCERRA um aplicativo (ex.: 'chrome', 'spotify'). Use SÓ quando o usuário pedir \
+                          explicitamente para fechar/encerrar/matar. Para mover, arrastar, organizar ou \
+                          trocar de tela, use window.move.",
             schema: obj(
                 json!({
                     "app": { "type": "string" },
@@ -147,6 +149,81 @@ pub fn all_tools() -> Vec<Tool> {
             schema: obj(
                 json!({ "op": { "type": "string", "enum": ["lock", "sleep", "restart", "shutdown"] } }),
                 &["op"],
+            ),
+        },
+        // ── janelas (com o cursor rosa da Lilith) ───────────────────────
+        Tool {
+            action: "window.list",
+            description: "Lista as janelas abertas (título, app, monitor, id) e os monitores. Use quando \
+                          precisar saber o que está aberto ou em qual tela.",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "window.move",
+            description: "Arrasta uma janela com o seu cursor: para uma posição da tela e/ou outro monitor. \
+                          Use para 'joga pro lado', 'põe na outra tela', 'coloca na esquerda', 'centraliza'. \
+                          `target`: nome do app ou trecho do título ('active' = a janela em uso). \
+                          `position`: left, right, top, bottom, top_left, top_right, bottom_left, \
+                          bottom_right, left_third, center_third, right_third, left_two_thirds, \
+                          right_two_thirds, center, maximize. `monitor`: número (1 = principal), \
+                          'next' ou 'previous'.",
+            schema: obj(
+                json!({
+                    "target": { "type": "string" },
+                    "position": { "type": "string" },
+                    "monitor": { "type": ["integer", "string"] }
+                }),
+                &["target"],
+            ),
+        },
+        Tool {
+            action: "window.tile",
+            description: "Divide a tela entre várias janelas, como o Snap do Windows: 2 lado a lado, 3 com \
+                          uma principal, 4 em grade. `targets`: nomes dos apps na ordem (o primeiro fica \
+                          na posição principal); sem `targets`, usa as `count` janelas mais recentes. \
+                          `layout`: auto (padrão), columns, rows, grid, main_left, main_right.",
+            schema: obj(
+                json!({
+                    "targets": { "type": "array", "items": { "type": "string" } },
+                    "count": { "type": "integer" },
+                    "layout": { "type": "string" },
+                    "monitor": { "type": ["integer", "string"] }
+                }),
+                &[],
+            ),
+        },
+        Tool {
+            action: "window.focus",
+            description: "Traz uma janela para frente e dá foco (`target`: app ou título).",
+            schema: obj(json!({ "target": { "type": "string" } }), &["target"]),
+        },
+        Tool {
+            action: "window.minimize",
+            description: "Minimiza uma janela (`target`: app ou título).",
+            schema: obj(json!({ "target": { "type": "string" } }), &["target"]),
+        },
+        Tool {
+            action: "window.maximize",
+            description: "Maximiza uma janela (`target`: app ou título).",
+            schema: obj(json!({ "target": { "type": "string" } }), &["target"]),
+        },
+        Tool {
+            action: "window.restore",
+            description: "Restaura uma janela minimizada ou maximizada (`target`: app ou título).",
+            schema: obj(json!({ "target": { "type": "string" } }), &["target"]),
+        },
+        Tool {
+            action: "window.close",
+            description: "Fecha uma janela (como clicar no X). Só quando o usuário pedir para fechar.",
+            schema: obj(json!({ "target": { "type": "string" } }), &["target"]),
+        },
+        Tool {
+            action: "cursor.point",
+            description: "Aponta com o seu cursor para uma janela ou monitor, para mostrar algo ao usuário \
+                          ('onde está o discord?'). `target`: app/título, ou `monitor`.",
+            schema: obj(
+                json!({ "target": { "type": "string" }, "monitor": { "type": ["integer", "string"] } }),
+                &[],
             ),
         },
         // ── agentes de código ───────────────────────────────────────────
