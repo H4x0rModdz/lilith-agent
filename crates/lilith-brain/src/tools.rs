@@ -225,8 +225,9 @@ pub fn all_tools() -> Vec<Tool> {
             description: "Abre uma conversa (pessoa OU grupo) pelo NOME no WhatsApp ou no Discord, usando \
                           a busca do próprio app — acha qualquer conversa, mesmo fora da lista visível. \
                           É o jeito certo de abrir um chat antes de ler ou mandar mensagem. Se o app \
-                          não estiver aberto, abra antes com app.open. Para outros programas use \
-                          ui.find + ui.click.",
+                          não estiver aberto, abra antes com app.open. Se já estiver nessa conversa, ele \
+                          avisa (`already_open`) e não refaz nada — siga para o próximo passo. Para \
+                          outros programas use ui.find + ui.click.",
             schema: obj(
                 json!({
                     "target": { "type": "string", "description": "'whatsapp' ou 'discord'" },
