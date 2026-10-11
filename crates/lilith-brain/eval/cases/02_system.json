@@ -1,0 +1,102 @@
+[
+  {
+    "cat": "audio",
+    "templates": ["abaixa o volume pra {n}", "coloca o volume em {n}%", "volume {n}", "deixa o som em {n}", "muda o volume para {n} por cento"],
+    "slots": { "n": ["10", "25", "30", "50", "70", "100"] },
+    "plan": [["audio.set_volume"]]
+  },
+  {
+    "cat": "audio",
+    "templates": ["muta o pc", "silencia o som", "tira o som", "coloca no mudo"],
+    "plan": [["audio.set_mute"]]
+  },
+  {
+    "cat": "audio",
+    "templates": ["tira o mudo", "volta o som", "desmuta o pc"],
+    "plan": [["audio.set_mute"]]
+  },
+  {
+    "cat": "audio",
+    "templates": ["quanto tá o volume?", "qual o volume agora?", "o som tá muito alto?"],
+    "plan": [["audio.get_volume"]]
+  },
+  {
+    "cat": "audio",
+    "templates": ["aumenta o volume", "sobe o som", "tá baixo, aumenta", "diminui o volume", "abaixa o som um pouco"],
+    "plan": [["audio.set_volume"], ["audio.get_volume", "audio.set_volume"]]
+  },
+  {
+    "cat": "audio",
+    "templates": ["set the volume to {n}", "mute the pc", "turn the sound down"],
+    "slots": { "n": ["20", "40", "60"] },
+    "plan": [["audio.set_volume"], ["audio.set_mute"]]
+  },
+  {
+    "cat": "apps",
+    "templates": ["abre o {app}", "abre o {app} pra mim", "inicia o {app}", "roda o {app}", "bota o {app} pra abrir", "quero usar o {app}"],
+    "slots": { "app": ["spotify", "discord", "bloco de notas", "calculadora", "steam", "vscode", "paint", "obs"] },
+    "plan": [["app.open"]]
+  },
+  {
+    "cat": "apps",
+    "templates": ["open {app}", "launch {app}", "start {app} please"],
+    "slots": { "app": ["spotify", "discord", "notepad", "calculator"] },
+    "plan": [["app.open"]]
+  },
+  {
+    "cat": "apps",
+    "templates": ["abre mais um {app}", "abre outra janela do {app}"],
+    "slots": { "app": ["bloco de notas", "chrome", "explorador de arquivos"] },
+    "plan": [["app.open"]]
+  },
+  {
+    "cat": "apps",
+    "templates": ["abre o abre o {app}", "abrr o {app}", "abre o  {app} "],
+    "slots": { "app": ["spotify", "discord", "steam"] },
+    "plan": [["app.open"]]
+  },
+  {
+    "cat": "apps",
+    "templates": ["abre o zap", "abre o whats", "abre o zapzap"],
+    "plan": [["app.open"]]
+  },
+  {
+    "cat": "apps",
+    "templates": ["mata o processo do {app}", "força o fechamento do {app}", "o {app} travou, encerra ele"],
+    "slots": { "app": ["steam", "discord", "chrome"] },
+    "plan": [["app.close"]]
+  },
+  {
+    "cat": "power",
+    "templates": ["bloqueia o pc", "tranca a tela", "bloqueia o computador"],
+    "plan": [["system.power"]]
+  },
+  {
+    "cat": "power",
+    "templates": ["desliga o pc", "desliga o computador", "reinicia o pc", "reinicia o computador", "suspende o pc", "põe o pc pra dormir"],
+    "plan": [["system.power"]]
+  },
+  {
+    "cat": "desktop",
+    "templates": ["troca meu wallpaper por {tema}", "muda o papel de parede pra {tema}", "coloca {tema} de fundo de tela", "quero um wallpaper de {tema}"],
+    "slots": { "tema": ["gato preto", "floresta à noite", "cyberpunk rosa", "montanhas", "anime"] },
+    "plan": [["desktop.set_wallpaper"]]
+  },
+  {
+    "cat": "desktop",
+    "templates": ["change my wallpaper to {tema}", "set a {tema} background"],
+    "slots": { "tema": ["forest", "city at night", "space"] },
+    "plan": [["desktop.set_wallpaper"]]
+  },
+  {
+    "cat": "clipboard",
+    "templates": ["copia '{txt}' pra área de transferência", "joga '{txt}' no clipboard", "copia esse texto: {txt}"],
+    "slots": { "txt": ["bom dia pessoal", "meu email de teste", "123456"] },
+    "plan": [["clipboard.set"]]
+  },
+  {
+    "cat": "clipboard",
+    "templates": ["o que eu copiei?", "o que tem na área de transferência?", "lê o que tá no clipboard"],
+    "plan": [["clipboard.get"]]
+  }
+]

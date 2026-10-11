@@ -1,0 +1,154 @@
+[
+  {
+    "cat": "windows",
+    "templates": ["joga o {app} mais pro lado", "empurra a janela do {app} um pouco pra direita", "ajusta o {app} um pouquinho pra direita", "move o {app} levemente pra direita"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome", "bloco de notas", "steam"] },
+    "plan": [["window.move"]],
+    "params": { "window.move": { "nudge": "right" } }
+  },
+  {
+    "cat": "windows",
+    "templates": ["ajusta o {app} um pouquinho pra esquerda", "joga a janela do {app} mais pra esquerda", "puxa o {app} um pouco pra esquerda"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome", "bloco de notas", "steam"] },
+    "plan": [["window.move"]],
+    "params": { "window.move": { "nudge": "left" } }
+  },
+  {
+    "cat": "windows",
+    "templates": ["sobe um pouco a janela do {app}", "levanta o {app} um pouquinho"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome"] },
+    "plan": [["window.move"]],
+    "params": { "window.move": { "nudge": "up" } }
+  },
+  {
+    "cat": "windows",
+    "templates": ["desce um pouco a janela do {app}", "abaixa o {app} um pouquinho"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome"] },
+    "plan": [["window.move"]],
+    "params": { "window.move": { "nudge": "down" } }
+  },
+  {
+    "cat": "windows",
+    "templates": ["põe o {app} na metade direita da tela", "coloca o {app} no lado direito da tela, ocupando metade", "encaixa o {app} na metade da direita"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome", "vscode"] },
+    "plan": [["window.move"]],
+    "params": { "window.move": { "position": "right" } }
+  },
+  {
+    "cat": "windows",
+    "templates": ["põe o {app} na metade esquerda da tela", "encaixa o {app} no lado esquerdo, metade da tela", "coloca o {app} ocupando a metade da esquerda"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome", "vscode"] },
+    "plan": [["window.move"]],
+    "params": { "window.move": { "position": "left" } }
+  },
+  {
+    "cat": "windows",
+    "templates": ["coloca o {app} no canto superior esquerdo", "encaixa o {app} no canto de cima à esquerda"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome"] },
+    "plan": [["window.move"]],
+    "params": { "window.move": { "position": "top_left" } }
+  },
+  {
+    "cat": "windows",
+    "templates": ["coloca o {app} no canto inferior direito", "encaixa o {app} no canto de baixo à direita"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome"] },
+    "plan": [["window.move"]],
+    "params": { "window.move": { "position": "bottom_right" } }
+  },
+  {
+    "cat": "windows",
+    "templates": ["centraliza o {app} na tela", "coloca o {app} no meio da tela"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome", "bloco de notas"] },
+    "plan": [["window.move"]],
+    "params": { "window.move": { "position": "center" } }
+  },
+  {
+    "cat": "windows",
+    "templates": ["manda o {app} pra outra tela", "leva o {app} pro segundo monitor", "põe o {app} no outro monitor", "joga o {app} pra tela do lado"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome", "steam"] },
+    "plan": [["window.move"]],
+    "params": { "window.move": { "monitor": "~" } }
+  },
+  {
+    "cat": "windows",
+    "templates": ["maximiza o {app}", "deixa o {app} em tela cheia", "expande a janela do {app} pra ocupar tudo"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome", "bloco de notas"] },
+    "plan": [["window.maximize"], ["window.move"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["minimiza o {app}", "tira o {app} da frente, minimizando", "minimiza a janela do {app}", "some com o {app} (minimiza)"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome", "steam", "bloco de notas"] },
+    "plan": [["window.minimize"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["restaura o {app}", "traz o {app} de volta, ele tá minimizado"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome"] },
+    "plan": [["window.restore"], ["window.focus"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["traz o {app} pra frente", "me mostra o {app}", "foca no {app}", "vai pra janela do {app}"],
+    "slots": { "app": ["whatsapp", "discord", "spotify", "chrome", "bloco de notas"] },
+    "plan": [["window.focus"], ["app.open"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["divide a tela entre o {a} e o {b}", "coloca o {a} e o {b} lado a lado", "põe o {a} e o {b} um do lado do outro"],
+    "slots": { "a": ["chrome", "discord", "spotify"], "b": ["vscode", "whatsapp", "bloco de notas"] },
+    "plan": [["window.tile"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["divide a tela entre {a}, {b} e {c}", "organiza o {a}, o {b} e o {c} na tela", "coloca {a}, {b} e {c} todos visíveis ao mesmo tempo"],
+    "slots": { "a": ["chrome", "discord"], "b": ["spotify", "vscode"], "c": ["whatsapp", "steam"] },
+    "plan": [["window.tile"]]
+  },
+  {
+    "cat": "windows",
+    "text": "organiza minhas janelas",
+    "plan": [["window.tile"], ["window.list", "window.tile"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["quais janelas estão abertas?", "o que eu tenho aberto agora?", "lista as janelas abertas", "me diz o que tá aberto no pc"],
+    "plan": [["window.list"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["em qual tela tá o {app}?", "onde está o {app}?"],
+    "slots": { "app": ["discord", "spotify", "chrome", "whatsapp"] },
+    "plan": [["window.list"], ["cursor.point"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["fecha o {app}", "fecha a janela do {app}", "encerra o {app}"],
+    "slots": { "app": ["spotify", "discord", "steam", "bloco de notas", "chrome"] },
+    "plan": [["app.close"], ["window.close"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["move o {app} um pouco pra direita, não fecha", "só mexe a janela do {app} pro lado, sem fechar"],
+    "slots": { "app": ["whatsapp", "discord", "spotify"] },
+    "plan": [["window.move"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["move {app} to the left half of the screen", "snap {app} to the right side", "put {app} on the other monitor"],
+    "slots": { "app": ["discord", "spotify", "chrome"] },
+    "plan": [["window.move"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["minimize {app}", "maximize {app}", "bring {app} to the front"],
+    "slots": { "app": ["discord", "spotify", "chrome"] },
+    "plan": [["window.minimize"], ["window.maximize"], ["window.focus"]]
+  },
+  {
+    "cat": "windows",
+    "templates": ["minimiza o {app}", "joga o {app} pro lado", "poe o {app} na direita"],
+    "slots": { "app": ["spotfy", "discrod", "whatsap", "crome"] },
+    "plan": [["window.minimize"], ["window.move"]]
+  }
+]

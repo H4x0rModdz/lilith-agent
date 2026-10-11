@@ -1,0 +1,122 @@
+[
+  {
+    "cat": "chat-send",
+    "templates": ["manda um oi pro {person} no {app}", "manda um oi pra {person} no {app}", "diz oi pro {person} no {app}"],
+    "slots": { "person": ["user x", "user y", "user z"], "app": ["whatsapp", "discord", "teams"] },
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "equals": "oi" },
+    "max_per_template": 5
+  },
+  {
+    "cat": "chat-send",
+    "templates": ["manda um bom dia pro {person} no {app}", "manda bom dia pra {person} no {app}"],
+    "slots": { "person": ["user x", "user y"], "app": ["whatsapp", "discord", "teams"] },
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "equals": "bom dia" }
+  },
+  {
+    "cat": "chat-send",
+    "templates": ["manda '{txt}' pro {person} no {app}", "manda a mensagem \"{txt}\" pro {person} no {app}", "envia '{txt}' pra {person} no {app}"],
+    "slots": { "txt": ["tô chegando", "bora jogar vlw", "me liga quando puder", "reunião às 15h"], "person": ["user x", "user y"], "app": ["whatsapp", "discord", "teams"] },
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "contains_any": ["tô chegando", "bora jogar vlw", "me liga quando puder", "reunião às 15h"] },
+    "max_per_template": 6
+  },
+  {
+    "cat": "chat-send",
+    "templates": ["manda '{txt}' pro {person} no discord"],
+    "slots": { "txt": ["bora jogar vlw"], "person": ["user x"] },
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "equals": "bora jogar vlw" }
+  },
+  {
+    "cat": "chat-send",
+    "templates": ["acha o chat do {person} no discord e chama ele pra jogar cmg", "chama o {person} no discord pra jogar cmg", "convida o {person} pra jogar cmg no discord"],
+    "slots": { "person": ["user x", "user y", "user z"] },
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "contains": ["comigo"] }
+  },
+  {
+    "cat": "chat-send",
+    "templates": ["pergunta pro {person} no {app} se ele vem hj", "pergunta pra {person} no {app} se ela vem hoje"],
+    "slots": { "person": ["user x", "user y"], "app": ["whatsapp", "discord", "teams"] },
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "contains": ["hoje"] }
+  },
+  {
+    "cat": "chat-send",
+    "templates": ["avisa o {person} no {app} que vou atrasar uns 10 min", "fala pro {person} no {app} que eu vou me atrasar 10 minutos"],
+    "slots": { "person": ["user x", "user y"], "app": ["whatsapp", "discord", "teams"] },
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "contains": ["10"] }
+  },
+  {
+    "cat": "chat-send",
+    "templates": ["pergunta pro {person} no {app} se ele já almoçou", "pergunta pra {person} no {app} se ela já comeu"],
+    "slots": { "person": ["user x", "user y"], "app": ["whatsapp", "discord"] },
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "contains_any": ["almoç", "comeu", "comeste"] }
+  },
+  {
+    "cat": "chat-send",
+    "templates": ["fala pro {person} no {app} que eu agradeço a ajuda", "agradece o {person} no {app} pela ajuda"],
+    "slots": { "person": ["user x", "user y"], "app": ["whatsapp", "discord", "teams"] },
+    "plan": [["ui.open_chat", "ui.type"]],
+    "message": { "contains_any": ["obrigad", "valeu", "agrade"] }
+  },
+  {
+    "cat": "chat-send",
+    "templates": ["manda um oi no grupo {g} do {app}", "manda 'bora' no grupo {g} do {app}", "avisa o grupo {g} no {app} que já cheguei"],
+    "slots": { "g": ["group a", "group b"], "app": ["whatsapp", "discord"] },
+    "plan": [["ui.open_chat", "ui.type"]]
+  },
+  {
+    "cat": "chat-send",
+    "templates": ["send a hello to {person} on {app}", "text {person} on {app} saying I'm on my way"],
+    "slots": { "person": ["user x", "user y"], "app": ["whatsapp", "discord", "teams"] },
+    "plan": [["ui.open_chat", "ui.type"]]
+  },
+  {
+    "cat": "chat-multi",
+    "templates": ["manda oi pro {a} no whatsapp e oi pro {b} no discord", "manda um oi pro {a} no whatsapp e um oi pro {b} no discord"],
+    "slots": { "a": ["user x", "user z"], "b": ["user y", "user w"] },
+    "plan": [["ui.open_chat", "ui.type", "ui.open_chat", "ui.type"]]
+  },
+  {
+    "cat": "chat-multi",
+    "templates": ["manda bom dia pro {a} no teams e pro {b} no whatsapp"],
+    "slots": { "a": ["user x"], "b": ["user y"] },
+    "plan": [["ui.open_chat", "ui.type", "ui.open_chat", "ui.type"]]
+  },
+  {
+    "cat": "chat-read",
+    "templates": ["lê as mensagens do {person} no {app}", "o que o {person} mandou no {app}?", "lê o chat do {person} no {app}", "me diz o que o {person} falou no {app}"],
+    "slots": { "person": ["user x", "user y", "user z"], "app": ["whatsapp", "discord", "teams"] },
+    "plan": [["ui.open_chat", "window.read"]],
+    "max_per_template": 5
+  },
+  {
+    "cat": "chat-read",
+    "templates": ["lê as mensagens do grupo {g} no {app}", "o que rolou no grupo {g} do {app}?"],
+    "slots": { "g": ["group a", "group b"], "app": ["whatsapp", "discord"] },
+    "plan": [["ui.open_chat", "window.read"]]
+  },
+  {
+    "cat": "chat-read",
+    "templates": ["lê o que está escrito no {app}", "o que diz a janela do {app}?", "me lê o que tá aberto no {app}"],
+    "slots": { "app": ["bloco de notas", "word", "notepad"] },
+    "plan": [["window.read"]]
+  },
+  {
+    "cat": "slang",
+    "templates": ["chama o {person} pra jogar cmg no discord", "fala pro {person} no whatsapp que eu tb vou", "pergunta pro {person} no discord se ele tá livre hj"],
+    "slots": { "person": ["user x", "user y"] },
+    "plan": [["ui.open_chat", "ui.type"]]
+  },
+  {
+    "cat": "slang",
+    "templates": ["abre o zap e manda um oi pro {person}", "manda um oi pro {person} no zap", "no zap manda blz pro {person}"],
+    "slots": { "person": ["user x", "user y"] },
+    "plan": [["app.open", "ui.open_chat", "ui.type"], ["ui.open_chat", "ui.type"]]
+  }
+]

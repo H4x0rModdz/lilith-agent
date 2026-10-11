@@ -1,0 +1,86 @@
+[
+  {
+    "cat": "files",
+    "templates": ["lê o arquivo {f} da área de trabalho", "mostra o que tem escrito no {f} em documentos", "lê o {f} que tá em downloads", "me diz o conteúdo do arquivo {f}"],
+    "slots": { "f": ["notas.txt", "lista.md", "config.json", "dados.csv"] },
+    "plan": [["file.read"]]
+  },
+  {
+    "cat": "files",
+    "templates": ["abre o {f} que tá em downloads", "abre o arquivo {f}", "abre o {f} pra mim"],
+    "slots": { "f": ["relatorio.pdf", "foto.png", "planilha.xlsx", "musica.mp3"] },
+    "plan": [["file.open"]]
+  },
+  {
+    "cat": "files",
+    "templates": ["o que tem na pasta {p}?", "lista os arquivos da pasta {p}", "mostra o que tem em {p}", "o que eu tenho em {p}?"],
+    "slots": { "p": ["downloads", "documentos", "área de trabalho", "imagens"] },
+    "plan": [["file.list"]]
+  },
+  {
+    "cat": "files",
+    "templates": ["acha o arquivo {f}", "procura o {f} no meu pc", "onde está o {f}?", "encontra o arquivo chamado {f}"],
+    "slots": { "f": ["relatorio", "curriculo", "contrato", "planilha de gastos"] },
+    "plan": [["file.find"]]
+  },
+  {
+    "cat": "files",
+    "templates": ["apaga o arquivo {f}", "joga o {f} na lixeira", "deleta o {f} da área de trabalho"],
+    "slots": { "f": ["teste.txt", "rascunho.docx", "foto antiga.png"] },
+    "plan": [["file.delete"]]
+  },
+  {
+    "cat": "files",
+    "templates": ["move o {f} pra pasta {p}", "manda o {f} pra {p}"],
+    "slots": { "f": ["relatorio.pdf", "foto.png"], "p": ["documentos", "imagens"] },
+    "plan": [["file.move"]]
+  },
+  {
+    "cat": "files",
+    "templates": ["copia o {f} pra {p}", "faz uma cópia do {f} em {p}"],
+    "slots": { "f": ["relatorio.pdf", "foto.png"], "p": ["documentos", "downloads"] },
+    "plan": [["file.copy"]]
+  },
+  {
+    "cat": "files",
+    "templates": ["executa o instalador {f}", "roda o programa {f} que baixei", "instala o {f}"],
+    "slots": { "f": ["setup.exe", "instalador.msi"] },
+    "plan": [["file.run"]]
+  },
+  {
+    "cat": "files",
+    "templates": ["read the file {f} on my desktop", "open {f} from downloads", "list the files in my downloads folder"],
+    "slots": { "f": ["notes.txt", "report.pdf"] },
+    "plan": [["file.read"], ["file.open"], ["file.list"]]
+  },
+  {
+    "cat": "web",
+    "templates": ["baixa o instalador do {sw}", "baixa o {sw} pra mim", "preciso do instalador do {sw}"],
+    "slots": { "sw": ["vlc", "7zip", "obs studio", "notepad++"] },
+    "plan": [["web.search", "download.file"], ["download.file"], ["browser.search"]]
+  },
+  {
+    "cat": "web",
+    "templates": ["baixa esse arquivo: https://example.com/{f}", "faz o download de https://example.com/{f}"],
+    "slots": { "f": ["a.zip", "setup.exe", "imagem.png"] },
+    "plan": [["download.file"]]
+  },
+  {
+    "cat": "web",
+    "templates": ["pesquisa {q} na web e me resume", "procura na internet {q} e me conta", "descobre {q} pra mim"],
+    "slots": { "q": ["como funciona o pix", "melhores jogos gratuitos", "previsão do tempo amanhã", "o que é rust"] },
+    "plan": [["web.search"], ["web.search", "web.fetch"]]
+  },
+  {
+    "cat": "web",
+    "templates": ["lê essa página: https://example.com/{p}", "resume https://example.com/{p}", "o que diz o site https://example.com/{p}?"],
+    "slots": { "p": ["artigo", "noticia", "post"] },
+    "plan": [["web.fetch"]]
+  },
+  {
+    "cat": "web",
+    "templates": ["search the web for {q}", "look up {q} online and tell me"],
+    "slots": { "q": ["best free games", "how does pix work"] },
+    "plan": [["web.search"], ["web.search", "web.fetch"], ["browser.search"]]
+  }
+]
