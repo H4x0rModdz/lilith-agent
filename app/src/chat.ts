@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { USER_AVATAR_SVG, fillSigil, lilithAvatar } from "./avatar";
 import { makeDraggable } from "./drag";
-import { actionLabel } from "./labels";
+import { actionLabel, actionVerb } from "./labels";
 
 interface Reply {
   reply: string;
@@ -171,9 +171,18 @@ export async function mountChat(root: HTMLElement) {
     add("system", "⏹ Parei tudo.");
   });
 
-  listen<{ action: string }>("lilith://blocked", (e) =>
-    add("system", `🛡 Ignorei um pedido escrito no conteúdo que li (${actionLabel(e.payload.action).toLowerCase()}) — só obedeço o chat.`),
-  );
+  // A linha "⚙ …" do passo bloqueado vira o aviso (ele nunca aconteceu).
+  listen<{ action: string }>("lilith://blocked", (e) => {
+    const text = `🛡 O texto lido pedia para ${actionVerb(e.payload.action)}. Ignorei — só obedeço o chat.`;
+    const steps = log.querySelectorAll<HTMLElement>(".msg.system.step");
+    const last = steps[steps.length - 1];
+    if (last && last === log.lastElementChild) {
+      last.textContent = text;
+      last.classList.replace("step", "blocked");
+    } else {
+      add("system", text).classList.add("blocked");
+    }
+  });
 
   listen<Approval>("lilith://approval", (e) => renderApproval(e.payload));
   listen<number>("lilith://approval-expired", (e) => {
