@@ -171,6 +171,10 @@ impl Dispatcher for GuardedDispatcher {
             // aba); botão, menu ou nome com verbo de efeito ("Excluir",
             // "Enviar"…) pede aprovação. Decide pelo elemento de verdade.
             "ui.click" if !self.click_is_navigation(&call.params).await => "ui.click_effect",
+            // Memória entra no contexto de todo pedido futuro: só grava/apaga
+            // direto quando o usuário pediu isso NESTA mensagem do chat
+            // ("lembra que…"); se a ideia foi do modelo, pergunta.
+            "memory.remember" | "memory.forget" if !self.chat_asked_for(action) => "memory.write_unrequested",
             other => other,
         };
         // Defesa contra prompt injection: depois de ler conteúdo externo,
@@ -323,6 +327,15 @@ impl GuardedDispatcher {
                 json!({ "forgotten": ok, "key": s("key") })
             }
         }
+    }
+
+    /// O intérprete (que só vê o chat) listou esta ação para o pedido atual?
+    fn chat_asked_for(&self, action: &str) -> bool {
+        self.chat_intent
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|tools| tools.iter().any(|t| t == action))
     }
 
     /// O alvo do ui.click é pura navegação? Na dúvida (não achou), não.
