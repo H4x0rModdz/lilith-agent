@@ -96,7 +96,22 @@ impl Dispatcher for GuardedDispatcher {
         let result = match action {
             "cursor.point" => self.screen_action(action, &call.params).await,
             a if APP_ACTIONS.contains(&a) => self.agent_action(action, &call.params),
-            a if a.starts_with("window.") && a != "window.list" => self.screen_action(action, &call.params).await,
+            a if a.starts_with("window.") && !matches!(a, "window.list" | "window.read") => {
+                self.screen_action(action, &call.params).await
+            }
+            "window.read" => {
+                // Gesto de "olhar" a janela antes de ler.
+                use tauri::Manager;
+                let screen = self.app.state::<Arc<crate::screen::Screen>>().inner().clone();
+                let _presence = screen.begin();
+                let target = call.params["target"].as_str().unwrap_or("active").to_string();
+                if let Ok(w) = blocking(move || lilith_win::window::find(&target)).await {
+                    if !w.minimized {
+                        screen.point(w.frame.center()).await;
+                    }
+                }
+                lilith_win::dispatch(action, call.params.clone()).await
+            }
             _ => lilith_win::dispatch(action, call.params.clone()).await,
         };
         let envelope = match result {

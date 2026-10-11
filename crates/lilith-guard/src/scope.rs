@@ -76,7 +76,9 @@ pub fn scope_for(action: &str) -> &'static str {
         "app.close" | "window.close" => "app.terminate",
         "window.list" | "window.focus" | "window.minimize" | "window.maximize" | "window.restore" | "window.move"
         | "window.tile" | "cursor.point" => "window.control",
-        "file.find" | "file.list" => "filesystem.read",
+        "file.find" | "file.list" | "file.read" => "filesystem.read",
+        // Ler a tela pode entregar senhas e conversas: pede aprovação.
+        "window.read" => "screen.read",
         // Executar um arquivo = rodar código arbitrário.
         "file.run" => "terminal.execute",
         "file.move" | "file.copy" => "filesystem.write",
@@ -132,6 +134,8 @@ mod tests {
             "file.run",
             "file.find",
             "file.list",
+            "file.read",
+            "window.read",
             "file.move",
             "file.copy",
             "file.delete",

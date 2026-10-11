@@ -22,6 +22,8 @@ const ACTION_LABELS: Record<string, string> = {
   "web.fetch": "Lendo a página",
   "agent.delegate": "Delegando para um agente",
   "window.list": "Olhando as janelas",
+  "window.read": "Lendo a janela",
+  "file.read": "Lendo o arquivo",
   "window.move": "Arrastando a janela",
   "window.tile": "Organizando as janelas",
   "window.focus": "Trazendo a janela pra frente",
