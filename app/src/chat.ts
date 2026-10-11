@@ -147,8 +147,9 @@ export async function mountChat(root: HTMLElement) {
   });
 
   listen<{ step: number; action: string }>("lilith://step", (e) => {
-    // Texto que o modelo soltou antes de chamar a tool não é a resposta final.
-    if (live && !live.textContent?.trim()) live.closest("li")?.remove();
+    // Texto de um passo que termina chamando uma tool é o modelo "pensando
+    // alto" — nunca a resposta. Some da tela; a resposta final vem depois.
+    if (live) live.closest("li")?.remove();
     live = null;
     const label = actionLabel(e.payload.action);
     add("system", `⚙ ${label}…`).classList.add("step");
