@@ -21,10 +21,14 @@ médio, sem depender de mais modelos grandes).
 4. **Expressões** vêm da emoção que o cérebro já devolve (`neutral`, `happy`,
    `concerned`) e do estado (`thinking`), com transição suave, mais piscar,
    respiração, olhar seguindo o cursor e inclinação da cabeça ao pensar.
-5. **Voz** (fases seguintes): saída com Piper (TTS local, português) e lip-sync pela
-   amplitude do áudio (evento `lilith://mouth`); entrada com whisper.cpp
-   (push-to-talk). Modelos de voz são baixados no primeiro uso para
-   `%APPDATA%\Lilith\voice\`, nunca vão no instalador.
+5. **Voz de saída: Kokoro (82M, Apache-2.0) no sherpa-onnx**, voz feminina em
+   português do Brasil (`pf_dora`). O Piper foi descartado porque todas as vozes
+   pt-BR dele são masculinas. A biblioteca é carregada no processo (a linha de
+   comando do sherpa quebra acentos no Windows); o modelo fica na memória enquanto
+   se usa e sai depois de 5 minutos parado. O volume da fala abre a boca do modelo
+   (`lilith://mouth`). Os arquivos (≈150 MB) são baixados no primeiro uso para
+   `%APPDATA%\Lilith\voice\`, conferidos por SHA-256, e nunca vão no instalador.
+   Voz de entrada (fase 2c): whisper.cpp, push-to-talk.
 
 ## Fases
 
