@@ -45,7 +45,10 @@ monitor, \"some com\" = minimizar).
 Regras: fechar/encerrar/apagar só se o usuário disser isso explicitamente. Mover, \
 arrastar, ajustar, organizar ou trocar de tela uma janela NUNCA é fechar. \
 \"Mais pro lado\", \"um pouco\", \"um pouquinho\", \"ajusta\" = deslocar levemente (nudge), \
-mantendo o tamanho; encaixar em metade/canto/tela cheia só se o usuário nomear essa região.
+mantendo o tamanho; encaixar em metade/canto/tela cheia só se o usuário nomear essa região. \
+Programa aberto x arquivo: \"o que está escrito no bloco de notas\", \"na janela\", \"nessa tela\", \
+\"no chat do discord\" = ler a janela aberta (window.read). Um nome ou caminho de arquivo \
+(\"relatorio.txt\", \"o arquivo X\", \"na pasta Downloads\") = arquivo no disco (file.read/file.find).
 
 Catálogo:
 ";

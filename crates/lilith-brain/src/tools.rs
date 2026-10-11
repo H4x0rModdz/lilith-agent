@@ -75,6 +75,13 @@ pub fn all_tools() -> Vec<Tool> {
             ),
         },
         Tool {
+            action: "file.read",
+            description: "Lê o conteúdo de um ARQUIVO de texto no disco (txt, md, json, csv, código…). \
+                          Use quando o usuário citar um arquivo pelo nome ou caminho. Para o que está \
+                          aberto na tela num programa, use window.read.",
+            schema: obj(json!({ "path": { "type": "string" } }), &["path"]),
+        },
+        Tool {
             action: "file.list",
             description: "Lista o conteúdo de uma pasta.",
             schema: obj(json!({ "path": { "type": "string" } }), &["path"]),
@@ -157,6 +164,13 @@ pub fn all_tools() -> Vec<Tool> {
             description: "Lista as janelas abertas (título, app, monitor, id) e os monitores. Use quando \
                           precisar saber o que está aberto ou em qual tela.",
             schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "window.read",
+            description: "Lê o texto que está aberto num PROGRAMA/JANELA agora (Bloco de Notas, Word, \
+                          navegador, chat…), mesmo sem estar salvo. Use para 'lê o que está escrito no \
+                          bloco de notas', 'o que diz essa janela'. `target`: app ou título.",
+            schema: obj(json!({ "target": { "type": "string" } }), &["target"]),
         },
         Tool {
             action: "window.move",
