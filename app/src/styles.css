@@ -63,12 +63,22 @@ button {
 /* ───────────────────────── orb (forma 2D) ───────────────────────── */
 
 body[data-window="orb"] #root {
-  display: grid;
-  place-items: center;
   height: 100%;
 }
 
+/* A janela inteira (88 px) é a área de "chegar perto": o orb fica pequeno em
+   repouso e cresce quando o mouse entra. */
+.orb-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
 .orb {
+  --gx: 0px;
+  --gy: 0px;
   position: relative;
   width: 64px;
   height: 64px;
@@ -82,14 +92,46 @@ body[data-window="orb"] #root {
   box-shadow:
     0 0 0 2px rgba(232, 69, 143, 0.55),
     0 6px 16px rgba(232, 69, 143, 0.28);
-  animation: breathe 4s ease-in-out infinite;
-  transition: box-shadow 0.3s;
+  transform: scale(0.62);
+  transition: transform 0.28s cubic-bezier(0.34, 1.4, 0.64, 1), box-shadow 0.3s, opacity 0.3s;
+  opacity: 0.85;
 }
-
-.orb:hover {
+.orb-stage.hover .orb,
+.orb[data-state="asking"],
+.orb[data-state="thinking"] {
+  transform: scale(1);
+  opacity: 1;
+}
+.orb-stage.hover .orb {
   box-shadow:
     0 0 0 2px var(--pink),
     0 6px 22px rgba(232, 69, 143, 0.45);
+}
+
+/* Anel de estado (gira ao pensar, pulsa ao pedir aprovação). */
+.orb-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+.orb[data-state="thinking"] .orb-ring {
+  opacity: 1;
+  border-color: rgba(255, 95, 168, 0.9) rgba(155, 123, 255, 0.9) transparent transparent;
+  animation: ring-spin 0.9s linear infinite;
+}
+.orb[data-state="working"] .orb-ring {
+  opacity: 1;
+  border-color: rgba(155, 123, 255, 0.85) transparent rgba(255, 95, 168, 0.5) transparent;
+  animation: ring-spin 2.4s linear infinite;
+}
+.orb[data-state="asking"] .orb-ring {
+  opacity: 1;
+  border-color: var(--warn);
+  animation: ring-pulse 1.2s ease-in-out infinite;
 }
 
 .orb-horn {
@@ -110,6 +152,7 @@ body[data-window="orb"] #root {
   transform: rotate(22deg);
 }
 
+/* Rosto: os olhos andam com --gx/--gy (seguem o mouse). */
 .orb-face {
   position: absolute;
   inset: 0;
@@ -117,15 +160,18 @@ body[data-window="orb"] #root {
   justify-content: center;
   align-items: center;
   gap: 12px;
+  transform: translate(var(--gx), var(--gy));
+  transition: transform 0.12s linear;
 }
-
 .orb-eye {
   width: 8px;
   height: 12px;
   border-radius: 50%;
   background: var(--pink);
-  animation: blink 5s infinite;
-  transition: all 0.25s;
+  transition: height 0.14s, border-radius 0.2s, transform 0.2s, background 0.2s;
+}
+.orb.blinking .orb-eye {
+  height: 2px;
 }
 
 .orb[data-mood="happy"] .orb-eye {
@@ -143,69 +189,79 @@ body[data-window="orb"] #root {
 .orb[data-mood="concerned"] .orb-eye + .orb-eye {
   transform: rotate(12deg);
 }
+.orb[data-mood="sleepy"] .orb-eye {
+  height: 3px;
+  border-radius: 3px;
+  opacity: 0.7;
+}
+.orb[data-mood="sleepy"] {
+  animation: breathe 5s ease-in-out infinite;
+}
 
-.orb[data-state="thinking"] {
-  animation: think 1.2s linear infinite;
+/* Bolinha de pendências (aprovações esperando / tarefas rodando). */
+.orb-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--lilac), var(--pink));
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 8px rgba(155, 123, 255, 0.5);
+  pointer-events: none;
 }
-.orb[data-state="thinking"] .orb-eye {
-  animation: look 1.6s ease-in-out infinite;
-}
-.orb[data-state="asking"] {
-  box-shadow:
-    0 0 0 2px var(--warn),
-    0 6px 20px rgba(201, 138, 0, 0.35);
+.orb-badge[data-kind="approval"] {
+  background: linear-gradient(135deg, #ffd27a, #e8a21a);
+  color: #3a2a00;
+  box-shadow: 0 0 10px rgba(255, 210, 122, 0.8);
+  animation: ring-pulse 1.2s ease-in-out infinite;
 }
 
 .orb-bubble {
   position: absolute;
-  bottom: 70px;
-  right: 0;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
   white-space: nowrap;
-  font-size: 11px;
-  padding: 3px 8px;
+  font-size: 10px;
+  padding: 2px 7px;
   border-radius: 8px;
-  background: rgba(30, 24, 40, 0.55);
+  background: rgba(30, 24, 40, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.35);
   color: #fff;
+  pointer-events: none;
 }
 
 @keyframes breathe {
   50% {
-    transform: scale(1.04);
+    transform: scale(0.66);
   }
 }
-@keyframes blink {
-  0%, 96%, 100% {
-    transform: scaleY(1);
-  }
-  98% {
-    transform: scaleY(0.1);
+@keyframes ring-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
-@keyframes look {
-  0%, 100% {
-    translate: 0 0;
-  }
-  30% {
-    translate: -3px -1px;
-  }
-  70% {
-    translate: 3px -1px;
-  }
-}
-@keyframes think {
-  0%, 100% {
-    box-shadow: 0 0 0 2px var(--pink), 0 6px 16px rgba(155, 123, 255, 0.35);
-  }
+@keyframes ring-pulse {
   50% {
-    box-shadow: 0 0 0 2px var(--lilac), 0 6px 22px rgba(232, 69, 143, 0.45);
+    opacity: 0.45;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .orb,
-  .orb-eye {
+  .orb-ring,
+  .orb-badge,
+  .orb-face {
     animation: none !important;
+    transition: none !important;
   }
 }
 

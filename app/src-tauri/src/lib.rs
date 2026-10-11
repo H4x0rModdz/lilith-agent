@@ -119,8 +119,23 @@ fn send_message(text: String, conversation: String, app: AppHandle, state: State
 }
 
 #[tauri::command]
-fn answer_approval(id: u64, answer: Answer, state: State<'_, AppState>) -> bool {
-    state.approvals.answer(id, answer)
+fn answer_approval(id: u64, answer: Answer, app: AppHandle, state: State<'_, AppState>) -> bool {
+    let ok = state.approvals.answer(id, answer);
+    // A orb tira o pedido da bolinha de pendências.
+    let _ = app.emit("lilith://approval-resolved", json!({ "id": id }));
+    ok
+}
+
+/// Menu da orb: abre o chat numa conversa nova.
+#[tauri::command]
+fn new_chat(app: AppHandle) {
+    windows::show_chat(&app);
+    let _ = app.emit_to("chat", "lilith://new-chat", ());
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 #[tauri::command]
@@ -471,6 +486,8 @@ pub fn run() {
             get_quick_prompts,
             save_quick_prompts,
             toggle_chat,
+            new_chat,
+            quit_app,
             show_panel_tab,
             hide_window,
             chat_moved,

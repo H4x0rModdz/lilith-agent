@@ -115,6 +115,8 @@ export async function mountChat(root: HTMLElement) {
   });
 
   const open = new Map<string, Conversation>();
+  // Menu da orb (botão direito → Nova conversa).
+  listen("lilith://new-chat", () => void openTab());
   let active!: Conversation;
   let counter = 0;
 
