@@ -62,12 +62,15 @@ impl Approvals {
 
 /// Ações que trazem conteúdo de fora (texto que o usuário não escreveu) para
 /// o contexto do modelo. Depois de uma delas, o turno fica "contaminado".
-const TAINT_SOURCES: &[&str] = &["window.read", "file.read", "web.fetch", "web.search", "clipboard.get", "agent.jobs"];
+/// memory.search entra: conversas antigas podem citar texto lido de fora.
+const TAINT_SOURCES: &[&str] =
+    &["window.read", "file.read", "web.fetch", "web.search", "clipboard.get", "agent.jobs", "memory.search"];
 
 /// O que continua livre num turno contaminado: só observar, sem efeito e
 /// sem canal de saída. (web.fetch fica de fora: uma URL escolhida por texto
 /// injetado é um jeito de mandar dados para fora.)
 const OBSERVE_ONLY: &[&str] = &[
+    "memory.search",
     "ui.find",
     "window.list",
     "window.read",
@@ -135,6 +138,7 @@ fn taint_gate(decision: Decision, turn_tainted: bool, action: &str, chat_intent:
 pub struct GuardedDispatcher {
     /// Aba do chat de onde veio o pedido (eventos voltam para ela).
     pub conversation: String,
+    pub store: Arc<lilith_memory::Memory>,
     pub jobs: Arc<lilith_agents::Jobs>,
     pub channel: String,
     pub app: AppHandle,
@@ -214,6 +218,7 @@ impl Dispatcher for GuardedDispatcher {
 
         let result = match action {
             "cursor.point" => self.screen_action(action, &call.params).await,
+            a if a.starts_with("memory.") => Ok(self.memory_action(a, &call.params)),
             a if APP_ACTIONS.contains(&a) => self.agent_action(action, &call.params),
             a if a.starts_with("window.") && !matches!(a, "window.list" | "window.read") => {
                 self.screen_action(action, &call.params).await
@@ -230,7 +235,12 @@ impl Dispatcher for GuardedDispatcher {
                         screen.point(w.frame.center()).await;
                     }
                 }
-                lilith_win::dispatch(action, call.params.clone()).await
+                // Período padrão de leitura de chats vem das configurações.
+                let mut params = call.params.clone();
+                if params["since_minutes"].is_null() {
+                    params["since_minutes"] = json!(crate::profile::chat_minutes(&self.store));
+                }
+                lilith_win::dispatch(action, params).await
             }
             _ => lilith_win::dispatch(action, call.params.clone()).await,
         };
@@ -262,7 +272,14 @@ impl Dispatcher for GuardedDispatcher {
 }
 
 /// Ações que o próprio app executa (não o `lilith-win`).
-pub const APP_ACTIONS: &[&str] = &["agent.delegate", "agent.jobs", "cursor.point"];
+pub const APP_ACTIONS: &[&str] = &[
+    "agent.delegate",
+    "agent.jobs",
+    "cursor.point",
+    "memory.search",
+    "memory.remember",
+    "memory.forget",
+];
 
 /// Win32 bloqueante fora do runtime async.
 async fn blocking<T: Send + 'static>(
@@ -274,6 +291,40 @@ async fn blocking<T: Send + 'static>(
 }
 
 impl GuardedDispatcher {
+    /// Memória de longo prazo: busca em todas as conversas (menos a atual,
+    /// que já está no contexto) e fatos guardados pelo próprio modelo.
+    fn memory_action(&self, action: &str, params: &Value) -> Value {
+        let s = |k: &str| params[k].as_str().unwrap_or("").trim().to_string();
+        match action {
+            "memory.search" => {
+                let hits = self.store.search(&s("query"), 8, Some(&self.conversation));
+                let results: Vec<Value> = hits
+                    .into_iter()
+                    .map(|h| {
+                        let text: String = h.text.chars().take(400).collect();
+                        json!({
+                            "conversation": h.title,
+                            "who": if h.role == "user" { "usuário" } else { "Lilith" },
+                            "date": crate::profile_date(h.ts),
+                            "text": text,
+                        })
+                    })
+                    .collect();
+                json!({ "query": s("query"), "results": results })
+            }
+            "memory.remember" => {
+                let ok = self.store.remember(&s("key"), &s("value"), "learned");
+                let _ = self.app.emit("lilith://facts", ());
+                json!({ "remembered": ok, "key": s("key") })
+            }
+            _ => {
+                let ok = self.store.forget(&s("key"));
+                let _ = self.app.emit("lilith://facts", ());
+                json!({ "forgotten": ok, "key": s("key") })
+            }
+        }
+    }
+
     /// O alvo do ui.click é pura navegação? Na dúvida (não achou), não.
     async fn click_is_navigation(&self, params: &Value) -> bool {
         use lilith_win::{uia, window};

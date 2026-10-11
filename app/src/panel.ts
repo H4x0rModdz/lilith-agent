@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { fillSigil } from "./avatar";
 import { makeDraggable } from "./drag";
 import { mountElectric } from "./electric";
+import { mountSettings } from "./settings";
 import { actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel } from "./labels";
 
@@ -61,13 +62,15 @@ export function mountPanel(root: HTMLElement) {
         <button class="icon-btn neon-soft" data-act="close" title="Fechar"><span data-icon="close" data-size="17"></span></button>
       </header>
       <nav class="tabs" role="tablist">
-        <button role="tab" class="tab" data-tab="jobs" aria-selected="true"><span data-icon="jobs" data-size="16"></span>Tarefas</button>
-        <button role="tab" class="tab" data-tab="activity" aria-selected="false"><span data-icon="activity" data-size="16"></span>Atividade</button>
-        <button role="tab" class="tab" data-tab="rules" aria-selected="false"><span data-icon="key" data-size="16"></span>Permissões</button>
+        <button role="tab" class="tab" data-tab="jobs" aria-selected="true"><span data-icon="jobs" data-size="16"></span><span class="tab-label">Tarefas</span></button>
+        <button role="tab" class="tab" data-tab="activity" aria-selected="false"><span data-icon="activity" data-size="16"></span><span class="tab-label">Atividade</span></button>
+        <button role="tab" class="tab" data-tab="rules" aria-selected="false" title="Permissões"><span data-icon="key" data-size="16"></span><span class="tab-label">Permissões</span></button>
+        <button role="tab" class="tab" data-tab="settings" aria-selected="false" title="Configurações"><span data-icon="settings" data-size="16"></span><span class="tab-label">Configurações</span></button>
       </nav>
       <ol class="panel-list jobs" data-view="jobs"></ol>
       <ol class="panel-list activity" data-view="activity" hidden></ol>
       <ol class="panel-list rules" data-view="rules" hidden></ol>
+      <div class="panel-list settings-view" data-view="settings" hidden></div>
     </section>`;
   hydrateIcons(root);
   mountElectric(root.querySelector<HTMLElement>(".glass")!);
@@ -75,6 +78,8 @@ export function mountPanel(root: HTMLElement) {
   const jobsEl = root.querySelector<HTMLOListElement>('[data-view="jobs"]')!;
   const activityEl = root.querySelector<HTMLOListElement>('[data-view="activity"]')!;
   const rulesEl = root.querySelector<HTMLOListElement>('[data-view="rules"]')!;
+  const settingsEl = root.querySelector<HTMLElement>('[data-view="settings"]')!;
+  const settings = mountSettings(settingsEl);
   const summary = root.querySelector<HTMLElement>(".panel-summary")!;
   const jobs = new Map<number, Job>();
   const titles = new Map<string, string>();
@@ -100,6 +105,8 @@ export function mountPanel(root: HTMLElement) {
     jobsEl.hidden = name !== "jobs";
     activityEl.hidden = name !== "activity";
     rulesEl.hidden = name !== "rules";
+    settingsEl.hidden = name !== "settings";
+    if (name === "settings") settings.load();
     if (name === "activity") loadActivity();
     if (name === "rules") loadRules();
   }

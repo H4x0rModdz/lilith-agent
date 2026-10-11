@@ -278,6 +278,28 @@ pub fn all_tools() -> Vec<Tool> {
                 &[],
             ),
         },
+        // ── memória de longo prazo ──────────────────────────────────────
+        Tool {
+            action: "memory.search",
+            description: "Procura em TODAS as conversas anteriores com o usuário (outras abas e dias). \
+                          Use para 'o que eu te falei sobre X?', 'lembra quando…', 'qual era a senha \
+                          do wifi que eu te passei?'. `query`: palavras-chave.",
+            schema: obj(json!({ "query": { "type": "string" } }), &["query"]),
+        },
+        Tool {
+            action: "memory.remember",
+            description: "Guarda um fato duradouro sobre o usuário quando ele pedir para você lembrar \
+                          ('lembra que meu time é o Corinthians'). `key` curta, `value` curto.",
+            schema: obj(
+                json!({ "key": { "type": "string" }, "value": { "type": "string" } }),
+                &["key", "value"],
+            ),
+        },
+        Tool {
+            action: "memory.forget",
+            description: "Esquece um fato guardado sobre o usuário ('esquece meu endereço').",
+            schema: obj(json!({ "key": { "type": "string" } }), &["key"]),
+        },
         // ── agentes de código ───────────────────────────────────────────
         Tool {
             action: "agent.delegate",

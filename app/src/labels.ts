@@ -23,6 +23,9 @@ const ACTION_LABELS: Record<string, string> = {
   "agent.delegate": "Delegando para um agente",
   "window.list": "Olhando as janelas",
   "ui.find": "Procurando na janela",
+  "memory.search": "Lembrando das conversas",
+  "memory.remember": "Guardando na memória",
+  "memory.forget": "Esquecendo",
   "ui.click": "Clicando",
   "window.read": "Lendo a janela",
   "file.read": "Lendo o arquivo",
@@ -64,6 +67,8 @@ const ACTION_VERBS: Record<string, string> = {
   "window.close": "fechar a janela",
   "agent.delegate": "acionar um agente",
   "ui.click": "clicar num item",
+  "memory.remember": "guardar algo na memória",
+  "memory.forget": "apagar algo da memória",
 };
 
 export function actionVerb(action: string): string {

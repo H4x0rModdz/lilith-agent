@@ -1,5 +1,5 @@
 mod config;
-mod conversations;
+mod profile;
 mod dispatcher;
 pub mod elevated;
 mod screen;
@@ -24,7 +24,8 @@ struct AppState {
     /// Um modelo (Ollama) compartilhado; uma memória por conversa (aba do chat).
     ollama: Arc<dyn Ollama>,
     conversations: Mutex<HashMap<String, Arc<Agent>>>,
-    store: Arc<conversations::Store>,
+    /// Memória de longo prazo (SQLite): conversas, fatos e configurações.
+    store: Arc<lilith_memory::Memory>,
     policy: Arc<Policy>,
     audit: Arc<AuditLog>,
     audit_path: PathBuf,
@@ -62,11 +63,12 @@ fn emit_state(app: &AppHandle, conversation: &str, state: &str) {
 #[tauri::command]
 fn send_message(text: String, conversation: String, app: AppHandle, state: State<'_, AppState>) {
     let text = text.trim().to_string();
-    if text.is_empty() || !conversations::valid_id(&conversation) {
+    if text.is_empty() || !lilith_memory::valid_id(&conversation) {
         return;
     }
     let dispatcher = GuardedDispatcher {
         conversation: conversation.clone(),
+        store: state.store.clone(),
         jobs: state.jobs.clone(),
         channel: CHANNEL_LOCAL.into(),
         app: app.clone(),
@@ -83,10 +85,26 @@ fn send_message(text: String, conversation: String, app: AppHandle, state: State
     emit_state(&app, &conversation, "thinking");
     let conv = conversation.clone();
     let store = state.store.clone();
+    let ollama = state.ollama.clone();
+    let context = profile::context(&state.store);
     let handle = tauri::async_runtime::spawn(async move {
         let sink = Arc::new(EventSink { app: app.clone(), conversation: conv.clone() });
-        let reply = agent.process(&text, &dispatcher, sink).await;
+        let reply = agent.process_with_context(&text, Some(&context), &dispatcher, sink).await;
         store.append(&conv, "lilith", &reply.reply);
+        // Aprende com o que o usuário DIGITOU (nunca com conteúdo lido).
+        if profile::auto_learn(&store) {
+            let (app, store, text) = (app.clone(), store.clone(), text.clone());
+            tauri::async_runtime::spawn(async move {
+                let facts = lilith_brain::learn::extract(ollama.as_ref(), &text).await;
+                let mut learned = false;
+                for f in facts {
+                    learned |= store.remember(&f.key, &f.value, "learned");
+                }
+                if learned {
+                    let _ = app.emit("lilith://facts", ());
+                }
+            });
+        }
         let _ = app.emit(
             "lilith://reply",
             json!({ "conversation": conv, "reply": reply.reply, "action": reply.action, "emotion": reply.emotion }),
@@ -117,19 +135,51 @@ fn reset_conversation(conversation: String, state: State<'_, AppState>) {
     }
 }
 
+// ── configurações e o que ela sabe sobre o usuário ─────────────────────
+
 #[tauri::command]
-fn list_conversations(state: State<'_, AppState>) -> Vec<conversations::Summary> {
+fn get_settings(state: State<'_, AppState>) -> profile::Settings {
+    profile::Settings::load(&state.store)
+}
+
+#[tauri::command]
+fn save_settings(settings: profile::Settings, state: State<'_, AppState>) {
+    settings.save(&state.store);
+}
+
+#[tauri::command]
+fn list_facts(state: State<'_, AppState>) -> Vec<lilith_memory::Fact> {
+    state.store.facts()
+}
+
+/// Fato digitado pelo usuário no painel (fonte "user": o aprendizado não o sobrescreve).
+#[tauri::command]
+fn add_fact(key: String, value: String, app: AppHandle, state: State<'_, AppState>) -> bool {
+    let ok = state.store.remember(&key, &value, "user");
+    let _ = app.emit("lilith://facts", ());
+    ok
+}
+
+#[tauri::command]
+fn forget_fact(key: String, app: AppHandle, state: State<'_, AppState>) -> bool {
+    let ok = state.store.forget(&key);
+    let _ = app.emit("lilith://facts", ());
+    ok
+}
+
+#[tauri::command]
+fn list_conversations(state: State<'_, AppState>) -> Vec<lilith_memory::Summary> {
     state.store.list()
 }
 
 #[tauri::command]
-fn load_conversation(conversation: String, state: State<'_, AppState>) -> Option<conversations::Conversation> {
+fn load_conversation(conversation: String, state: State<'_, AppState>) -> Option<lilith_memory::Conversation> {
     state.store.get(&conversation)
 }
 
 #[tauri::command]
 fn rename_conversation(conversation: String, title: String, app: AppHandle, state: State<'_, AppState>) -> Option<String> {
-    if !conversations::valid_id(&conversation) {
+    if !lilith_memory::valid_id(&conversation) {
         return None;
     }
     let title = state.store.rename(&conversation, &title);
@@ -238,6 +288,31 @@ fn kill_switch(app: &AppHandle, state: &AppState) {
     }
 }
 
+/// "11/10/2026 12:39" (horário local) para resultados de memória.
+pub(crate) fn profile_date(ms: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .map(|d| d.format("%d/%m/%Y %H:%M").to_string())
+        .unwrap_or_default()
+}
+
+/// Abre `lilith.db` e migra (uma vez) as conversas da versão em JSON.
+fn open_memory(data: &std::path::Path) -> lilith_memory::Memory {
+    let memory = lilith_memory::Memory::open(&data.join("lilith.db")).unwrap_or_else(|e| {
+        tracing::error!(error = %e, "lilith.db indisponível — memória só nesta sessão");
+        lilith_memory::Memory::in_memory().expect("sqlite em memória")
+    });
+    let old = data.join("conversations");
+    if old.is_dir() {
+        let n = memory.import_json_dir(&old);
+        tracing::info!(imported = n, "conversas em JSON migradas para o SQLite");
+        let _ = std::fs::rename(&old, data.join("conversations.migrated"));
+    }
+    memory
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
@@ -289,7 +364,7 @@ pub fn run() {
             app.manage(AppState {
                 ollama: Arc::new(OllamaClient::new(cfg.ollama)),
                 conversations: Mutex::new(HashMap::new()),
-                store: Arc::new(conversations::Store::load(data.join("conversations"))),
+                store: Arc::new(open_memory(&data)),
                 policy: Arc::new(Policy::load(&data.join("permissions.json"))),
                 audit: Arc::new(AuditLog::new(&audit_path)),
                 audit_path,
@@ -354,6 +429,11 @@ pub fn run() {
             load_conversation,
             rename_conversation,
             delete_conversation,
+            get_settings,
+            save_settings,
+            list_facts,
+            add_fact,
+            forget_fact,
             toggle_chat,
             hide_window,
             chat_moved,

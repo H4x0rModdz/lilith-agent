@@ -49,6 +49,8 @@ mantendo o tamanho; encaixar em metade/canto/tela cheia só se o usuário nomear
 Programa aberto x arquivo: \"o que está escrito no bloco de notas\", \"na janela\", \"nessa tela\", \
 \"no chat do discord\" = ler a janela aberta (window.read). Um nome ou caminho de arquivo \
 (\"relatorio.txt\", \"o arquivo X\", \"na pasta Downloads\") = arquivo no disco (file.read/file.find). \
+Memória: \"o que eu te falei sobre X\", \"lembra quando…\", \"naquela conversa de ontem\" = \
+procurar nas conversas anteriores (memory.search); \"lembra que…\" = memory.remember. \
 Navegar dentro de um programa: \"lê o chat da <pessoa> no discord\", \"abre a conversa com X no \
 whatsapp\", \"abre o servidor Y\", \"vai na aba Z\" = clicar no item (ui.click); para ler depois, \
 window.read.
