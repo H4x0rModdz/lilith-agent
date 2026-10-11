@@ -1554,3 +1554,11 @@ body[data-window^="border-"] #root {
 .quick-track.dragging .quick-chip {
   pointer-events: none;
 }
+
+/* Faixa de atalhos acima do "Fala comigo…". */
+.quick-bar {
+  padding: 4px 16px 0;
+}
+.quick-bar .quick-track {
+  padding: 4px 2px 4px;
+}

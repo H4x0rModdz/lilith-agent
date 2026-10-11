@@ -52,6 +52,8 @@ interface Conversation {
   live: HTMLElement | null;
   liveStep: number;
   busy: boolean;
+  /// Já tem mensagem do usuário — a faixa de atalhos some.
+  started: boolean;
 }
 
 export async function mountChat(root: HTMLElement) {
@@ -80,6 +82,7 @@ export async function mountChat(root: HTMLElement) {
           <div class="history-list"></div>
         </aside>
       </div>
+      <div class="quick-bar" hidden><div class="quick-track"></div></div>
       <form class="chat-input">
         <ul class="slash-menu" role="listbox" aria-label="Comandos" hidden></ul>
         <textarea rows="1" placeholder="Fala comigo… (/ para comandos)" aria-label="Mensagem"></textarea>
@@ -107,10 +110,7 @@ export async function mountChat(root: HTMLElement) {
   let prompts: string[] = await invoke<string[]>("get_quick_prompts");
   listen<string[]>("lilith://quick-prompts", (e) => {
     prompts = e.payload;
-    open.forEach((c) => {
-      const chips = c.log.querySelector(".quick-prompts");
-      if (chips) chips.replaceWith(...quickPrompts(c));
-    });
+    renderQuickBar();
   });
 
   const open = new Map<string, Conversation>();
@@ -140,7 +140,8 @@ export async function mountChat(root: HTMLElement) {
     tab.querySelector(".chat-tab-close")!.append(icon("close", 12));
     tabList.append(tab);
 
-    const conv: Conversation = { id, log, tab, live: null, liveStep: -1, busy: false };
+    const started = !!saved?.messages.some((m) => m.role === "user");
+    const conv: Conversation = { id, log, tab, live: null, liveStep: -1, busy: false, started };
     setTabTitle(conv, saved?.title ?? DEFAULT_TITLE);
     tab.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).closest(".chat-tab-close")) closeTab(conv);
@@ -157,7 +158,6 @@ export async function mountChat(root: HTMLElement) {
       for (const m of saved.messages) add(conv, m.role, m.text, undefined, new Date(m.ts));
     } else {
       add(conv, "lilith", GREETING);
-      conv.log.append(...quickPrompts(conv));
     }
     activate(conv);
     return conv;
@@ -180,6 +180,7 @@ export async function mountChat(root: HTMLElement) {
     conv.tab.scrollIntoView({ block: "nearest", inline: "nearest" });
     conv.log.scrollTop = conv.log.scrollHeight;
     refreshBusy();
+    updateQuickBar();
     input.focus();
   }
 
@@ -200,31 +201,36 @@ export async function mountChat(root: HTMLElement) {
 
   // ── atalhos ───────────────────────────────────────────────────────────
 
-  /// Bolhas de escrita rápida: clicou, enviou. Somem na primeira mensagem.
-  function quickPrompts(conv: Conversation): HTMLElement[] {
-    if (prompts.length === 0) return [];
-    const li = document.createElement("li");
-    li.className = "quick-prompts";
-    const track = document.createElement("div");
-    track.className = "quick-track";
-    for (const p of prompts) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "quick-chip";
-      chip.textContent = p;
-      chip.addEventListener("click", (e) => {
-        // Soltar depois de arrastar o carrossel não é clique.
-        if (track.dataset.dragged === "1") {
-          e.preventDefault();
-          return;
-        }
-        send(conv, p);
-      });
-      track.append(chip);
-    }
-    li.append(track);
-    makeCarousel(track);
-    return [li];
+  /// Faixa de atalhos logo acima do campo de mensagem: carrossel de bolhas
+  /// (clicou, enviou). Aparece em conversa que ainda não começou.
+  const quickBar = root.querySelector<HTMLElement>(".quick-bar")!;
+  const quickTrack = quickBar.querySelector<HTMLElement>(".quick-track")!;
+
+  function renderQuickBar() {
+    quickTrack.replaceChildren(
+      ...prompts.map((p) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "quick-chip";
+        chip.textContent = p;
+        chip.addEventListener("click", (e) => {
+          // Soltar depois de arrastar o carrossel não é clique.
+          if (quickTrack.dataset.dragged === "1") {
+            e.preventDefault();
+            return;
+          }
+          send(active, p);
+        });
+        return chip;
+      }),
+    );
+    quickTrack.scrollLeft = 0;
+    updateQuickBar();
+  }
+
+  function updateQuickBar() {
+    quickBar.hidden = !active || active.started || prompts.length === 0;
+    if (!quickBar.hidden) requestAnimationFrame(() => quickTrack.dispatchEvent(new Event("scroll")));
   }
 
   /// Carrossel: arrastar com o mouse (com inércia leve), roda do mouse
@@ -581,7 +587,8 @@ export async function mountChat(root: HTMLElement) {
     text = text.trim();
     if (!text) return;
     if (conv !== active) activate(conv);
-    conv.log.querySelector(".quick-prompts")?.remove();
+    conv.started = true;
+    updateQuickBar();
     add(conv, "user", text);
     input.value = "";
     autosize();
@@ -812,6 +819,9 @@ export async function mountChat(root: HTMLElement) {
       notify(conv);
     }
   });
+
+  makeCarousel(quickTrack);
+  renderQuickBar();
 
   // Começa pela conversa de hoje mais recente, se houver; senão, uma nova.
   const recent = (await invoke<Summary[]>("list_conversations"))[0];
