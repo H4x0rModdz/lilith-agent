@@ -193,7 +193,9 @@ fn type_into(w: &window::WindowInfo, element: &str, params: &Value) -> Result<Va
     // inteira de uma vez.
     input::reset_cancel();
     input::type_human(text, params["mentions"].as_bool().unwrap_or(true))?;
-    let submit = params["submit"].as_bool().unwrap_or(false);
+    // "Manda uma mensagem" é digitar E enviar: o padrão é enviar; só não
+    // envia se `submit` for false (ex.: "escreve mas não envia").
+    let submit = params["submit"].as_bool().unwrap_or(true);
     if submit {
         std::thread::sleep(std::time::Duration::from_millis(150));
         input::press_enter()?;
