@@ -18,7 +18,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 trash = "5.2.9"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Shutdown", "Win32_System_Power", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_Security"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Shutdown", "Win32_System_Power", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_Security", "Win32_UI_Accessibility", "Win32_System_Variant", "Win32_System_Ole"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

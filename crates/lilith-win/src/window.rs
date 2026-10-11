@@ -682,6 +682,12 @@ pub fn handle(action: &str, params: &Value) -> Result<Value, WinError> {
             focus(w.id)?;
             Ok(json!({ "focused": w.title }))
         }
+        "window.read" => {
+            let w = find(target)?;
+            let max = params["max_chars"].as_u64().unwrap_or(6000).clamp(200, 20000) as usize;
+            let text = crate::uia::read_window_text(w.id, max)?;
+            Ok(json!({ "window": w.title, "app": w.app, "text": text }))
+        }
         "window.minimize" | "window.maximize" | "window.restore" => {
             let w = find(target)?;
             set_state(w.id, action.trim_start_matches("window."))?;

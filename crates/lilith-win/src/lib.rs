@@ -5,6 +5,7 @@
 mod error;
 mod handlers;
 mod paths;
+mod uia;
 pub mod window;
 
 pub use error::WinError;
@@ -20,6 +21,7 @@ pub const ACTIONS: &[&str] = &[
     "file.run",
     "file.find",
     "file.list",
+    "file.read",
     "file.move",
     "file.copy",
     "file.delete",
@@ -34,6 +36,7 @@ pub const ACTIONS: &[&str] = &[
     "web.search",
     "web.fetch",
     "window.list",
+    "window.read",
     "window.focus",
     "window.minimize",
     "window.maximize",
@@ -53,6 +56,7 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "file.run" => apps::file_run(params).await,
         "file.find" => files::find(params).await,
         "file.list" => files::list(params).await,
+        "file.read" => files::read(params).await,
         "file.move" => files::move_(params).await,
         "file.copy" => files::copy(params).await,
         "file.delete" => files::delete(params).await,

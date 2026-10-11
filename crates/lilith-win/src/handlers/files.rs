@@ -73,6 +73,32 @@ pub async fn list(params: Value) -> Result<Value, WinError> {
     .await
 }
 
+/// Conteúdo de um arquivo de texto (até 2 MB lidos; `max_chars` devolvidos).
+pub async fn read(params: Value) -> Result<Value, WinError> {
+    const MAX_BYTES: u64 = 2 * 1024 * 1024;
+    let path = resolve(req_str(&params, "path")?);
+    let max = params["max_chars"].as_u64().unwrap_or(6000).clamp(200, 20000) as usize;
+    let meta = tokio::fs::metadata(&path).await?;
+    if meta.is_dir() {
+        return Err(WinError::InvalidParams(format!("'{}' é uma pasta; use file.list", path.display())));
+    }
+    if meta.len() > MAX_BYTES {
+        return Err(WinError::InvalidParams(format!("arquivo grande demais ({} bytes)", meta.len())));
+    }
+    let bytes = tokio::fs::read(&path).await?;
+    // Byte nulo no começo = binário (exe, imagem, zip…): não é texto.
+    if bytes.iter().take(8192).any(|b| *b == 0) {
+        return Err(WinError::InvalidParams(format!(
+            "'{}' não é um arquivo de texto; use file.open para abrir no programa certo",
+            path.display()
+        )));
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let truncated = text.chars().count() > max;
+    let content: String = text.chars().take(max).collect();
+    Ok(json!({ "path": path, "text": content, "truncated": truncated }))
+}
+
 pub async fn move_(params: Value) -> Result<Value, WinError> {
     let (src, dest) = source_dest(&params)?;
     tokio::fs::rename(&src, &dest).await?;
@@ -137,8 +163,14 @@ mod tests {
         move_(json!({ "source": dir.path().join("relatorio-final (1).pdf"), "destination": dir.path().join("b.pdf") }))
             .await
             .unwrap();
+        let text = read(json!({ "path": dir.path().join("b.pdf") })).await.unwrap();
+        assert_eq!(text["text"], "x");
+        std::fs::write(dir.path().join("bin.dat"), [0u8, 1, 2]).unwrap();
+        assert!(read(json!({ "path": dir.path().join("bin.dat") })).await.is_err());
+        assert!(read(json!({ "path": root.clone() })).await.is_err());
+
         let l = list(json!({ "path": root })).await.unwrap();
         let names: Vec<_> = l["items"].as_array().unwrap().iter().map(|i| i["name"].as_str().unwrap().to_string()).collect();
-        assert_eq!(names, vec!["Relatórios", "b.pdf", "relatorio-final.pdf"]);
+        assert_eq!(names, vec!["Relatórios", "b.pdf", "bin.dat", "relatorio-final.pdf"]);
     }
 }
