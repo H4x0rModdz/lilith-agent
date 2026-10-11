@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT, VIRTUAL_KEY, VK_CONTROL, VK_RETURN, VK_TAB,
+    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT, VIRTUAL_KEY, VK_CONTROL, VK_DOWN, VK_RETURN, VK_TAB,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -233,6 +233,10 @@ pub fn type_human(text: &str, mentions: bool) -> Result<(), WinError> {
         }
     }
     Ok(())
+}
+
+pub fn press_down() -> Result<(), WinError> {
+    press_key(VK_DOWN)
 }
 
 fn press_key(vk: VIRTUAL_KEY) -> Result<(), WinError> {

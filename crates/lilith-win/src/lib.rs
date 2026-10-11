@@ -123,16 +123,22 @@ fn ui_action(action: &str, params: &Value) -> Result<Value, WinError> {
 pub(crate) struct ChatSearch {
     pub app: &'static str,
     pub shortcut: char,
+    /// O título da janela traz o nome da conversa aberta: dá para CONFIRMAR
+    /// que abrimos a certa (e tentar de novo, ou desistir, se não).
+    pub titled: bool,
 }
 
 pub(crate) fn chat_search_for(process: &str) -> Option<ChatSearch> {
     let p = paths::fold(process);
     if p.contains("whatsapp") {
         // Desktop: Ctrl+F busca na lista de conversas.
-        Some(ChatSearch { app: "whatsapp", shortcut: 'f' })
+        Some(ChatSearch { app: "whatsapp", shortcut: 'f', titled: false })
     } else if p.contains("discord") {
         // Seletor rápido: DMs, servidores e canais.
-        Some(ChatSearch { app: "discord", shortcut: 'k' })
+        Some(ChatSearch { app: "discord", shortcut: 'k', titled: true })
+    } else if p.contains("teams") {
+        // Teams: Ctrl+E é a busca; o título vira "Chat | <nome> | … | Microsoft Teams".
+        Some(ChatSearch { app: "teams", shortcut: 'e', titled: true })
     } else {
         None
     }
@@ -159,6 +165,21 @@ pub(crate) fn names_match(haystack: &str, name: &str) -> bool {
     let hay = words(haystack);
     let wanted = words(name);
     !wanted.is_empty() && wanted.iter().all(|w| hay.contains(w))
+}
+
+/// Espera (até `max_ms`) o título da janela passar a conter o nome.
+fn wait_for_title(id: isize, name: &str, max_ms: u64) -> bool {
+    let started = std::time::Instant::now();
+    loop {
+        let title = window::find(&format!("id:{id}")).map(|f| f.title).unwrap_or_default();
+        if names_match(&title, name) {
+            return true;
+        }
+        if started.elapsed().as_millis() as u64 >= max_ms {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
 }
 
 /// Já estamos nessa conversa? Dois sinais baratos (sem varrer a árvore): o
@@ -196,15 +217,44 @@ fn open_chat(w: &window::WindowInfo, raw_name: &str) -> Result<Value, WinError> 
             "window": w.title, "opened": name, "already_open": true, "was_in_front": was_in_front,
         }));
     }
-    input::press_ctrl(search.shortcut)?;
-    pause(300);
-    input::type_text(&name)?;
-    // Os resultados chegam depois de uma pausa; Enter abre o primeiro.
-    pause(800);
-    input::press_enter()?;
-    pause(500);
+    // Tentativa 1: atalho, nome, Enter (abre o primeiro resultado).
+    let search_for = |down: bool| -> Result<(), WinError> {
+        input::press_ctrl(search.shortcut)?;
+        pause(300);
+        input::type_text(&name)?;
+        // Os resultados chegam depois de uma pausa.
+        pause(if down { 1000 } else { 800 });
+        if down {
+            // Variação: escolhe a primeira SUGESTÃO da lista (Enter direto
+            // pode abrir só a página de resultados, como no Teams).
+            input::press_down()?;
+            pause(150);
+        }
+        input::press_enter()
+    };
+    search_for(false)?;
+    pause(400);
+    let mut verified = None;
+    if search.titled {
+        // O título da janela diz em que conversa estamos: confirma.
+        verified = Some(wait_for_title(w.id, &name, 1800));
+        if verified == Some(false) {
+            search_for(true)?;
+            verified = Some(wait_for_title(w.id, &name, 2200));
+        }
+        if verified == Some(false) {
+            // Não digitar numa conversa errada: o plano para aqui.
+            return Err(WinError::Failed(format!(
+                "não consegui confirmar que abri a conversa '{name}' no {}",
+                search.app
+            )));
+        }
+    } else {
+        pause(100);
+    }
     Ok(serde_json::json!({
-        "window": w.title, "opened": name, "via": format!("busca do {}", search.app), "was_in_front": was_in_front,
+        "window": w.title, "opened": name, "via": format!("busca do {}", search.app),
+        "was_in_front": was_in_front, "verified": verified,
     }))
 }
 
@@ -295,14 +345,20 @@ mod open_chat_tests {
 
     #[test]
     fn search_shortcuts_per_app() {
-        assert_eq!(chat_search_for("WhatsApp.Root"), Some(ChatSearch { app: "whatsapp", shortcut: 'f' }));
-        assert_eq!(chat_search_for("Discord"), Some(ChatSearch { app: "discord", shortcut: 'k' }));
+        assert_eq!(chat_search_for("WhatsApp.Root"), Some(ChatSearch { app: "whatsapp", shortcut: 'f', titled: false }));
+        assert_eq!(chat_search_for("Discord"), Some(ChatSearch { app: "discord", shortcut: 'k', titled: true }));
+        // Teams novo (ms-teams.exe) e o clássico (Teams.exe).
+        assert_eq!(chat_search_for("ms-teams"), Some(ChatSearch { app: "teams", shortcut: 'e', titled: true }));
+        assert_eq!(chat_search_for("Teams"), Some(ChatSearch { app: "teams", shortcut: 'e', titled: true }));
         assert_eq!(chat_search_for("notepad"), None);
     }
 
     #[test]
     fn current_chat_is_matched_by_whole_words() {
         assert!(names_match("@userx - Discord", "userx"));
+        // Título do Teams: "Chat | <nome> (convidado) | <org> | <conta> | Microsoft Teams".
+        assert!(names_match("Chat | Jose Silva (Guest) | Org | a@b.com | Microsoft Teams", "jose silva"));
+        assert!(!names_match("Chat | Jose Silva | Org | Microsoft Teams", "Jose Souza"));
         assert!(names_match("Conversar em @userx", "UserX"));
         assert!(names_match("Digite uma mensagem para José", "jose"));
         assert!(names_match("#chat-geral | Cantinho da are - Discord", "chat geral"));
