@@ -98,6 +98,8 @@ export function mountPanel(root: HTMLElement) {
     tab.addEventListener("click", () => showTab(tab.dataset.tab!)),
   );
 
+  listen<string>("lilith://panel-tab", (e) => showTab(e.payload));
+
   function showTab(name: string) {
     root.querySelectorAll<HTMLButtonElement>(".tab").forEach((t) =>
       t.setAttribute("aria-selected", String(t.dataset.tab === name)),

@@ -223,6 +223,16 @@ fn toggle_chat(app: AppHandle) {
     windows::toggle_chat(&app);
 }
 
+/// Abre o painel numa aba (comandos /painel, /tarefas, /config…).
+#[tauri::command]
+fn show_panel_tab(tab: String, app: AppHandle) {
+    if !matches!(tab.as_str(), "jobs" | "activity" | "rules" | "settings") {
+        return;
+    }
+    windows::show_panel(&app);
+    let _ = app.emit_to("panel", "lilith://panel-tab", tab);
+}
+
 #[tauri::command]
 fn hide_window(label: String, app: AppHandle) {
     if let Some(w) = app.get_webview_window(&label) {
@@ -450,6 +460,7 @@ pub fn run() {
             get_quick_prompts,
             save_quick_prompts,
             toggle_chat,
+            show_panel_tab,
             hide_window,
             chat_moved,
             lilith_avatar,

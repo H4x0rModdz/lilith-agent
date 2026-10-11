@@ -50,7 +50,7 @@ export function mountSettings(view: HTMLElement) {
 
       <section class="settings-card">
         <h3><span data-icon="send" data-size="16"></span>Atalhos do chat</h3>
-        <small class="hint">Aparecem como bolhas em toda conversa nova e na lista do “/” no chat.</small>
+        <small class="hint">Aparecem como bolhas em toda conversa nova: um clique e já vai para ela.</small>
         <ul class="facts prompts-list"></ul>
         <div class="fact-add">
           <input class="prompt-new" maxlength="120" placeholder="ex.: Lê as mensagens novas do WhatsApp" />
