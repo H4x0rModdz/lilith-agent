@@ -239,6 +239,29 @@ fn search(id: isize, query: &str) -> Result<Vec<Hit>, WinError> {
     }
 }
 
+/// Verbos de ação com efeito (pt/en). Clicar em algo com esse nome nunca é
+/// "só navegar".
+const EFFECT_WORDS: &[&str] = &[
+    "enviar", "excluir", "apagar", "deletar", "remover", "sair", "aceitar", "permitir", "confirmar", "pagar",
+    "comprar", "fechar", "desinstalar", "instalar", "bloquear", "banir", "expulsar", "transferir", "assinar",
+    "formatar", "publicar", "postar", "compartilhar", "convidar", "denunciar", "limpar", "resetar", "salvar",
+    "sim", "ok", "send", "delete", "remove", "leave", "accept", "allow", "confirm", "pay", "buy", "close",
+    "uninstall", "install", "block", "ban", "kick", "transfer", "sign", "format", "publish", "post", "share",
+    "invite", "report", "clear", "reset", "save", "yes",
+];
+
+/// Clique de pura navegação (abrir uma conversa, trocar de aba, seguir um
+/// link) — pode rodar sem perguntar. Botões, menus, caixas e qualquer item
+/// cujo nome tenha verbo de efeito pedem aprovação.
+pub fn is_navigation(e: &UiElement) -> bool {
+    let navigational = matches!(e.kind.as_str(), "link" | "item de lista" | "item de árvore" | "aba" | "item");
+    let name = fold(&e.name);
+    let has_effect_word = name
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|w| EFFECT_WORDS.contains(&w));
+    navigational && !has_effect_word
+}
+
 /// Localiza o `index`-ésimo melhor elemento (para o cursor mirar antes).
 pub fn locate(id: isize, query: &str, index: usize) -> Result<UiElement, WinError> {
     search(id, query)?
@@ -296,6 +319,26 @@ mod tests {
         assert_eq!(match_rank("Configurações", "configuracoes"), Some(0));
         assert_eq!(match_rank("gui", "kuromi"), None);
         assert_eq!(match_rank("qualquer", "  "), None);
+    }
+
+    fn el(name: &str, kind: &str) -> UiElement {
+        UiElement { name: name.into(), kind: kind.into(), context: String::new(), rect: Rect { x: 0, y: 0, w: 1, h: 1 }, clickable: true }
+    }
+
+    #[test]
+    fn only_plain_navigation_is_auto_approved() {
+        assert!(is_navigation(&el("Kuromi 2 meses pro natal (mensagem direta)", "link")));
+        assert!(is_navigation(&el("Geral", "aba")));
+        assert!(is_navigation(&el("URBX", "item de árvore")));
+        // Botões e afins sempre pedem.
+        assert!(!is_navigation(&el("Kuromi", "botão")));
+        assert!(!is_navigation(&el("Arquivo", "item de menu")));
+        // Nome com verbo de efeito, mesmo em link/lista.
+        assert!(!is_navigation(&el("Excluir servidor", "item de lista")));
+        assert!(!is_navigation(&el("Sair do servidor", "link")));
+        assert!(!is_navigation(&el("Delete message", "link")));
+        // Palavra inteira: "saida" não é "sair", "okay" não é "ok".
+        assert!(is_navigation(&el("Caixa de saída", "link")));
     }
 
     #[test]

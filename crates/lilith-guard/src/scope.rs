@@ -69,6 +69,10 @@ const DANGEROUS_SCOPES: &[&str] = &[
     // Ler o conteúdo de arquivos fora das pastas pessoais (ou com cara de
     // segredo). Nome sem ponto de propósito: não herda de `filesystem.read`.
     "filesystem.read_protected",
+    // Clicar num botão/menu (ou em algo com verbo de efeito) dentro de um
+    // programa pode enviar, apagar, pagar… Nome sem ponto: não herda de
+    // ui.interact.
+    "ui.press",
     // Fechar um app/janela pode perder trabalho não salvo — e um modelo
     // pequeno já confundiu "joga o WhatsApp pro lado" com fechar.
     "app.terminate",
@@ -83,6 +87,8 @@ pub fn scope_for(action: &str) -> &'static str {
         "window.list" | "window.focus" | "window.minimize" | "window.maximize" | "window.restore" | "window.move"
         | "window.tile" | "cursor.point" | "ui.find" => "window.control",
         "ui.click" => "ui.interact",
+        // Escalonado pelo app quando o alvo não é pura navegação.
+        "ui.click_effect" => "ui.press",
         "file.find" | "file.list" | "file.read" => "filesystem.read",
         // Escalonado pelo app quando o caminho não é pessoal (ver lilith_win::is_personal_read).
         "file.read_protected" => "filesystem.read_protected",
@@ -119,6 +125,8 @@ mod tests {
         assert_eq!(classify(scope_for("window.close")), Verdict::Dangerous);
         assert_eq!(classify(scope_for("window.move")), Verdict::Safe);
         assert_eq!(classify(scope_for("file.read_protected")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("ui.click")), Verdict::Safe);
+        assert_eq!(classify(scope_for("ui.click_effect")), Verdict::Dangerous);
     }
 
     #[test]
@@ -173,6 +181,7 @@ mod tests {
             "cursor.point",
             "ui.find",
             "ui.click",
+            "ui.click_effect",
         ] {
             let scope = scope_for(action);
             assert_ne!(scope, "unknown", "{action} sem scope");
