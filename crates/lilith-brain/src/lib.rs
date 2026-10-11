@@ -7,6 +7,7 @@
 pub mod agent;
 pub mod emotion;
 pub mod error;
+pub mod interpret;
 pub mod memory;
 pub mod ollama;
 pub mod tools;

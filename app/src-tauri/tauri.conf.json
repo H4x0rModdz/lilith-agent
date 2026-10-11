@@ -74,6 +74,22 @@
             70
           ]
         }
+      },
+      {
+        "label": "cursor",
+        "title": "Lilith — cursor",
+        "url": "index.html",
+        "width": 120,
+        "height": 48,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "focusable": false,
+        "visible": false
       }
     ],
     "security": {

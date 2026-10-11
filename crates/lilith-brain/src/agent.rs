@@ -1,5 +1,6 @@
 use crate::emotion;
 use crate::error::LilithError;
+use crate::interpret;
 use crate::memory::{SessionMemory, Turn};
 use crate::ollama::{append_tool_step, build_initial_messages, Ollama};
 use crate::tools::{all_tools, ToolCall};
@@ -56,6 +57,19 @@ impl Agent {
         let history = self.memory.recent(HISTORY_TURNS);
         let mut messages = build_initial_messages(text, &history);
         let tools = all_tools();
+
+        // Interpreta antes de agir (gírias, referências, "mover ≠ fechar").
+        let recent: Vec<(String, String)> = history
+            .iter()
+            .rev()
+            .take(2)
+            .rev()
+            .map(|t| (t.user_text.clone(), t.reply_text.clone()))
+            .collect();
+        if let Some(i) = interpret::run(self.ollama.as_ref(), text, &recent, &tools).await {
+            let last = messages.len() - 1;
+            messages.insert(last, serde_json::json!({ "role": "system", "content": interpret::hint(&i) }));
+        }
         let mut last_call: Option<ToolCall> = None;
         let mut last_step_reply = String::new();
 
@@ -174,6 +188,28 @@ mod tests {
 
     struct MockOllama(Mutex<Vec<Result<OllamaReply, LilithError>>>);
 
+    /// Ollama que registra as mensagens e responde o intérprete.
+    struct InterpretingOllama {
+        seen: Mutex<Vec<Vec<Value>>>,
+    }
+
+    #[async_trait]
+    impl Ollama for InterpretingOllama {
+        async fn chat_messages(
+            &self,
+            messages: &[Value],
+            _: &[Tool],
+            _: Option<UnboundedSender<String>>,
+        ) -> Result<OllamaReply, LilithError> {
+            self.seen.lock().unwrap().push(messages.to_vec());
+            Ok(OllamaReply { text: "Pronto!".into(), tool_calls: vec![] })
+        }
+
+        async fn structured(&self, _: &[Value], _: &Value) -> Result<Value, LilithError> {
+            Ok(json!({ "intent": "mover a janela do WhatsApp para a esquerda", "tools": ["window.move"] }))
+        }
+    }
+
     #[async_trait]
     impl Ollama for MockOllama {
         async fn chat_messages(
@@ -222,6 +258,19 @@ mod tests {
 
     fn agent(replies: Vec<Result<OllamaReply, LilithError>>) -> Agent {
         Agent::new(Arc::new(MockOllama(Mutex::new(replies))))
+    }
+
+    #[tokio::test]
+    async fn interpretation_is_injected_before_user_message() {
+        let o = Arc::new(InterpretingOllama { seen: Mutex::new(vec![]) });
+        let a = Agent::new(o.clone());
+        a.process("joga o zap pro lado", &MockDispatcher::default(), Arc::new(NullSink)).await;
+        let seen = o.seen.lock().unwrap();
+        let msgs = &seen[0];
+        let n = msgs.len();
+        assert_eq!(msgs[n - 1]["content"], "joga o zap pro lado");
+        assert_eq!(msgs[n - 2]["role"], "system");
+        assert!(msgs[n - 2]["content"].as_str().unwrap().contains("window.move"));
     }
 
     #[tokio::test]
