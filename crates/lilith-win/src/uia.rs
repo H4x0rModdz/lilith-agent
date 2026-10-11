@@ -271,6 +271,31 @@ pub fn locate(id: isize, query: &str, index: usize) -> Result<UiElement, WinErro
         .ok_or_else(|| WinError::NotFound(format!("nada chamado '{query}' nessa janela")))
 }
 
+/// Como o clique foi dado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClickVia {
+    /// Por acessibilidade — o mouse do usuário não foi usado.
+    Accessibility,
+    /// Clique real do mouse (devolvido ao lugar): o app ignora acessibilidade.
+    Mouse,
+}
+
+/// Aciona por acessibilidade e, se o app não aceitar (WhatsApp, Discord…),
+/// cai num clique real no centro do elemento.
+pub fn click(id: isize, query: &str, index: usize) -> Result<(UiElement, ClickVia), WinError> {
+    match activate(id, query, index) {
+        Ok(info) => Ok((info, ClickVia::Accessibility)),
+        Err(WinError::Failed(_)) => {
+            let info = locate(id, query, index)?;
+            let (x, y) = info.rect.center();
+            crate::input::click_at(x, y)?;
+            Ok((info, ClickVia::Mouse))
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Acha o `index`-ésimo melhor elemento e o aciona por acessibilidade
 /// (Invoke, Select, Toggle, Expand ou a ação padrão) — sem mexer no mouse.
 pub fn activate(id: isize, query: &str, index: usize) -> Result<UiElement, WinError> {

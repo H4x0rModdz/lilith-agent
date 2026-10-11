@@ -221,6 +221,23 @@ pub fn all_tools() -> Vec<Tool> {
             ),
         },
         Tool {
+            action: "ui.type",
+            description: "Digita um texto num campo de um programa e, com `submit`, envia (Enter). Use \
+                          para 'manda um <texto> pra <pessoa> no whatsapp/discord' DEPOIS de abrir a \
+                          conversa com ui.click. `element` é o nome visível do campo de mensagem (ex.: \
+                          'Digite uma mensagem', 'Mensagem'); use ui.find se não souber. Pede aprovação \
+                          do usuário, mostrando o que será enviado.",
+            schema: obj(
+                json!({
+                    "target": { "type": "string", "description": "Programa (ex.: 'whatsapp')" },
+                    "element": { "type": "string", "description": "Nome visível do campo de texto" },
+                    "text": { "type": "string" },
+                    "submit": { "type": "boolean", "description": "Apertar Enter para enviar" }
+                }),
+                &["target", "element", "text"],
+            ),
+        },
+        Tool {
             action: "ui.find",
             description: "Procura itens num programa pelo nome e diz onde cada um está (ex.: 'Mensagens \
                           diretas' x um servidor/grupo). Use quando não souber se o nome é uma pessoa \

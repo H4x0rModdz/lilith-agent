@@ -5,6 +5,7 @@
 mod error;
 mod handlers;
 mod paths;
+pub mod input;
 pub mod uia;
 pub mod window;
 
@@ -47,6 +48,7 @@ pub const ACTIONS: &[&str] = &[
     "window.tile",
     "ui.find",
     "ui.click",
+    "ui.type",
 ];
 
 pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
@@ -74,7 +76,7 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "system.power" => power::run(params).await,
         "web.search" => web::search(params).await,
         "web.fetch" => web::fetch(params).await,
-        "ui.find" | "ui.click" => {
+        "ui.find" | "ui.click" | "ui.type" => {
             let a = action.to_string();
             handlers::blocking(move || ui_action(&a, &params)).await
         }
@@ -96,12 +98,34 @@ fn ui_action(action: &str, params: &Value) -> Result<Value, WinError> {
             let found = uia::find_elements(w.id, element, 8)?;
             Ok(serde_json::json!({ "window": w.title, "results": found }))
         }
-        _ => {
+        "ui.click" => {
             let index = params["index"].as_u64().unwrap_or(0) as usize;
-            let clicked = uia::activate(w.id, element, index)?;
-            Ok(serde_json::json!({ "window": w.title, "clicked": clicked }))
+            let (clicked, via) = uia::click(w.id, element, index)?;
+            Ok(serde_json::json!({ "window": w.title, "clicked": clicked, "via": via }))
         }
+        _ => type_into(&w, element, params),
     }
+}
+
+/// Digita no campo de texto chamado `element` (clica nele antes) e, com
+/// `submit`, aperta Enter. Sempre depois de trazer a janela para frente.
+fn type_into(w: &window::WindowInfo, element: &str, params: &Value) -> Result<Value, WinError> {
+    let text = params["text"].as_str().unwrap_or("");
+    if text.is_empty() || text.chars().count() > 2000 {
+        return Err(WinError::InvalidParams("'text' obrigatório (até 2000 caracteres)".into()));
+    }
+    window::focus(w.id)?;
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    // O campo é achado pelo nome; o clique dá foco nele.
+    let (field, _) = uia::click(w.id, element, 0)?;
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    input::type_text(text)?;
+    let submit = params["submit"].as_bool().unwrap_or(false);
+    if submit {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        input::press_enter()?;
+    }
+    Ok(serde_json::json!({ "window": w.title, "field": field.name, "typed_chars": text.chars().count(), "sent": submit }))
 }
 
 /// Lê um parâmetro string obrigatório e não vazio.

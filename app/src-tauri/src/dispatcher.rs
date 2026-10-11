@@ -228,6 +228,7 @@ impl Dispatcher for GuardedDispatcher {
                 self.screen_action(action, &call.params).await
             }
             "ui.click" => self.ui_click(&call.params).await,
+            "ui.type" => self.ui_type(&call.params).await,
             "window.read" => {
                 // Gesto de "olhar" a janela antes de ler.
                 use tauri::Manager;
@@ -374,10 +375,32 @@ impl GuardedDispatcher {
         let spot = blocking(move || uia::locate(id, &q, i)).await?;
         screen.fly_to(spot.rect.center()).await;
         screen.click().await;
-        let clicked = blocking(move || uia::activate(id, &element, index)).await?;
+        // Acessibilidade primeiro; se o app a ignora (WhatsApp, Discord…),
+        // clique real do mouse, que volta ao lugar logo em seguida.
+        let (clicked, via) = blocking(move || uia::click(id, &element, index)).await?;
         // Dá tempo do programa trocar de tela antes de uma leitura em seguida.
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        Ok(json!({ "window": w.title, "clicked": clicked }))
+        Ok(json!({ "window": w.title, "clicked": clicked, "via": via }))
+    }
+
+    /// Digita (e envia) num campo: o cursor vai até o campo, "clica", e o
+    /// texto entra pelo teclado do sistema. Só roda depois da aprovação.
+    async fn ui_type(&self, params: &Value) -> Result<Value, lilith_win::WinError> {
+        use lilith_win::{uia, window};
+        use tauri::Manager;
+        let screen = self.app.state::<Arc<crate::screen::Screen>>().inner().clone();
+        let _presence = screen.begin();
+        let target = params["target"].as_str().unwrap_or("active").to_string();
+        let element = params["element"].as_str().unwrap_or("").trim().to_string();
+        let w = blocking(move || window::find(&target)).await?;
+        let id = w.id;
+        let _ = blocking(move || window::focus(id)).await;
+        let q = element.clone();
+        if let Ok(spot) = blocking(move || uia::locate(id, &q, 0)).await {
+            screen.fly_to(spot.rect.center()).await;
+            screen.click().await;
+        }
+        lilith_win::dispatch("ui.type", params.clone()).await
     }
 
     /// Ações de tela feitas "à mão" pela Lilith: borda rosa + cursor dela
