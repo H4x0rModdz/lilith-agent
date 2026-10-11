@@ -1,8 +1,10 @@
 [package]
 name = "lilith-companion"
-description = "Lilith — companion de IA para Windows"
+description = "Lilith - a local-first AI companion for Windows"
 edition.workspace = true
 version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [lib]
 # O sufixo `_lib` evita conflito de nome entre lib e bin no Windows

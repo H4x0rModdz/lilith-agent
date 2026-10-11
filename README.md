@@ -120,3 +120,7 @@ cargo test --workspace          # unit tests (brain, guard, windows actions, age
 cargo run -p lilith-brain --example ask -- "open spotify"   # talk to the model with simulated actions
 cargo run -p lilith-win --example smoke                     # read-only checks against your real system
 ```
+
+## License
+
+[GPL-3.0](LICENSE), the same license as jarvis-os, which the brain and the guardrails were ported from.

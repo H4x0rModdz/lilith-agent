@@ -1,8 +1,10 @@
 [package]
 name = "lilith-win"
-description = "Mãos da Lilith no Windows: apps, arquivos, wallpaper, áudio, clipboard, web"
+description = "Lilith's hands on Windows: apps, files, downloads, wallpaper, audio, clipboard, power, web"
 edition.workspace = true
 version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 arboard = "3.6.1"

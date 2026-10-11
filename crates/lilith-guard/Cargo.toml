@@ -1,8 +1,10 @@
 [package]
 name = "lilith-guard"
-description = "Guardrails da Lilith: scopes, política por canal, aprovações e auditoria"
+description = "Lilith's guardrails: permission scopes, per-channel policy, approvals and audit log"
 edition.workspace = true
 version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde.workspace = true

@@ -1,8 +1,10 @@
 [package]
 name = "lilith-agents"
-description = "Delegação de tarefas para agentes de código (Claude Code, Codex, …) em segundo plano"
+description = "Background delegation of tasks to coding-agent CLIs (Claude Code, Codex, ...)"
 edition.workspace = true
 version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde.workspace = true
