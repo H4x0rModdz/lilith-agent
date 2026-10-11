@@ -121,13 +121,15 @@ export async function mountChat(root: HTMLElement) {
   // Lembretes com data: aparecem quando o chat abre (ou volta ao foco) a
   // partir do dia combinado, uma vez só.
   async function showDueReminders() {
-    const due = await invoke<{ id: number; due: string; text: string }[]>("due_reminders").catch(() => []);
+    const due = await invoke<{ id: number; due: string; at: string; text: string }[]>("due_reminders").catch(() => []);
     for (const r of due) {
       const [y, m, d] = r.due.split("-");
-      note(`Lembrete (${d}/${m}/${y}): ${r.text}`, "sparkles");
+      const when = r.at === "00:00" ? `${d}/${m}/${y}` : `${d}/${m}/${y} ${r.at}`;
+      note(`Lembrete (${when}): ${r.text}`, "sparkles");
     }
   }
   window.addEventListener("focus", () => void showDueReminders());
+  listen("lilith://reminders-due", () => void showDueReminders());
   void showDueReminders();
   let active!: Conversation;
   let counter = 0;

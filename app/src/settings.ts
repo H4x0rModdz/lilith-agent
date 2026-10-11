@@ -13,6 +13,7 @@ interface Settings {
 interface Reminder {
   id: number;
   due: string;
+  at: string;
   text: string;
 }
 
@@ -248,7 +249,7 @@ export function mountSettings(view: HTMLElement) {
         li.className = "fact";
         li.innerHTML = `<div class="fact-text"><strong></strong><span></span></div>`;
         const [y, m, d] = r.due.split("-");
-        li.querySelector("strong")!.textContent = `${d}/${m}/${y}`;
+        li.querySelector("strong")!.textContent = r.at === "00:00" ? `${d}/${m}/${y}` : `${d}/${m}/${y} ${r.at}`;
         li.querySelector(".fact-text span")!.textContent = r.text;
         const del = document.createElement("button");
         del.type = "button";

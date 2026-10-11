@@ -340,11 +340,16 @@ impl GuardedDispatcher {
             }
             "reminder.add" => {
                 let due = crate::reminders::parse_date(&s("date"), chrono::Local::now().date_naive());
-                let id = due.and_then(|d| self.store.add_reminder(&d.format("%Y-%m-%d").to_string(), &s("text")));
+                let at = crate::reminders::parse_time(&s("time")).unwrap_or_else(|| "00:00".into());
+                let id = due.and_then(|d| self.store.add_reminder(&d.format("%Y-%m-%d").to_string(), &at, &s("text")));
                 let _ = self.app.emit("lilith://reminders", ());
                 match (id, due) {
-                    (Some(_), Some(d)) => json!({ "reminder": true, "date": d.format("%d/%m/%Y").to_string() }),
-                    _ => json!({ "reminder": false, "error": "data inválida; use AAAA-MM-DD" }),
+                    (Some(_), Some(d)) => json!({
+                        "reminder": true,
+                        "date": d.format("%d/%m/%Y").to_string(),
+                        "time": if at == "00:00" { Value::Null } else { json!(at) },
+                    }),
+                    _ => json!({ "reminder": false, "error": "data inválida; use AAAA-MM-DD ou dia/mês" }),
                 }
             }
             _ => {

@@ -44,6 +44,9 @@ fn is_reminder_request(t: &str) -> bool {
     let asks_me = ["me lembra", "me lembre", "me avisa", "me avise"].iter().any(|p| t.starts_with(p));
     let has_date = t.as_bytes().windows(3).any(|w| w[0].is_ascii_digit() && w[1] == b'/' && w[2].is_ascii_digit())
         || has(t, &["amanhã", "amanha", "depois de amanhã", "semana que vem", "próxima semana", "dia "]);
+    let has_time = has(t, &[" às ", " as ", "daqui a", "daqui há"])
+        || t.as_bytes().windows(2).any(|w| w[0].is_ascii_digit() && w[1] == b'h');
+    let has_date = has_date || has_time;
     let when_opening = has(t, &["quando eu abrir", "quando abrir", "ao abrir", "quando eu entrar"]);
     asks_me && (has_date || when_opening) || (is_remember_request(t) && has_date && has(t, &["me lembr", "me avis", "lembrete"]))
 }

@@ -108,6 +108,8 @@ pub struct Reminder {
     pub id: i64,
     /// Data (AAAA-MM-DD).
     pub due: String,
+    /// Horário (HH:MM); "00:00" = o dia todo (avisa assim que o dia começa).
+    pub at: String,
     pub text: String,
 }
 
@@ -204,6 +206,9 @@ impl Memory {
                  INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.id, old.text);
              END;",
         );
+        // Bancos criados antes do horário/notificação dos lembretes.
+        let _ = conn.execute("ALTER TABLE reminders ADD COLUMN at TEXT NOT NULL DEFAULT '00:00'", []);
+        let _ = conn.execute("ALTER TABLE reminders ADD COLUMN notified INTEGER NOT NULL DEFAULT 0", []);
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -534,18 +539,20 @@ impl Memory {
 
     // ── lembretes com data ────────────────────────────────────────────────
 
-    /// Cria um lembrete para `due` (AAAA-MM-DD). Devolve o id.
-    pub fn add_reminder(&self, due: &str, text: &str) -> Option<i64> {
-        let (due, text) = (due.trim(), text.trim());
-        let valid_date = due.len() == 10
-            && due.bytes().enumerate().all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() });
-        if !valid_date || text.is_empty() || text.chars().count() > 300 {
+    /// Cria um lembrete para `due` (AAAA-MM-DD) às `at` (HH:MM; "00:00" = dia
+    /// todo). Devolve o id.
+    pub fn add_reminder(&self, due: &str, at: &str, text: &str) -> Option<i64> {
+        let (due, at, text) = (due.trim(), at.trim(), text.trim());
+        let digits = |s: &str, dash: &[usize], len: usize, sep: u8| {
+            s.len() == len && s.bytes().enumerate().all(|(i, b)| if dash.contains(&i) { b == sep } else { b.is_ascii_digit() })
+        };
+        if !digits(due, &[4, 7], 10, b'-') || !digits(at, &[2], 5, b':') || text.is_empty() || text.chars().count() > 300 {
             return None;
         }
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO reminders (due, text, created_ms) VALUES (?1, ?2, ?3)",
-            params![due, text, now_ms()],
+            "INSERT INTO reminders (due, at, text, created_ms) VALUES (?1, ?2, ?3, ?4)",
+            params![due, at, text, now_ms()],
         )
         .ok()?;
         Some(conn.last_insert_rowid())
@@ -553,13 +560,26 @@ impl Memory {
 
     /// Lembretes pendentes (do mais próximo ao mais distante).
     pub fn reminders(&self) -> Vec<Reminder> {
-        self.reminders_where("done = 0", None)
+        self.reminders_where("done = 0", &[])
     }
 
-    /// Os que já venceram (data <= hoje) e ainda não foram mostrados; marca
-    /// como mostrados para aparecerem uma vez só.
-    pub fn take_due_reminders(&self, today: &str) -> Vec<Reminder> {
-        let due = self.reminders_where("done = 0 AND due <= ?1", Some(today));
+    /// Já na hora (data/horário <= agora) e ainda sem notificação na tela;
+    /// marca como notificados para a notificação sair uma vez só.
+    pub fn take_to_notify(&self, today: &str, now: &str) -> Vec<Reminder> {
+        let due = self.reminders_where(
+            "notified = 0 AND done = 0 AND (due < ?1 OR (due = ?1 AND at <= ?2))",
+            &[today, now],
+        );
+        let conn = self.conn.lock().unwrap();
+        for r in &due {
+            let _ = conn.execute("UPDATE reminders SET notified = 1 WHERE id = ?1", params![r.id]);
+        }
+        due
+    }
+
+    /// Já na hora e ainda não mostrados no chat; marca como mostrados.
+    pub fn take_due_reminders(&self, today: &str, now: &str) -> Vec<Reminder> {
+        let due = self.reminders_where("done = 0 AND (due < ?1 OR (due = ?1 AND at <= ?2))", &[today, now]);
         let conn = self.conn.lock().unwrap();
         for r in &due {
             let _ = conn.execute("UPDATE reminders SET done = 1 WHERE id = ?1", params![r.id]);
@@ -572,13 +592,14 @@ impl Memory {
         conn.execute("DELETE FROM reminders WHERE id = ?1", params![id]).map(|n| n > 0).unwrap_or(false)
     }
 
-    fn reminders_where(&self, cond: &str, arg: Option<&str>) -> Vec<Reminder> {
+    fn reminders_where(&self, cond: &str, args: &[&str]) -> Vec<Reminder> {
         let conn = self.conn.lock().unwrap();
-        let sql = format!("SELECT id, due, text FROM reminders WHERE {cond} ORDER BY due, id");
-        let map = |r: &rusqlite::Row| Ok(Reminder { id: r.get(0)?, due: r.get(1)?, text: r.get(2)? });
-        let rows = conn.prepare(&sql).and_then(|mut s| match arg {
-            Some(a) => s.query_map(params![a], map)?.collect::<std::result::Result<Vec<_>, _>>(),
-            None => s.query_map([], map)?.collect::<std::result::Result<Vec<_>, _>>(),
+        let sql = format!("SELECT id, due, at, text FROM reminders WHERE {cond} ORDER BY due, at, id");
+        let rows = conn.prepare(&sql).and_then(|mut s| {
+            s.query_map(rusqlite::params_from_iter(args.iter()), |r| {
+                Ok(Reminder { id: r.get(0)?, due: r.get(1)?, at: r.get(2)?, text: r.get(3)? })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()
         });
         rows.unwrap_or_default()
     }
@@ -771,16 +792,24 @@ mod tests {
     }
 
     #[test]
-    fn reminders_show_once_when_due() {
+    fn reminders_notify_and_show_once_when_due() {
         let m = Memory::in_memory().unwrap();
-        assert!(m.add_reminder("2026-10-12", "abrir o discord").is_some());
-        assert!(m.add_reminder("2026-12-01", "pagar a fatura").is_some());
-        assert!(m.add_reminder("12/10", "data inválida").is_none() && m.add_reminder("2026-10-12", " ").is_none());
-        assert_eq!(m.reminders().len(), 2);
-        assert!(m.take_due_reminders("2026-10-11").is_empty(), "antes do dia não aparece");
-        let due = m.take_due_reminders("2026-10-13");
-        assert_eq!((due.len(), due[0].text.as_str()), (1, "abrir o discord"), "vencido aparece, mesmo depois do dia");
-        assert!(m.take_due_reminders("2026-10-13").is_empty(), "só uma vez");
+        assert!(m.add_reminder("2026-10-12", "00:00", "abrir o discord").is_some());
+        assert!(m.add_reminder("2026-10-12", "15:30", "tomar o remédio").is_some());
+        assert!(m.add_reminder("2026-12-01", "00:00", "pagar a fatura").is_some());
+        assert!(m.add_reminder("12/10", "00:00", "data inválida").is_none());
+        assert!(m.add_reminder("2026-10-12", "3pm", "hora inválida").is_none());
+        assert!(m.add_reminder("2026-10-12", "00:00", " ").is_none());
+        assert_eq!(m.reminders().len(), 3);
+        assert!(m.take_to_notify("2026-10-11", "23:59").is_empty(), "antes do dia não avisa");
+        let now = m.take_to_notify("2026-10-12", "09:00");
+        assert_eq!((now.len(), now[0].text.as_str()), (1, "abrir o discord"), "o de 15:30 ainda não");
+        assert!(m.take_to_notify("2026-10-12", "09:00").is_empty(), "notifica uma vez só");
+        let later = m.take_to_notify("2026-10-12", "15:30");
+        assert_eq!((later.len(), later[0].text.as_str()), (1, "tomar o remédio"));
+        // O chat mostra os dois, uma vez só (independe da notificação).
+        assert_eq!(m.take_due_reminders("2026-10-12", "16:00").len(), 2);
+        assert!(m.take_due_reminders("2026-10-12", "16:00").is_empty());
         let rest = m.reminders();
         assert_eq!(rest.len(), 1);
         assert!(m.remove_reminder(rest[0].id));

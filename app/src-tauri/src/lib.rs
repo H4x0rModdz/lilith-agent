@@ -166,7 +166,8 @@ fn remove_term(term: String, app: AppHandle, state: State<'_, AppState>) -> bool
 /// Lembretes vencidos (data <= hoje), mostrados uma vez só.
 #[tauri::command]
 fn due_reminders(state: State<'_, AppState>) -> Vec<lilith_memory::Reminder> {
-    state.store.take_due_reminders(&chrono::Local::now().format("%Y-%m-%d").to_string())
+    let now = chrono::Local::now();
+    state.store.take_due_reminders(&now.format("%Y-%m-%d").to_string(), &now.format("%H:%M").to_string())
 }
 
 #[tauri::command]
@@ -496,6 +497,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -544,6 +546,30 @@ pub fn run() {
                     let auto = profile::Settings::load(&store).auto_update;
                     tauri::async_runtime::spawn(update::on_startup(app.handle().clone(), auto));
                 }
+            }
+
+            // Lembretes: confere a cada 30 s; na hora, notificação do Windows e
+            // aviso no chat (o chat busca os vencidos ao receber o evento).
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    use tauri_plugin_notification::NotificationExt;
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    loop {
+                        let now = chrono::Local::now();
+                        let due = handle.state::<AppState>().store.take_to_notify(
+                            &now.format("%Y-%m-%d").to_string(),
+                            &now.format("%H:%M").to_string(),
+                        );
+                        for r in &due {
+                            let _ = handle.notification().builder().title("Lilith").body(&r.text).show();
+                        }
+                        if !due.is_empty() {
+                            let _ = handle.emit("lilith://reminders-due", ());
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    }
+                });
             }
 
             // Ícone na área de notificação: clique esquerdo abre o painel,

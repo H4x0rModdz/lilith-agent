@@ -23,9 +23,30 @@ pub fn parse_date(raw: &str, today: NaiveDate) -> Option<NaiveDate> {
     }
 }
 
+/// "15:30", "15h", "15h30", "9" → "15:30"/"15:00"/"09:00". Vazio/inválido → None.
+pub fn parse_time(raw: &str) -> Option<String> {
+    let t = raw.trim().to_lowercase().replace([' ', 'h'], ":");
+    let t = t.trim_end_matches(':');
+    let (h, m) = match t.split_once(':') {
+        Some((h, m)) => (h.parse::<u32>().ok()?, if m.is_empty() { 0 } else { m.parse::<u32>().ok()? }),
+        None => (t.parse::<u32>().ok()?, 0),
+    };
+    (h < 24 && m < 60).then(|| format!("{h:02}:{m:02}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_times() {
+        assert_eq!(parse_time("15:30").as_deref(), Some("15:30"));
+        assert_eq!(parse_time("15h").as_deref(), Some("15:00"));
+        assert_eq!(parse_time("9h05").as_deref(), Some("09:05"));
+        assert_eq!(parse_time("8").as_deref(), Some("08:00"));
+        assert_eq!(parse_time("25:00"), None);
+        assert_eq!(parse_time(""), None);
+    }
 
     #[test]
     fn parses_common_forms() {
