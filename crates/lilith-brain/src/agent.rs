@@ -70,8 +70,23 @@ impl Agent {
     /// Um turno completo: pergunta ao LLM, executa tools uma por vez (até
     /// `MAX_STEPS`) devolvendo cada resultado, e termina com texto.
     pub async fn process(&self, text: &str, dispatcher: &dyn Dispatcher, sink: Arc<dyn Sink>) -> Reply {
+        self.process_with_context(text, None, dispatcher, sink).await
+    }
+
+    /// Como `process`, com um contexto extra de sistema (perfil do usuário,
+    /// configurações e fatos lembrados), montado pelo app a cada pedido.
+    pub async fn process_with_context(
+        &self,
+        text: &str,
+        context: Option<&str>,
+        dispatcher: &dyn Dispatcher,
+        sink: Arc<dyn Sink>,
+    ) -> Reply {
         let history = self.memory.recent(HISTORY_TURNS);
         let mut messages = build_initial_messages(text, &history);
+        if let Some(ctx) = context.map(str::trim).filter(|c| !c.is_empty()) {
+            messages.insert(1, serde_json::json!({ "role": "system", "content": ctx }));
+        }
         let mut tools = all_tools();
 
         // Interpreta antes de agir (gírias, referências, "mover ≠ fechar").

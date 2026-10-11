@@ -42,6 +42,10 @@ const SAFE_SCOPES: &[&str] = &[
     "desktop.modify",
     // Pesquisar na web é a função de pesquisa que o usuário pediu.
     "web.access",
+    // A memória é dela e o usuário a vê/edita no painel. Gravar depois de
+    // ler conteúdo externo cai no portão de contaminação (pergunta).
+    "memory.read",
+    "memory.write",
     // Navegar dentro de um programa (abrir uma conversa, trocar de aba) é o
     // que o usuário faria clicando; ações destrutivas têm tools próprias.
     "ui.interact",
@@ -87,6 +91,8 @@ pub fn scope_for(action: &str) -> &'static str {
         "window.list" | "window.focus" | "window.minimize" | "window.maximize" | "window.restore" | "window.move"
         | "window.tile" | "cursor.point" | "ui.find" => "window.control",
         "ui.click" => "ui.interact",
+        "memory.search" => "memory.read",
+        "memory.remember" | "memory.forget" => "memory.write",
         // Escalonado pelo app quando o alvo não é pura navegação.
         "ui.click_effect" => "ui.press",
         "file.find" | "file.list" | "file.read" => "filesystem.read",
@@ -182,6 +188,9 @@ mod tests {
             "ui.find",
             "ui.click",
             "ui.click_effect",
+            "memory.search",
+            "memory.remember",
+            "memory.forget",
         ] {
             let scope = scope_for(action);
             assert_ne!(scope, "unknown", "{action} sem scope");

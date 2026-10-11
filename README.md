@@ -73,6 +73,7 @@ Lilith keeps her files in `%APPDATA%\Lilith\`:
 | `permissions.json` | Your per-channel rules: `{"channels": {"local": {"filesystem.delete": "allow"}}}` (`allow` / `ask` / `deny`) |
 | `logs\audit.jsonl` | One line per action: channel, params, scope, outcome |
 | `avatar.png` / `.jpg` / `.webp` | Optional picture for Lilith in the chat and panel (max 2 MB). It isn't shipped, so you can pick your own. |
+| `lilith.db` | Long-term memory (SQLite): every conversation with full-text search, what she knows about you (set in the panel or learned while chatting), and the panel settings |
 
 Rules match by dotted prefix, and the most specific rule wins. For example, `filesystem` covers
 `filesystem.write.downloads`. You can also set the environment variables `LILITH_MODEL` and `OLLAMA_HOST`;
@@ -96,6 +97,7 @@ crates/
   lilith-guard  Scopes, per-channel policy, audit log
   lilith-win    Windows actions (Win32, Shell, Core Audio, UI Automation later)
   lilith-agents Background jobs for coding-agent CLIs, with live log parsing
+  lilith-memory SQLite memory: conversations + FTS5 search, facts, settings
 docs/           Architecture, design decisions (ADRs), future features
 ```
 

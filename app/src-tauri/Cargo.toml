@@ -20,6 +20,7 @@ lilith-brain = { path = "../../crates/lilith-brain" }
 lilith-guard = { path = "../../crates/lilith-guard" }
 lilith-win = { path = "../../crates/lilith-win" }
 lilith-agents = { path = "../../crates/lilith-agents" }
+lilith-memory = { path = "../../crates/lilith-memory" }
 async-trait.workspace = true
 dirs.workspace = true
 serde.workspace = true
@@ -32,6 +33,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tauri-plugin-window-state = "2.5.0"
 base64 = "0.22"
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+chrono.workspace = true
 
 [dev-dependencies]
 tempfile = "3.27.0"
