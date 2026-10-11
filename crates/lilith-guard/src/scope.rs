@@ -1,0 +1,144 @@
+/// Classificação padrão de um scope, antes das regras do usuário.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    /// Seguro por padrão — executa sem perguntar.
+    Safe,
+    /// Perigoso — pede aprovação.
+    Dangerous,
+    /// Desconhecido — negado.
+    Unknown,
+}
+
+/// Classifica um scope pela lista embutida.
+///
+/// Casa pelo nome exato ou por prefixo pontuado: `filesystem.write` cobre
+/// `filesystem.write.downloads` — o sub-scope herda o perigo do pai.
+pub fn classify(scope: &str) -> Verdict {
+    if matches_any(scope, SAFE_SCOPES) {
+        return Verdict::Safe;
+    }
+    if matches_any(scope, DANGEROUS_SCOPES) {
+        return Verdict::Dangerous;
+    }
+    Verdict::Unknown
+}
+
+pub(crate) fn matches_any(scope: &str, bucket: &[&str]) -> bool {
+    bucket
+        .iter()
+        .any(|prefix| scope == *prefix || scope.starts_with(&format!("{prefix}.")))
+}
+
+const SAFE_SCOPES: &[&str] = &[
+    "app.launch",
+    "window.control",
+    "system.notify",
+    "filesystem.read",
+    // Volume/mudo são reversíveis pelo usuário na hora.
+    "audio.control",
+    // Escrever no clipboard não vaza nada; ler é outra história.
+    "clipboard.write",
+    // Trocar wallpaper é cosmético e reversível.
+    "desktop.modify",
+    // Pesquisar na web é a função de pesquisa que o usuário pediu.
+    "web.access",
+    // Ler o status das tarefas delegadas.
+    "agent.read",
+];
+
+const DANGEROUS_SCOPES: &[&str] = &[
+    "app.install",
+    "app.uninstall",
+    "filesystem.write",
+    "filesystem.delete",
+    "settings.modify",
+    "terminal.execute",
+    "system.power",
+    "microphone.listen",
+    "camera.access",
+    // Clipboard e tela podem entregar senhas, conversas, banco.
+    "clipboard.read",
+    "screen.read",
+    // Mouse/teclado sintéticos dirigem qualquer app, inclusive campo de senha.
+    "input.control",
+    // Um agente de código edita arquivos e roda ferramentas por conta própria.
+    "agent.delegate",
+];
+
+/// Scope exigido por cada ação. Ação sem mapeamento vira `unknown` (negada) —
+/// ao adicionar uma ação, adicione aqui e no teste `no_action_is_unknown`.
+pub fn scope_for(action: &str) -> &'static str {
+    match action {
+        "app.open" | "app.close" | "browser.open" | "file.open" => "app.launch",
+        "file.find" | "file.list" => "filesystem.read",
+        "file.move" | "file.copy" => "filesystem.write",
+        "download.file" => "filesystem.write.downloads",
+        "file.delete" => "filesystem.delete",
+        "desktop.set_wallpaper" => "desktop.modify",
+        "audio.set_volume" | "audio.get_volume" | "audio.set_mute" => "audio.control",
+        "clipboard.set" => "clipboard.write",
+        "clipboard.get" => "clipboard.read",
+        "web.search" | "web.fetch" => "web.access",
+        "system.power" => "system.power",
+        "agent.delegate" => "agent.delegate",
+        "agent.jobs" => "agent.read",
+        _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_and_dangerous_defaults() {
+        assert_eq!(classify("app.launch"), Verdict::Safe);
+        assert_eq!(classify("desktop.modify"), Verdict::Safe);
+        assert_eq!(classify("filesystem.delete"), Verdict::Dangerous);
+        assert_eq!(classify("input.control"), Verdict::Dangerous);
+    }
+
+    #[test]
+    fn dotted_subscopes_inherit_parent() {
+        assert_eq!(classify("filesystem.write.downloads"), Verdict::Dangerous);
+        assert_eq!(classify("filesystem.read.C:/Users"), Verdict::Safe);
+    }
+
+    #[test]
+    fn unknown_and_substring_are_denied() {
+        assert_eq!(classify("totally.made.up"), Verdict::Unknown);
+        assert_eq!(classify("app.install_helper"), Verdict::Unknown);
+        assert_eq!(classify(""), Verdict::Unknown);
+    }
+
+    #[test]
+    fn no_action_is_unknown() {
+        for action in [
+            "app.open",
+            "app.close",
+            "browser.open",
+            "file.open",
+            "file.find",
+            "file.list",
+            "file.move",
+            "file.copy",
+            "file.delete",
+            "download.file",
+            "desktop.set_wallpaper",
+            "audio.set_volume",
+            "audio.get_volume",
+            "audio.set_mute",
+            "clipboard.set",
+            "clipboard.get",
+            "web.search",
+            "web.fetch",
+            "system.power",
+            "agent.delegate",
+            "agent.jobs",
+        ] {
+            let scope = scope_for(action);
+            assert_ne!(scope, "unknown", "{action} sem scope");
+            assert_ne!(classify(scope), Verdict::Unknown, "{action} → {scope} sem classificação");
+        }
+    }
+}
