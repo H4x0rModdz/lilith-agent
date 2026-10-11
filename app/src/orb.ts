@@ -78,9 +78,10 @@ export function mountOrb(root: HTMLElement) {
   });
 
   function summon3D() {
-    // Fase 2: abre a janela do avatar VRM. Por enquanto, só um aceno.
+    // Duplo clique: abre a forma 3D (o orb continua no canto).
     setMood("happy");
-    flash("forma 3D em breve ✦");
+    flash("forma 3D ✦");
+    invoke("toggle_avatar");
   }
 
   // ── menu rápido (botão direito) ─────────────────────────────────────
@@ -93,6 +94,7 @@ export function mountOrb(root: HTMLElement) {
         { id: "new", text: "Nova conversa", action: () => void invoke("new_chat") },
         { id: "chat", text: "Abrir / fechar o chat", action: () => void invoke("toggle_chat") },
         { id: "panel", text: "Painel da Lilith", action: () => void invoke("show_panel_tab", { tab: "jobs" }) },
+        { id: "3d", text: "Forma 3D", action: () => void invoke("toggle_avatar") },
         { item: "Separator" },
         { id: "stop", text: "Parar tudo (Ctrl+Alt+Esc)", action: () => void invoke("cancel") },
         { item: "Separator" },

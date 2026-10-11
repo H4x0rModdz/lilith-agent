@@ -6,6 +6,7 @@
     "orb",
     "chat",
     "panel",
+    "avatar",
     "cursor",
     "border-*"
   ],
@@ -16,6 +17,8 @@
     "core:menu:default",
     "core:window:allow-cursor-position",
     "core:window:allow-outer-position",
-    "core:window:allow-outer-size"
+    "core:window:allow-outer-size",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-destroy"
   ]
 }

@@ -14,4 +14,6 @@ if (label === "orb") mountOrb(root);
 else if (label === "chat") mountChat(root);
 else if (label === "panel") mountPanel(root);
 else if (label === "cursor") mountCursor(root);
+// Carregado só nesta janela: three.js pesa e as outras não precisam dele.
+else if (label === "avatar") void import("./avatar3d").then((m) => m.mountAvatar(root));
 else if (label.startsWith("border-")) mountBorder(root);

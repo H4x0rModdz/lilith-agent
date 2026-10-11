@@ -33,6 +33,18 @@ pub fn avatar_data_url() -> Option<String> {
     })
 }
 
+/// Modelo 3D (VRM) da Lilith: `%APPDATA%\Lilith\lilith.vrm`. Fica fora do
+/// repositório e do instalador (a licença do modelo proíbe redistribuir).
+pub fn avatar_model_bytes() -> Result<Vec<u8>, String> {
+    const MAX_BYTES: u64 = 120 * 1024 * 1024;
+    let path = data_dir().join("lilith.vrm");
+    let meta = std::fs::metadata(&path).map_err(|_| "modelo 3D não encontrado".to_string())?;
+    if meta.len() > MAX_BYTES {
+        return Err("modelo 3D grande demais".into());
+    }
+    std::fs::read(&path).map_err(|e| e.to_string())
+}
+
 /// `%APPDATA%\Lilith\config.json`. Ausente/inválido → padrões.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
