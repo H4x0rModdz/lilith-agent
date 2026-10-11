@@ -29,9 +29,11 @@ export async function mountAvatar(root: HTMLElement) {
     <div class="avatar3d">
       <canvas></canvas>
       <p class="avatar-hint" hidden></p>
+      <span class="avatar-badge" hidden></span>
     </div>`;
   const canvas = root.querySelector<HTMLCanvasElement>("canvas")!;
   const hint = root.querySelector<HTMLElement>(".avatar-hint")!;
+  const badge = root.querySelector<HTMLElement>(".avatar-badge")!;
   const win = getCurrentWindow();
 
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "low-power" });
@@ -142,6 +144,27 @@ export async function mountAvatar(root: HTMLElement) {
       emotionTimer = undefined;
       applyTarget("neutral");
     }, 6000);
+  });
+  // Bolinha de pendências (como na orb): aprovações e tarefas em andamento.
+  const approvals = new Set<number>();
+  const jobs = new Set<number>();
+  function refreshBadge() {
+    const pending = approvals.size + jobs.size;
+    badge.hidden = pending === 0;
+    badge.textContent = pending > 9 ? "9+" : String(pending);
+    badge.dataset.kind = approvals.size > 0 ? "approval" : "job";
+    badge.title = approvals.size > 0 ? `${approvals.size} pedido(s) esperando sua aprovação` : `${jobs.size} tarefa(s) rodando`;
+  }
+  void listen<{ id: number }>("lilith://approval", (e) => (approvals.add(e.payload.id), refreshBadge()));
+  void listen<{ id: number }>("lilith://approval-resolved", (e) => (approvals.delete(e.payload.id), refreshBadge()));
+  void listen<number>("lilith://approval-expired", (e) => (approvals.delete(e.payload), refreshBadge()));
+  void listen("lilith://cancelled", () => (approvals.clear(), refreshBadge()));
+  void listen<{ kind: string; job?: { id: number; status: string } }>("lilith://job", (e) => {
+    const job = e.payload.job;
+    if (e.payload.kind !== "updated" || !job) return;
+    if (job.status === "running") jobs.add(job.id);
+    else jobs.delete(job.id);
+    refreshBadge();
   });
   void listen<number>("lilith://mouth", (e) => (mouth = Math.max(0, Math.min(1, Number(e.payload) || 0))));
 
@@ -282,10 +305,14 @@ export async function mountAvatar(root: HTMLElement) {
     e.preventDefault();
     const menu = await Menu.new({
       items: [
+        { id: "new", text: "Nova conversa", action: () => void invoke("new_chat") },
         { id: "chat", text: "Abrir / fechar o chat", action: () => void invoke("toggle_chat") },
         { id: "panel", text: "Painel da Lilith", action: () => void invoke("show_panel_tab", { tab: "jobs" }) },
         { item: "Separator" },
+        { id: "stop", text: "Parar tudo (Ctrl+Alt+Esc)", action: () => void invoke("cancel") },
         { id: "2d", text: "Voltar para a forma 2D", action: () => void invoke("toggle_avatar") },
+        { item: "Separator" },
+        { id: "quit", text: "Sair da Lilith", action: () => void invoke("quit_app") },
       ],
     });
     await menu.popup();

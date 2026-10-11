@@ -1659,3 +1659,25 @@ body[data-window="avatar"] {
   background: rgba(0, 0, 0, 0.45);
   text-align: center;
 }
+
+.avatar-badge {
+  position: absolute;
+  right: 22%;
+  top: 8%;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #ff3d9a;
+  box-shadow: 0 0 12px #ff3d9a;
+  pointer-events: none;
+}
+.avatar-badge[data-kind="job"] {
+  background: #7a5cff;
+  box-shadow: 0 0 12px #7a5cff;
+}

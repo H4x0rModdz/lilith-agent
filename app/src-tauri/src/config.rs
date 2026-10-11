@@ -35,6 +35,10 @@ pub fn avatar_data_url() -> Option<String> {
 
 /// Modelo 3D (VRM) da Lilith: `%APPDATA%\Lilith\lilith.vrm`. Fica fora do
 /// repositório e do instalador (a licença do modelo proíbe redistribuir).
+pub fn avatar_model_exists() -> bool {
+    data_dir().join("lilith.vrm").is_file()
+}
+
 pub fn avatar_model_bytes() -> Result<Vec<u8>, String> {
     const MAX_BYTES: u64 = 120 * 1024 * 1024;
     let path = data_dir().join("lilith.vrm");
