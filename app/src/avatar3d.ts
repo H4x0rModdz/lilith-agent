@@ -96,6 +96,9 @@ export async function mountAvatar(root: HTMLElement) {
   // ── carrega o modelo ──────────────────────────────────────────────────
 
   let vrm: VRM | null = null;
+  /// VRM 0.x é girado 180° para ficar de frente: os eixos X e Z locais ficam
+  /// espelhados (o Y, não). -1 corrige a inclinação vertical e os braços.
+  let flip = 1;
   /// Escondida (forma 2D): não renderiza nem consulta o cursor.
   let paused = false;
   let waistY = 0;
@@ -109,6 +112,7 @@ export async function mountAvatar(root: HTMLElement) {
     loader.register((parser) => new VRMLoaderPlugin(parser));
     const gltf = await loader.parseAsync(bytes, "");
     vrm = gltf.userData.vrm as VRM;
+    flip = vrm.meta?.metaVersion === "0" ? -1 : 1;
     VRMUtils.removeUnnecessaryVertices(gltf.scene);
     VRMUtils.rotateVRM0(vrm);
     gltf.scene.traverse((o) => (o.frustumCulled = false));
@@ -129,12 +133,13 @@ export async function mountAvatar(root: HTMLElement) {
       const n = h.getNormalizedBoneNode(name);
       if (n) n.rotation.set(x, y, z);
     };
-    set("leftUpperArm", 0, 0, 1.15);
-    set("rightUpperArm", 0, 0, -1.15);
-    set("leftLowerArm", 0, 0.12, 0.08);
-    set("rightLowerArm", 0, -0.12, -0.08);
-    set("leftHand", 0, 0, 0.05);
-    set("rightHand", 0, 0, -0.05);
+    const k = -flip; // VRM0 (flip = -1): braço esquerdo em +z
+    set("leftUpperArm", 0, 0, 1.15 * k);
+    set("rightUpperArm", 0, 0, -1.15 * k);
+    set("leftLowerArm", 0, 0.12 * k, 0.08 * k);
+    set("rightLowerArm", 0, -0.12 * k, -0.08 * k);
+    set("leftHand", 0, 0, 0.05 * k);
+    set("rightHand", 0, 0, -0.05 * k);
   }
 
   /// Enquadra da cintura (quadril) ao topo da cabeça.
@@ -286,7 +291,7 @@ export async function mountAvatar(root: HTMLElement) {
     const neck = h.getNormalizedBoneNode("neck");
     const tiltZ = thinking ? 0.07 : 0;
     const yaw = lookX * 0.32 + Math.sin(t * 0.45) * 0.03;
-    const pitch = -lookY * 0.16 + (thinking ? -0.05 : 0);
+    const pitch = flip * (-lookY * 0.16 + (thinking ? -0.05 : 0));
     if (head) {
       head.rotation.y += (yaw * 0.6 - head.rotation.y) * 0.12;
       head.rotation.x += (pitch * 0.6 - head.rotation.x) * 0.12;

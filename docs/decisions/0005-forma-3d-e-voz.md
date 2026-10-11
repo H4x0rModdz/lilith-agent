@@ -31,7 +31,7 @@ médio, sem depender de mais modelos grandes).
 | Fase | Entrega | Estado |
 |---|---|---|
 | 2a | Corpo 3D (cintura para cima), expressões, olhar, piscar | feita |
-| 2b | Voz de saída (Piper) + lip-sync | a fazer |
+| 2b | Voz de saída (Kokoro, feminina pt-BR) + lip-sync | feita |
 | 2c | Voz de entrada (whisper.cpp, push-to-talk) | a fazer |
 | 2d | Gestos (acenar, apontar para a tela), troca de modelo nas Configurações | a fazer |
 

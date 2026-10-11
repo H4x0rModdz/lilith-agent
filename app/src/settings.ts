@@ -81,7 +81,7 @@ export function mountSettings(view: HTMLElement) {
           <small class="hint voice-status"></small>
           <span class="voice-actions">
             <button type="button" class="neon-soft voice-test" hidden>Testar</button>
-            <button type="button" class="neon-soft voice-install" hidden>Instalar a voz (≈85 MB)</button>
+            <button type="button" class="neon-soft voice-install" hidden>Instalar a voz (≈150 MB)</button>
           </span>
         </div>
         <label class="switch">
@@ -296,7 +296,7 @@ export function mountSettings(view: HTMLElement) {
       ? "Voz instalada."
       : st.installing
         ? "Instalando a voz…"
-        : "A voz ainda não está instalada. Ela é baixada uma vez (≈85 MB) e fica só no seu PC.";
+        : "A voz ainda não está instalada. Ela é baixada uma vez (≈150 MB) e fica só no seu PC.";
   }
   voiceInstall.addEventListener("click", async () => {
     voiceInstall.disabled = true;

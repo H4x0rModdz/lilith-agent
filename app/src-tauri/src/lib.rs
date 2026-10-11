@@ -360,7 +360,7 @@ fn voice_status() -> voice::Status {
     voice::status()
 }
 
-/// Baixa e instala o Piper e a voz (≈85 MB). O progresso vai em `lilith://voice-install`.
+/// Baixa e instala o Piper e a voz (≈150 MB). O progresso vai em `lilith://voice-install`.
 #[tauri::command]
 async fn voice_install(app: AppHandle) -> Result<(), String> {
     voice::install(app).await
