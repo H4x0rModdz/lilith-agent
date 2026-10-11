@@ -15,6 +15,12 @@ use std::sync::Arc;
 #[async_trait]
 pub trait Dispatcher: Send + Sync {
     async fn dispatch(&self, call: &ToolCall) -> Value;
+
+    /// Tools que a mensagem do *chat* pede, segundo o intérprete — calculado
+    /// antes de qualquer leitura, então não pode ter sido influenciado por
+    /// conteúdo externo. O dispatcher usa isso para recusar ações que só
+    /// apareceram depois de ler algo (prompt injection).
+    fn authorize_from_chat(&self, _tools: &[String]) {}
 }
 
 /// Recebe o progresso do turno para a UI (tokens em streaming, tool em curso).
@@ -67,6 +73,7 @@ impl Agent {
             .map(|t| (t.user_text.clone(), t.reply_text.clone()))
             .collect();
         if let Some(i) = interpret::run(self.ollama.as_ref(), text, &recent, &tools).await {
+            dispatcher.authorize_from_chat(&i.tools);
             let last = messages.len() - 1;
             messages.insert(last, serde_json::json!({ "role": "system", "content": interpret::hint(&i) }));
             tools = interpret::narrow(tools, &i.tools);
