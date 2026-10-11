@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { USER_AVATAR_SVG, fillSigil, lilithAvatar } from "./avatar";
 import { makeDraggable } from "./drag";
+import { type IconName, actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel, actionVerb } from "./labels";
 
 interface Reply {
@@ -33,16 +34,17 @@ export async function mountChat(root: HTMLElement) {
           <strong>Lilith</strong>
           <small class="chat-status">online</small>
         </div>
-        <button class="icon-btn" data-act="reset" title="Nova conversa">↺</button>
-        <button class="icon-btn" data-act="close" title="Fechar">✕</button>
+        <button class="icon-btn" data-act="reset" title="Nova conversa"><span data-icon="reset" data-size="17"></span></button>
+        <button class="icon-btn" data-act="close" title="Fechar"><span data-icon="close" data-size="17"></span></button>
       </header>
       <ol class="chat-log" aria-live="polite"></ol>
       <form class="chat-input">
         <textarea rows="1" placeholder="Fala comigo…" aria-label="Mensagem"></textarea>
-        <button type="submit" class="send" title="Enviar">➤</button>
-        <button type="button" class="stop" title="Parar (Ctrl+Alt+Esc)" hidden>■</button>
+        <button type="submit" class="send" title="Enviar"><span data-icon="send" data-size="18"></span></button>
+        <button type="button" class="stop" title="Parar (Ctrl+Alt+Esc)" hidden><span data-icon="stop" data-size="16"></span></button>
       </form>
     </section>`;
+  hydrateIcons(root);
 
   const log = root.querySelector<HTMLOListElement>(".chat-log")!;
   const form = root.querySelector<HTMLFormElement>(".chat-input")!;
@@ -59,11 +61,11 @@ export async function mountChat(root: HTMLElement) {
 
   /// Adiciona uma mensagem e devolve a bolha (onde vai o texto). Mensagens
   /// do usuário e da Lilith levam avatar, nome e hora; as de sistema não.
-  function add(role: Role, text: string): HTMLElement {
+  function add(role: Role, text: string, sysIcon?: IconName): HTMLElement {
     const li = document.createElement("li");
     if (role === "system") {
       li.className = "msg system";
-      li.textContent = text;
+      setSystemText(li, text, sysIcon);
     } else {
       li.className = `msg-row ${role}`;
       li.innerHTML = `
@@ -93,6 +95,13 @@ export async function mountChat(root: HTMLElement) {
     log.append(li);
     log.scrollTop = log.scrollHeight;
     return role === "system" ? li : li.querySelector<HTMLElement>(".msg")!;
+  }
+
+  /// Linha de sistema = ícone (opcional) + texto.
+  function setSystemText(li: HTMLElement, text: string, sysIcon?: IconName) {
+    const span = document.createElement("span");
+    span.textContent = text;
+    li.replaceChildren(...(sysIcon ? [icon(sysIcon, 14), span] : [span]));
   }
 
   function setBusy(busy: boolean) {
@@ -132,7 +141,7 @@ export async function mountChat(root: HTMLElement) {
   root.querySelector('[data-act="reset"]')!.addEventListener("click", () => {
     invoke("reset_conversation");
     log.replaceChildren();
-    add("system", "Conversa nova. O que vamos fazer?");
+    add("system", "Conversa nova. O que vamos fazer?", "sparkles");
   });
 
   listen<string>("lilith://state", (e) => setBusy(e.payload === "thinking"));
@@ -152,7 +161,7 @@ export async function mountChat(root: HTMLElement) {
     if (live) live.closest("li")?.remove();
     live = null;
     const label = actionLabel(e.payload.action);
-    add("system", `⚙ ${label}…`).classList.add("step");
+    add("system", `${label}…`, actionIcon(e.payload.action)).classList.add("step");
   });
 
   listen<Reply>("lilith://reply", (e) => {
@@ -169,19 +178,19 @@ export async function mountChat(root: HTMLElement) {
 
   listen("lilith://cancelled", () => {
     live = null;
-    add("system", "⏹ Parei tudo.");
+    add("system", "Parei tudo.", "stop");
   });
 
   // A linha "⚙ …" do passo bloqueado vira o aviso (ele nunca aconteceu).
   listen<{ action: string }>("lilith://blocked", (e) => {
-    const text = `🛡 O texto lido pedia para ${actionVerb(e.payload.action)}. Ignorei — só obedeço o chat.`;
+    const text = `O texto lido pedia para ${actionVerb(e.payload.action)}. Ignorei — só obedeço o chat.`;
     const steps = log.querySelectorAll<HTMLElement>(".msg.system.step");
     const last = steps[steps.length - 1];
     if (last && last === log.lastElementChild) {
-      last.textContent = text;
+      setSystemText(last, text, "shield");
       last.classList.replace("step", "blocked");
     } else {
-      add("system", text).classList.add("blocked");
+      add("system", text, "shield").classList.add("blocked");
     }
   });
 
@@ -197,7 +206,7 @@ export async function mountChat(root: HTMLElement) {
     li.dataset.approval = String(req.id);
     const label = actionLabel(req.action);
     li.innerHTML = `
-      <p class="approval-title">Posso fazer isso?</p>
+      <p class="approval-title"><span data-icon="shield" data-size="16"></span>Posso fazer isso?</p>
       <p class="approval-action"></p>
       <pre class="approval-params"></pre>
       <p class="approval-scope"></p>
@@ -206,11 +215,13 @@ export async function mountChat(root: HTMLElement) {
         <button data-answer="once" class="primary">Permitir uma vez</button>
         <button data-answer="always">Sempre</button>
       </div>`;
+    hydrateIcons(li);
     if (req.tainted) {
       const warn = document.createElement("p");
       warn.className = "approval-taint";
-      warn.textContent =
-        "⚠ Isso apareceu depois de eu ler conteúdo de fora (janela, arquivo ou web). Confira se foi você que pediu.";
+      const msg = document.createElement("span");
+      msg.textContent = "Isso apareceu depois de eu ler conteúdo de fora (janela, arquivo ou web). Confira se foi você que pediu.";
+      warn.append(icon("warn", 16), msg);
       li.querySelector(".approval-title")!.after(warn);
       li.querySelector('[data-answer="always"]')!.remove();
     }
@@ -245,9 +256,9 @@ export async function mountChat(root: HTMLElement) {
       const job = e.payload.job;
       if (e.payload.kind !== "updated" || !job) return;
       if (job.status === "running") {
-        add("system", `🛠 ${job.agent} começou a tarefa #${job.id} — acompanhe no painel`);
+        add("system", `${job.agent} começou a tarefa #${job.id} — acompanhe no painel`, "bot");
       } else if (job.status === "done" || job.status === "failed") {
-        const head = job.status === "done" ? `✅ ${job.agent} terminou #${job.id}` : `⚠ ${job.agent} falhou em #${job.id}`;
+        const head = job.status === "done" ? `${job.agent} terminou #${job.id}` : `${job.agent} falhou em #${job.id}`;
         const body = (job.result ?? "").slice(0, 400);
         add("lilith", body ? `${head}:
 ${body}` : head);

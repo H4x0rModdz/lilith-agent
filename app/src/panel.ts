@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { fillSigil } from "./avatar";
 import { makeDraggable } from "./drag";
+import { actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel } from "./labels";
 
 type JobStatus = "running" | "done" | "failed" | "cancelled";
@@ -40,6 +41,7 @@ const OUTCOME_LABEL: Record<string, string> = {
   error: "erro",
   denied: "bloqueado",
   denied_by_user: "negado",
+  blocked_injection: "bloqueado",
   aborted: "parado",
 };
 
@@ -54,15 +56,16 @@ export function mountPanel(root: HTMLElement) {
           <strong>Painel da Lilith</strong>
           <small class="panel-summary">nenhuma tarefa</small>
         </div>
-        <button class="icon-btn" data-act="close" title="Fechar">✕</button>
+        <button class="icon-btn" data-act="close" title="Fechar"><span data-icon="close" data-size="17"></span></button>
       </header>
       <nav class="tabs" role="tablist">
-        <button role="tab" class="tab" data-tab="jobs" aria-selected="true">Tarefas</button>
-        <button role="tab" class="tab" data-tab="activity" aria-selected="false">Atividade</button>
+        <button role="tab" class="tab" data-tab="jobs" aria-selected="true"><span data-icon="jobs" data-size="16"></span>Tarefas</button>
+        <button role="tab" class="tab" data-tab="activity" aria-selected="false"><span data-icon="activity" data-size="16"></span>Atividade</button>
       </nav>
       <ol class="panel-list jobs" data-view="jobs"></ol>
       <ol class="panel-list activity" data-view="activity" hidden></ol>
     </section>`;
+  hydrateIcons(root);
 
   const jobsEl = root.querySelector<HTMLOListElement>('[data-view="jobs"]')!;
   const activityEl = root.querySelector<HTMLOListElement>('[data-view="activity"]')!;
@@ -101,7 +104,8 @@ export function mountPanel(root: HTMLElement) {
       list.length === 0 ? "nenhuma tarefa" : running > 0 ? `${running} rodando agora` : `${list.length} tarefa(s)`;
 
     if (list.length === 0) {
-      jobsEl.innerHTML = `<li class="empty">Peça algo à Lilith como “pede pro Claude arrumar o build do projeto X” e acompanhe aqui.</li>`;
+      jobsEl.innerHTML = `<li class="empty"><span data-icon="bot" data-size="28"></span>Peça algo à Lilith como “pede pro Claude arrumar o build do projeto X” e acompanhe aqui.</li>`;
+      hydrateIcons(jobsEl);
       return;
     }
     jobsEl.replaceChildren(...list.map(renderJob));
@@ -117,14 +121,18 @@ export function mountPanel(root: HTMLElement) {
         <span class="badge agent"></span>
         <span class="badge status"></span>
         <span class="job-time"></span>
-        <button class="icon-btn job-cancel" title="Cancelar">■</button>
+        <button class="icon-btn job-cancel" title="Cancelar"><span data-icon="stop" data-size="13"></span></button>
       </div>
       <p class="job-task"></p>
       <p class="job-folder"></p>
       <p class="job-result"></p>
       <button class="link job-toggle"></button>
       <pre class="job-log"></pre>`;
-    li.querySelector(".agent")!.textContent = job.agent;
+    hydrateIcons(li);
+    const agentBadge = li.querySelector<HTMLElement>(".agent")!;
+    const agentName = document.createElement("span");
+    agentName.textContent = job.agent;
+    agentBadge.replaceChildren(icon("bot", 13), agentName);
     li.querySelector(".status")!.textContent = STATUS_LABEL[job.status];
     li.querySelector(".job-time")!.textContent = elapsed(job);
     li.querySelector(".job-task")!.textContent = job.task;
@@ -177,7 +185,8 @@ export function mountPanel(root: HTMLElement) {
   async function loadActivity() {
     const items = await invoke<Activity[]>("recent_activity", { limit: 80 });
     if (items.length === 0) {
-      activityEl.innerHTML = `<li class="empty">Nada ainda. Toda ação da Lilith aparece aqui.</li>`;
+      activityEl.innerHTML = `<li class="empty"><span data-icon="activity" data-size="28"></span>Nada ainda. Toda ação da Lilith aparece aqui.</li>`;
+      hydrateIcons(activityEl);
       return;
     }
     activityEl.replaceChildren(
@@ -186,6 +195,7 @@ export function mountPanel(root: HTMLElement) {
         li.className = "activity-item";
         li.dataset.outcome = a.outcome;
         li.innerHTML = `<span class="act-time"></span><span class="act-name"></span><span class="badge outcome"></span>`;
+        li.querySelector(".act-time")!.after(icon(actionIcon(a.action), 16));
         li.querySelector(".act-time")!.textContent = new Date(a.ts).toLocaleTimeString("pt-BR", {
           hour: "2-digit",
           minute: "2-digit",
