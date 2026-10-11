@@ -1,0 +1,15 @@
+[package]
+name = "lilith-brain"
+description = "Cérebro da Lilith: LLM local (Ollama), tool calling, loop multi-step, memória e emoção"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true

@@ -1,0 +1,16 @@
+//! Cérebro da Lilith, portado de `jarvis-os/ai/lilith`.
+//!
+//! Mudanças em relação ao original: sem DBus (o chamador injeta um
+//! [`Dispatcher`] e um [`Sink`]), catálogo de tools do Windows e prompt de
+//! companion. O LLM é sempre local (Ollama).
+
+pub mod agent;
+pub mod emotion;
+pub mod error;
+pub mod memory;
+pub mod ollama;
+pub mod tools;
+
+pub use agent::{Agent, Dispatcher, Reply, Sink};
+pub use ollama::{Ollama, OllamaClient, OllamaConfig};
+pub use tools::{all_tools, Tool, ToolCall};
