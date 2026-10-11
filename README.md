@@ -72,6 +72,7 @@ Lilith keeps her files in `%APPDATA%\Lilith\`:
 | `config.json` | Model, Ollama host, context size, and the agent CLIs available for delegation |
 | `permissions.json` | Your per-channel rules: `{"channels": {"local": {"filesystem.delete": "allow"}}}` (`allow` / `ask` / `deny`) |
 | `logs\audit.jsonl` | One line per action: channel, params, scope, outcome |
+| `avatar.png` / `.jpg` / `.webp` | Optional picture for Lilith in the chat and panel (max 2 MB). It isn't shipped, so you can pick your own. |
 
 Rules match by dotted prefix, and the most specific rule wins. For example, `filesystem` covers
 `filesystem.write.downloads`. You can also set the environment variables `LILITH_MODEL` and `OLLAMA_HOST`;
