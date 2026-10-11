@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn search_across_conversations_ignores_accents_and_current_chat() {
         let m = Memory::in_memory().unwrap();
-        m.append("a", "user", "a senha do wifi da casa é lilith123");
+        m.append("a", "user", "a senha do wifi da casa é example-pass");
         m.append("b", "user", "lembra da conta da Netflix?");
         m.append("c", "user", "o wifi caiu de novo");
         let hits = m.search("WIFI", 10, None);
@@ -527,13 +527,13 @@ mod tests {
     #[test]
     fn user_facts_win_over_learned_ones() {
         let m = Memory::in_memory().unwrap();
-        assert!(m.remember("nome", "Lobo", "user"));
+        assert!(m.remember("nome", "Alex", "user"));
         assert!(!m.remember("Nome", "Lucas", "learned"), "aprendido não sobrescreve o configurado");
         assert!(m.remember("time", "Corinthians", "learned"));
         assert!(m.remember("time", "Palmeiras", "learned"));
         let facts = m.facts();
         assert_eq!(facts.len(), 2);
-        assert_eq!(facts.iter().find(|f| f.key == "nome").unwrap().value, "Lobo");
+        assert_eq!(facts.iter().find(|f| f.key == "nome").unwrap().value, "Alex");
         assert_eq!(facts.iter().find(|f| f.key == "time").unwrap().value, "Palmeiras");
         assert!(m.forget("TIME"));
         assert!(!m.remember(" ", "x", "user"));
@@ -543,7 +543,7 @@ mod tests {
     fn settings_round_trip_and_json_import() {
         let m = Memory::in_memory().unwrap();
         assert_eq!(m.setting("user_name"), None);
-        m.set_setting("user_name", "Lobo");
+        m.set_setting("user_name", "Alex");
         m.set_setting("user_name", "Lobão");
         assert_eq!(m.setting("user_name").as_deref(), Some("Lobão"));
 

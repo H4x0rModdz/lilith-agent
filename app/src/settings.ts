@@ -25,7 +25,7 @@ export function mountSettings(view: HTMLElement) {
         <h3><span data-icon="sparkles" data-size="16"></span>Comportamento</h3>
         <label class="field">
           <span>Como ela te chama</span>
-          <input name="user_name" maxlength="40" placeholder="ex.: Lobo" />
+          <input name="user_name" maxlength="40" placeholder="ex.: Alex" />
         </label>
         <label class="field">
           <span>Jeito dela</span>

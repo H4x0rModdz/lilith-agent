@@ -453,11 +453,11 @@ mod tests {
 
     #[test]
     fn match_rank_is_accent_and_case_insensitive() {
-        assert_eq!(match_rank("Kuromi 2 meses pro natal", "kuromi"), Some(0));
-        assert_eq!(match_rank("Conversa com Kuromi", "KUROMI"), Some(1));
-        assert_eq!(match_rank("Kuromi 2 meses pro natal", "natal kuromi"), Some(2));
+        assert_eq!(match_rank("User X chat", "user x"), Some(0));
+        assert_eq!(match_rank("Chat with User X", "USER X"), Some(1));
+        assert_eq!(match_rank("User X chat", "chat user"), Some(2));
         assert_eq!(match_rank("Configurações", "configuracoes"), Some(0));
-        assert_eq!(match_rank("gui", "kuromi"), None);
+        assert_eq!(match_rank("user y", "user x"), None);
         assert_eq!(match_rank("qualquer", "  "), None);
     }
 
@@ -467,11 +467,11 @@ mod tests {
 
     #[test]
     fn only_plain_navigation_is_auto_approved() {
-        assert!(is_navigation(&el("Kuromi 2 meses pro natal (mensagem direta)", "link")));
+        assert!(is_navigation(&el("User X chat (direct message)", "link")));
         assert!(is_navigation(&el("Geral", "aba")));
-        assert!(is_navigation(&el("URBX", "item de árvore")));
+        assert!(is_navigation(&el("Group A", "item de árvore")));
         // Botões e afins sempre pedem.
-        assert!(!is_navigation(&el("Kuromi", "botão")));
+        assert!(!is_navigation(&el("User X", "botão")));
         assert!(!is_navigation(&el("Arquivo", "item de menu")));
         // Nome com verbo de efeito, mesmo em link/lista.
         assert!(!is_navigation(&el("Excluir servidor", "item de lista")));
@@ -617,8 +617,8 @@ mod message_tests {
     #[test]
     fn clock_only_is_today_or_yesterday() {
         let now = NaiveDateTime::parse_from_str("2026-10-11 00:10", "%Y-%m-%d %H:%M").unwrap();
-        let earlier = parse_clock("gui , oi , 00:05", now).unwrap();
-        let late_yesterday = parse_clock("gui , oi , 23:50", now).unwrap();
+        let earlier = parse_clock("userx , oi , 00:05", now).unwrap();
+        let late_yesterday = parse_clock("userx , oi , 23:50", now).unwrap();
         assert!(earlier > late_yesterday);
         let d = Local.timestamp_millis_opt(late_yesterday).unwrap().naive_local();
         assert_eq!(d.format("%Y-%m-%d").to_string(), "2026-10-10");

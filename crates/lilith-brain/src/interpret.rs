@@ -26,7 +26,7 @@ pub fn schema() -> Value {
         "type": "object",
         "properties": {
             "intent": { "type": "string" },
-            "tools": { "type": "array", "items": { "type": "string" }, "maxItems": 3 }
+            "tools": { "type": "array", "items": { "type": "string" }, "maxItems": 12 }
         },
         "required": ["intent", "tools"]
     })
@@ -39,8 +39,10 @@ Leia o último pedido do usuário (use as mensagens anteriores só como contexto
 resolvendo gírias e referências (\"o zap\" = WhatsApp, \"isso\"/\"ela\" = o que foi \
 citado antes, \"joga/manda/puxa pro lado\" = mover a janela, \"a outra tela\" = outro \
 monitor, \"some com\" = minimizar).
-2. Liste em `tools` as ferramentas do catálogo que resolvem o pedido, na ordem de uso \
-(no máximo 3). Lista vazia se for só conversa.
+2. Liste em `tools` o PLANO COMPLETO: as ferramentas do catálogo que resolvem TODAS as \
+tarefas do pedido, na ordem de uso, REPETINDO a ferramenta quando a tarefa se repete. Um \
+pedido com duas tarefas tem as ferramentas das duas: \"oi pra A no whatsapp e oi pra B no \
+discord\" = [ui.open_chat, ui.type, ui.open_chat, ui.type]. Lista vazia se for só conversa.
 
 Regras: fechar/encerrar/apagar só se o usuário disser isso explicitamente. Mover, \
 arrastar, ajustar, organizar ou trocar de tela uma janela NUNCA é fechar. \
@@ -97,7 +99,7 @@ pub fn parse(raw: &Value, tools: &[Tool]) -> Option<Interpretation> {
         return None;
     }
     i.tools.retain(|name| tools.iter().any(|t| t.action == name));
-    i.tools.dedup();
+    i.tools.truncate(12);
     Some(i)
 }
 
@@ -107,8 +109,9 @@ pub fn hint(i: &Interpretation) -> String {
         format!("Interpretação do pedido: {}. (Parece conversa — responda em texto.)", i.intent)
     } else {
         format!(
-            "Interpretação do pedido: {}. Ferramentas indicadas, em ordem: {}. \
-             Use-as em vez de dizer que não é possível.",
+            "Interpretação do pedido: {}. Plano completo, em ordem: {}. Faça TODAS as etapas, \
+             uma por vez, e só responda em texto no final. Use as ferramentas em vez de dizer \
+             que não é possível.",
             i.intent,
             i.tools.join(", ")
         )
@@ -161,7 +164,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(i.intent, "mover a janela do WhatsApp para a esquerda");
-        assert_eq!(i.tools, vec!["window.move"]);
+        assert_eq!(i.tools, vec!["window.move", "window.move"], "inventada some; repetida fica (plano com 2 tarefas)");
         assert!(parse(&json!({ "intent": "  ", "tools": [] }), &tools).is_none());
         assert!(parse(&json!({ "nope": 1 }), &tools).is_none());
     }
@@ -187,6 +190,17 @@ mod tests {
         assert!(!chain.contains(&"window.move"));
 
         assert_eq!(narrow(all_tools(), &[]).len(), all_tools().len());
+    }
+
+    #[test]
+    fn repeated_tools_stay_in_the_plan() {
+        let tools = all_tools();
+        let i = parse(
+            &json!({ "intent": "duas mensagens", "tools": ["ui.open_chat", "ui.type", "ui.open_chat", "ui.type"] }),
+            &tools,
+        )
+        .unwrap();
+        assert_eq!(i.tools, vec!["ui.open_chat", "ui.type", "ui.open_chat", "ui.type"]);
     }
 
     #[test]
