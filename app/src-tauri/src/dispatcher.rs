@@ -226,7 +226,7 @@ impl Dispatcher for GuardedDispatcher {
 
         let result = match action {
             "cursor.point" => self.screen_action(action, &call.params).await,
-            a if a.starts_with("memory.") => Ok(self.memory_action(a, &call.params)),
+            a if a.starts_with("memory.") || a == "reminder.add" => Ok(self.memory_action(a, &call.params)),
             a if APP_ACTIONS.contains(&a) => self.agent_action(action, &call.params),
             a if a.starts_with("window.") && !matches!(a, "window.list" | "window.read") => {
                 self.screen_action(action, &call.params).await
