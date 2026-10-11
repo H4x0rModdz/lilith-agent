@@ -77,6 +77,10 @@ const DANGEROUS_SCOPES: &[&str] = &[
     // programa pode enviar, apagar, pagar… Nome sem ponto: não herda de
     // ui.interact.
     "ui.press",
+    // Gravar/apagar memória sem o usuário ter pedido no chat: o que entra
+    // aqui vai para o contexto de todos os pedidos futuros (injeção
+    // persistente). Nome sem ponto: não herda de memory.write.
+    "memory.persist",
     // Fechar um app/janela pode perder trabalho não salvo — e um modelo
     // pequeno já confundiu "joga o WhatsApp pro lado" com fechar.
     "app.terminate",
@@ -93,6 +97,8 @@ pub fn scope_for(action: &str) -> &'static str {
         "ui.click" => "ui.interact",
         "memory.search" => "memory.read",
         "memory.remember" | "memory.forget" => "memory.write",
+        // Escalonado pelo app quando o chat não pediu isso.
+        "memory.write_unrequested" => "memory.persist",
         // Escalonado pelo app quando o alvo não é pura navegação.
         "ui.click_effect" => "ui.press",
         "file.find" | "file.list" | "file.read" => "filesystem.read",
@@ -133,6 +139,7 @@ mod tests {
         assert_eq!(classify(scope_for("file.read_protected")), Verdict::Dangerous);
         assert_eq!(classify(scope_for("ui.click")), Verdict::Safe);
         assert_eq!(classify(scope_for("ui.click_effect")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("memory.write_unrequested")), Verdict::Dangerous);
     }
 
     #[test]
@@ -191,6 +198,7 @@ mod tests {
             "memory.search",
             "memory.remember",
             "memory.forget",
+            "memory.write_unrequested",
         ] {
             let scope = scope_for(action);
             assert_ne!(scope, "unknown", "{action} sem scope");
