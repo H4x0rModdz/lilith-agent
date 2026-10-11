@@ -102,11 +102,38 @@ impl Policy {
                 .insert(scope.to_string(), rule);
             f.clone()
         };
+        self.persist(&snapshot)
+    }
+
+    /// Revoga uma regra do usuário (o scope volta ao padrão). Devolve se existia.
+    pub fn remove_rule(&self, channel: &str, scope: &str) -> std::io::Result<bool> {
+        let (removed, snapshot) = {
+            let mut f = self.file.write().expect("policy lock");
+            let removed = f.channels.get_mut(channel).and_then(|r| r.remove(scope)).is_some();
+            f.channels.retain(|_, rules| !rules.is_empty());
+            (removed, f.clone())
+        };
+        if removed {
+            self.persist(&snapshot)?;
+        }
+        Ok(removed)
+    }
+
+    /// Regras do usuário: (canal, scope, regra), em ordem.
+    pub fn rules(&self) -> Vec<(String, String, Rule)> {
+        let f = self.file.read().expect("policy lock");
+        f.channels
+            .iter()
+            .flat_map(|(ch, rules)| rules.iter().map(move |(sc, r)| (ch.clone(), sc.clone(), *r)))
+            .collect()
+    }
+
+    fn persist(&self, snapshot: &PolicyFile) -> std::io::Result<()> {
         if let Some(path) = &self.path {
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir)?;
             }
-            let json = serde_json::to_string_pretty(&snapshot).expect("policy serializa");
+            let json = serde_json::to_string_pretty(snapshot).expect("policy serializa");
             std::fs::write(path, json)?;
         }
         Ok(())
@@ -159,6 +186,18 @@ mod tests {
             p.decide("local", "file.delete"),
             Decision::Ask { scope: "filesystem.delete" }
         );
+    }
+
+    #[test]
+    fn rules_can_be_listed_and_revoked() {
+        let p = Policy::in_memory();
+        p.set_rule("local", "filesystem.delete", Rule::Allow).unwrap();
+        assert_eq!(p.rules(), vec![("local".into(), "filesystem.delete".into(), Rule::Allow)]);
+        assert_eq!(p.decide("local", "file.delete"), Decision::Allow { scope: "filesystem.delete" });
+        assert!(p.remove_rule("local", "filesystem.delete").unwrap());
+        assert!(!p.remove_rule("local", "filesystem.delete").unwrap());
+        assert!(p.rules().is_empty());
+        assert_eq!(p.decide("local", "file.delete"), Decision::Ask { scope: "filesystem.delete" });
     }
 
     #[test]

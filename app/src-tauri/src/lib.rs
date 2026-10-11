@@ -1,4 +1,5 @@
 mod config;
+mod conversations;
 mod dispatcher;
 pub mod elevated;
 mod screen;
@@ -6,9 +7,10 @@ mod windows;
 
 use dispatcher::{Answer, Approvals, EventSink, GuardedDispatcher};
 use lilith_agents::{Job, JobEvent, Jobs};
-use lilith_brain::{Agent, OllamaClient};
+use lilith_brain::{Agent, Ollama, OllamaClient};
 use lilith_guard::{AuditLog, Policy, CHANNEL_LOCAL};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
@@ -16,24 +18,55 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
+type TurnHandle = tauri::async_runtime::JoinHandle<()>;
+
 struct AppState {
-    agent: Arc<Agent>,
+    /// Um modelo (Ollama) compartilhado; uma memória por conversa (aba do chat).
+    ollama: Arc<dyn Ollama>,
+    conversations: Mutex<HashMap<String, Arc<Agent>>>,
+    store: Arc<conversations::Store>,
     policy: Arc<Policy>,
     audit: Arc<AuditLog>,
     audit_path: PathBuf,
     approvals: Arc<Approvals>,
     jobs: Arc<Jobs>,
-    /// Turno em andamento — o kill switch aborta essa task.
-    current: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    /// Turno em andamento de cada conversa — o kill switch aborta todos.
+    running: Mutex<HashMap<String, TurnHandle>>,
+}
+
+impl AppState {
+    /// Memória da conversa; reabrindo uma do histórico, recarrega as falas.
+    fn agent_for(&self, conversation: &str) -> Arc<Agent> {
+        self.conversations
+            .lock()
+            .unwrap()
+            .entry(conversation.to_string())
+            .or_insert_with(|| {
+                let agent = Agent::new(self.ollama.clone());
+                agent.seed(self.store.turns(conversation));
+                Arc::new(agent)
+            })
+            .clone()
+    }
+}
+
+/// Avisa todas as janelas (abas do chat, painel) do título novo.
+fn emit_title(app: &AppHandle, conversation: &str, title: &str) {
+    let _ = app.emit("lilith://conversation", json!({ "id": conversation, "title": title }));
+}
+
+fn emit_state(app: &AppHandle, conversation: &str, state: &str) {
+    let _ = app.emit("lilith://state", json!({ "conversation": conversation, "state": state }));
 }
 
 #[tauri::command]
-fn send_message(text: String, app: AppHandle, state: State<'_, AppState>) {
+fn send_message(text: String, conversation: String, app: AppHandle, state: State<'_, AppState>) {
     let text = text.trim().to_string();
-    if text.is_empty() {
+    if text.is_empty() || !conversations::valid_id(&conversation) {
         return;
     }
     let dispatcher = GuardedDispatcher {
+        conversation: conversation.clone(),
         jobs: state.jobs.clone(),
         channel: CHANNEL_LOCAL.into(),
         app: app.clone(),
@@ -43,15 +76,26 @@ fn send_message(text: String, app: AppHandle, state: State<'_, AppState>) {
         tainted: Default::default(),
         chat_intent: Default::default(),
     };
-    let agent = state.agent.clone();
-    let _ = app.emit("lilith://state", "thinking");
+    let agent = state.agent_for(&conversation);
+    if let Some(title) = state.store.append(&conversation, "user", &text) {
+        emit_title(&app, &conversation, &title);
+    }
+    emit_state(&app, &conversation, "thinking");
+    let conv = conversation.clone();
+    let store = state.store.clone();
     let handle = tauri::async_runtime::spawn(async move {
-        let reply = agent.process(&text, &dispatcher, Arc::new(EventSink(app.clone()))).await;
-        let _ = app.emit("lilith://reply", &reply);
-        let _ = app.emit("lilith://state", "idle");
+        let sink = Arc::new(EventSink { app: app.clone(), conversation: conv.clone() });
+        let reply = agent.process(&text, &dispatcher, sink).await;
+        store.append(&conv, "lilith", &reply.reply);
+        let _ = app.emit(
+            "lilith://reply",
+            json!({ "conversation": conv, "reply": reply.reply, "action": reply.action, "emotion": reply.emotion }),
+        );
+        emit_state(&app, &conv, "idle");
     });
-    // Um turno por vez: um novo pedido substitui o anterior.
-    if let Some(old) = state.current.lock().unwrap().replace(handle) {
+    // Um turno por conversa: um novo pedido na mesma aba substitui o anterior;
+    // outras abas seguem rodando.
+    if let Some(old) = state.running.lock().unwrap().insert(conversation, handle) {
         old.abort();
     }
 }
@@ -67,8 +111,48 @@ fn cancel(app: AppHandle, state: State<'_, AppState>) {
 }
 
 #[tauri::command]
-fn reset_conversation(state: State<'_, AppState>) {
-    state.agent.reset();
+fn reset_conversation(conversation: String, state: State<'_, AppState>) {
+    if let Some(agent) = state.conversations.lock().unwrap().get(&conversation) {
+        agent.reset();
+    }
+}
+
+#[tauri::command]
+fn list_conversations(state: State<'_, AppState>) -> Vec<conversations::Summary> {
+    state.store.list()
+}
+
+#[tauri::command]
+fn load_conversation(conversation: String, state: State<'_, AppState>) -> Option<conversations::Conversation> {
+    state.store.get(&conversation)
+}
+
+#[tauri::command]
+fn rename_conversation(conversation: String, title: String, app: AppHandle, state: State<'_, AppState>) -> Option<String> {
+    if !conversations::valid_id(&conversation) {
+        return None;
+    }
+    let title = state.store.rename(&conversation, &title);
+    emit_title(&app, &conversation, &title);
+    Some(title)
+}
+
+/// Apaga do histórico (e fecha, se estiver aberta).
+#[tauri::command]
+fn delete_conversation(conversation: String, app: AppHandle, state: State<'_, AppState>) {
+    close_conversation(conversation.clone(), app.clone(), state.clone());
+    state.store.delete(&conversation);
+    let _ = app.emit("lilith://conversation-deleted", json!({ "id": conversation }));
+}
+
+/// Fecha a aba: para o turno dela (se houver) e descarta a memória.
+#[tauri::command]
+fn close_conversation(conversation: String, app: AppHandle, state: State<'_, AppState>) {
+    if let Some(task) = state.running.lock().unwrap().remove(&conversation) {
+        task.abort();
+        emit_state(&app, &conversation, "idle");
+    }
+    state.conversations.lock().unwrap().remove(&conversation);
 }
 
 #[tauri::command]
@@ -104,6 +188,21 @@ async fn cancel_job(id: u64, state: State<'_, AppState>) -> Result<(), String> {
     state.jobs.cancel(id).await
 }
 
+#[tauri::command]
+fn list_rules(state: State<'_, AppState>) -> Vec<Value> {
+    state
+        .policy
+        .rules()
+        .into_iter()
+        .map(|(channel, scope, rule)| json!({ "channel": channel, "scope": scope, "rule": rule }))
+        .collect()
+}
+
+#[tauri::command]
+fn revoke_rule(channel: String, scope: String, state: State<'_, AppState>) -> Result<bool, String> {
+    state.policy.remove_rule(&channel, &scope).map_err(|e| e.to_string())
+}
+
 /// Últimas `limit` linhas do log de auditoria, mais recentes primeiro.
 #[tauri::command]
 fn recent_activity(limit: usize, state: State<'_, AppState>) -> Vec<Value> {
@@ -119,16 +218,23 @@ fn recent_activity(limit: usize, state: State<'_, AppState>) -> Vec<Value> {
 /// receiver morre junto e a ação nunca roda). Jobs de agentes de código
 /// continuam; eles são cancelados individualmente pelo painel.
 fn kill_switch(app: &AppHandle, state: &AppState) {
-    let running = state.current.lock().unwrap().take();
-    if let Some(task) = running.filter(|t| !t.inner().is_finished()) {
+    let running: Vec<(String, TurnHandle)> = state.running.lock().unwrap().drain().collect();
+    let mut stopped = 0;
+    for (conversation, task) in running {
+        if task.inner().is_finished() {
+            continue;
+        }
         task.abort();
-        tracing::warn!("kill switch acionado");
-        state.audit.record(CHANNEL_LOCAL, "kill_switch", &json!({}), "aborted", &json!({}));
+        stopped += 1;
+        let _ = app.emit("lilith://cancelled", json!({ "conversation": conversation }));
+        emit_state(app, &conversation, "idle");
+    }
+    if stopped > 0 {
+        tracing::warn!(stopped, "kill switch acionado");
+        state.audit.record(CHANNEL_LOCAL, "kill_switch", &json!({ "turns": stopped }), "aborted", &json!({}));
         if let Some(screen) = app.try_state::<Arc<screen::Screen>>() {
             screen.hide_now();
         }
-        let _ = app.emit("lilith://cancelled", ());
-        let _ = app.emit("lilith://state", "idle");
     }
 }
 
@@ -181,13 +287,15 @@ pub fn run() {
             }
             let audit_path = data.join("logs").join("audit.jsonl");
             app.manage(AppState {
-                agent: Arc::new(Agent::new(Arc::new(OllamaClient::new(cfg.ollama)))),
+                ollama: Arc::new(OllamaClient::new(cfg.ollama)),
+                conversations: Mutex::new(HashMap::new()),
+                store: Arc::new(conversations::Store::load(data.join("conversations"))),
                 policy: Arc::new(Policy::load(&data.join("permissions.json"))),
                 audit: Arc::new(AuditLog::new(&audit_path)),
                 audit_path,
                 approvals: Arc::new(Approvals::default()),
                 jobs,
-                current: Mutex::new(None),
+                running: Mutex::new(HashMap::new()),
             });
 
             if let Err(e) = app.global_shortcut().register(panic_key) {
@@ -241,6 +349,11 @@ pub fn run() {
             answer_approval,
             cancel,
             reset_conversation,
+            close_conversation,
+            list_conversations,
+            load_conversation,
+            rename_conversation,
+            delete_conversation,
             toggle_chat,
             hide_window,
             chat_moved,
@@ -248,6 +361,8 @@ pub fn run() {
             list_jobs,
             cancel_job,
             recent_activity,
+            list_rules,
+            revoke_rule,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a Lilith");

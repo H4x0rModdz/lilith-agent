@@ -1,24 +1,31 @@
-/* Tema da Lilith: glassmorphism branco. Chat e painel usam o acrylic do
-   Windows (blur real do que está atrás); a orb simula o vidro em CSS. */
+/* Tema da Lilith: vidro fosco claro. As janelas de chat/painel ficam sobre o
+   acrylic do Windows (desfoque real do que está atrás); por cima, um véu
+   branco translúcido, borda de luz em degradê, brilho interno — texto branco com sombra suave para ler sobre qualquer fundo. */
 
 :root {
-  --pink: #e8458f;
-  --pink-soft: #ff8cc6;
-  --pink-wash: rgba(232, 69, 143, 0.1);
-  --lilac: #9b7bff;
-  --ink: #2a2233;
-  --ink-dim: #6f6578;
-  --glass: rgba(255, 255, 255, 0.55);
-  --glass-strong: rgba(255, 255, 255, 0.78);
-  --glass-line: rgba(255, 255, 255, 0.85);
-  --hairline: rgba(42, 34, 51, 0.08);
-  --shadow: 0 8px 28px rgba(80, 40, 90, 0.16);
-  --ok: #2e9d6b;
-  --warn: #c98a00;
-  --danger: #d6455d;
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --pink: #ff5fa8;
+  --pink-deep: #e8458f;
+  --pink-glow: rgba(255, 95, 168, 0.45);
+  --lilac: #b49bff;
+  --text: #ffffff;
+  --text-dim: rgba(255, 255, 255, 0.72);
+  --text-faint: rgba(255, 255, 255, 0.52);
+  --veil: linear-gradient(165deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(255, 255, 255, 0.09) 100%);
+  --tile: rgba(255, 255, 255, 0.14);
+  --tile-hover: rgba(255, 255, 255, 0.22);
+  --tile-line: rgba(255, 255, 255, 0.3);
+  --rim: linear-gradient(145deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.12) 45%, rgba(255, 255, 255, 0.35));
+  --specular: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+  /* Quase nada: só segura o texto branco quando há algo muito claro atrás. */
+  --scrim: rgba(10, 12, 20, 0.06);
+  --ok: #7ee2b0;
+  --warn: #ffd27a;
+  --danger: #ff8a9b;
+  font-family: "Inter Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   font-size: 14px;
-  color: var(--ink);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  color: var(--text);
 }
 
 * {
@@ -48,6 +55,11 @@ button {
   outline-offset: 2px;
 }
 
+.icon {
+  display: block;
+  flex: none;
+}
+
 /* ───────────────────────── orb (forma 2D) ───────────────────────── */
 
 body[data-window="orb"] #root {
@@ -60,7 +72,7 @@ body[data-window="orb"] #root {
   position: relative;
   width: 64px;
   height: 64px;
-  border: 1px solid var(--glass-line);
+  border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: 50%;
   padding: 0;
   cursor: pointer;
@@ -152,8 +164,9 @@ body[data-window="orb"] #root {
   font-size: 11px;
   padding: 3px 8px;
   border-radius: 8px;
-  background: var(--glass-strong);
-  border: 1px solid var(--glass-line);
+  background: rgba(30, 24, 40, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
 }
 
 @keyframes breathe {
@@ -203,32 +216,64 @@ body[data-window="panel"] #root {
   height: 100%;
 }
 
+/* Painel inteiro: véu + grão sobre o acrylic, com a borda de luz por dentro
+   (a janela já é recortada com cantos arredondados pelo Windows). */
 .glass {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--glass);
+  /* Desfoque limpo do Windows por trás (efeito "blur", não acrylic): as
+     cores do fundo passam vivas, como no template. Por cima, só um véu
+     branco levíssimo. */
+  background: linear-gradient(var(--scrim), var(--scrim)), var(--veil);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   overflow: hidden;
+}
+.glass::before {
+  /* borda de luz: mais forte no canto superior esquerdo, como na referência */
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: 8px;
+  background: var(--rim);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
 }
 
 .glass-head {
-  cursor: grab;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 12px 10px 14px;
-  border-bottom: 1px solid var(--hairline);
+  gap: 12px;
+  padding: 22px 18px 20px 20px;
+  cursor: grab;
+}
+
+/* Divisória que brilha no centro e some nas pontas. */
+.glass-head::after,
+.divider {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
 }
 
 .sigil {
   position: relative;
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   overflow: hidden;
-  background: linear-gradient(150deg, #fff 0%, #ffe4f2 60%, #e8d6ff 100%);
-  box-shadow: 0 0 0 1.5px var(--pink);
+  background: linear-gradient(150deg, #fff 0%, #ffd9ec 60%, #e2d4ff 100%);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55), 0 6px 16px rgba(0, 0, 0, 0.25);
 }
 .sigil img,
 .avatar img {
@@ -242,51 +287,66 @@ body[data-window="panel"] #root {
   flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 2px;
   line-height: 1.2;
 }
+.glass-title strong {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
 .glass-title small {
-  color: var(--ink-dim);
-  font-size: 11px;
+  color: var(--text-dim);
+  font-size: 13.5px;
 }
 
+/* Botão redondo de vidro (como o botão de filtros da referência). */
 .icon-btn {
-  border: none;
-  background: transparent;
-  color: var(--ink-dim);
-  font-size: 13px;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--tile-line);
+  background: var(--tile);
+  box-shadow: var(--specular);
+  color: var(--text);
   cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
 }
 .icon-btn:hover {
-  background: rgba(255, 255, 255, 0.7);
-  color: var(--ink);
+  background: var(--tile-hover);
+}
+.icon-btn:active {
+  transform: scale(0.94);
 }
 
 .badge {
-  font-size: 11px;
-  padding: 1px 8px;
+  font-size: 11.5px;
+  padding: 2px 9px;
   border-radius: 999px;
-  background: var(--glass-strong);
-  border: 1px solid var(--hairline);
-  color: var(--ink-dim);
+  background: var(--tile);
+  border: 1px solid var(--tile-line);
+  color: var(--text-dim);
 }
 
 .link {
   border: none;
   background: none;
   padding: 0;
-  color: var(--pink);
+  color: var(--text-dim);
   font-size: 12px;
   cursor: pointer;
+}
+.link:hover {
+  color: var(--text);
 }
 
 ::-webkit-scrollbar {
   width: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(42, 34, 51, 0.15);
+  background: rgba(255, 255, 255, 0.25);
   border-radius: 3px;
 }
 
@@ -295,28 +355,29 @@ body[data-window="panel"] #root {
 .chat-log {
   flex: 1;
   margin: 0;
-  padding: 12px;
+  padding: 16px 16px 8px;
   list-style: none;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   user-select: text;
 }
 
 .msg {
   max-width: 85%;
-  padding: 8px 11px;
-  border-radius: 14px;
-  line-height: 1.4;
+  padding: 9px 13px;
+  border-radius: 16px;
+  line-height: 1.45;
   white-space: pre-wrap;
   word-wrap: break-word;
 }
+
 /* Linha: avatar + (nome · hora) + bolha. Lilith à esquerda, "Eu" à direita. */
 .msg-row {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
 }
 .msg-row.user {
   flex-direction: row-reverse;
@@ -324,35 +385,32 @@ body[data-window="panel"] #root {
 
 .avatar {
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   margin-top: 2px;
   border-radius: 50%;
   overflow: hidden;
-}
-.msg-row.lilith .avatar {
-  box-shadow: 0 0 0 1.5px var(--pink);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.55), 0 3px 8px rgba(0, 0, 0, 0.2);
 }
 .msg-row.user .avatar {
   display: grid;
   place-items: center;
-  background: linear-gradient(160deg, #f3eff6, #ddd5e4);
-  box-shadow: 0 0 0 1px var(--glass-line);
+  background: var(--tile);
 }
 .msg-row.user .avatar svg {
   width: 22px;
   height: 22px;
-  fill: #a99cb5;
 }
+.msg-row.user .avatar svg circle,
 .msg-row.user .avatar svg path {
-  fill: #a99cb5;
+  fill: rgba(255, 255, 255, 0.75);
 }
 
 .msg-body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  max-width: 78%;
+  max-width: 80%;
   min-width: 0;
 }
 .msg-row.user .msg-body {
@@ -363,14 +421,14 @@ body[data-window="panel"] #root {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  margin: 0 4px 3px;
-  font-size: 11px;
-  color: var(--ink-dim);
+  margin: 0 4px 4px;
+  font-size: 11.5px;
+  color: var(--text-faint);
 }
 .msg-meta strong {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--text);
 }
 .msg-row.user .msg-meta {
   flex-direction: row-reverse;
@@ -382,39 +440,61 @@ body[data-window="panel"] #root {
 .msg-body .msg {
   max-width: 100%;
 }
-.msg-row.user .msg {
-  background: var(--pink);
-  color: #fff;
-  border-top-right-radius: 4px;
-}
 .msg-row.lilith .msg {
-  background: var(--glass-strong);
-  border: 1px solid var(--glass-line);
-  box-shadow: 0 1px 3px rgba(80, 40, 90, 0.06);
-  border-top-left-radius: 4px;
+  background: var(--tile);
+  border: 1px solid var(--tile-line);
+  box-shadow: var(--specular), 0 4px 14px rgba(0, 0, 0, 0.08);
+  border-top-left-radius: 6px;
+}
+.msg-row.user .msg {
+  background: linear-gradient(135deg, rgba(255, 95, 168, 0.88), rgba(232, 69, 143, 0.78));
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 16px rgba(232, 69, 143, 0.25);
+  border-top-right-radius: 6px;
 }
 .msg-row.lilith .msg[data-emotion="concerned"] {
-  border-left: 3px solid var(--danger);
-}
-.msg.system {
-  align-self: center;
-  max-width: 100%;
-  font-size: 12px;
-  color: var(--ink-dim);
-  padding: 2px 8px;
-  text-align: center;
+  box-shadow: var(--specular), inset 3px 0 0 var(--danger);
 }
 
+/* Linhas de sistema: ícone + texto discreto, centralizadas. */
+.msg.system {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.msg.system .icon {
+  opacity: 0.85;
+}
+.msg.system.blocked {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(255, 95, 168, 0.16);
+  border: 1px solid rgba(255, 95, 168, 0.4);
+  color: var(--text);
+}
+
+/* Cartão de aprovação: vidro âmbar. */
 .msg.approval {
   align-self: stretch;
   max-width: 100%;
-  /* O card é montado por template; só os parâmetros preservam quebras. */
   white-space: normal;
-  background: rgba(255, 249, 235, 0.85);
-  border: 1px solid rgba(201, 138, 0, 0.35);
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: linear-gradient(160deg, rgba(255, 210, 122, 0.22), rgba(255, 210, 122, 0.08));
+  border: 1px solid rgba(255, 220, 150, 0.5);
+  box-shadow: var(--specular), 0 8px 20px rgba(0, 0, 0, 0.12);
 }
 .approval-title {
-  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
   font-weight: 600;
   color: var(--warn);
 }
@@ -422,131 +502,180 @@ body[data-window="panel"] #root {
   margin: 0;
 }
 .approval-params {
-  margin: 6px 0;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid var(--hairline);
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
+  text-shadow: none;
 }
 .approval-scope,
 .approval-result {
   margin: 0;
-  font-size: 11px;
-  color: var(--ink-dim);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.approval-taint {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 138, 155, 0.16);
+  border: 1px solid rgba(255, 138, 155, 0.45);
+  font-size: 12px;
+  line-height: 1.4;
 }
 .approval-buttons {
   display: flex;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 8px;
+  margin-top: 10px;
 }
 .approval-buttons button {
   flex: 1;
-  padding: 6px 4px;
-  border-radius: 10px;
-  border: 1px solid var(--hairline);
-  background: rgba(255, 255, 255, 0.85);
-  font-size: 12px;
+  padding: 8px 6px;
+  border-radius: 12px;
+  border: 1px solid var(--tile-line);
+  background: var(--tile);
+  box-shadow: var(--specular);
+  font-size: 12.5px;
+  font-weight: 500;
   cursor: pointer;
 }
 .approval-buttons button:hover {
-  background: #fff;
+  background: var(--tile-hover);
 }
 .approval-buttons button.primary {
-  background: var(--pink);
-  border-color: var(--pink);
-  color: #fff;
+  background: linear-gradient(135deg, var(--pink), var(--pink-deep));
+  border-color: rgba(255, 255, 255, 0.35);
   font-weight: 600;
 }
 
 .chat-input {
+  position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 8px;
-  padding: 10px;
-  border-top: 1px solid var(--hairline);
+  gap: 10px;
+  padding: 14px 16px 16px;
+}
+.chat-input::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
 }
 .chat-input textarea {
   flex: 1;
   resize: none;
   max-height: 120px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  border: 1px solid var(--glass-line);
-  background: var(--glass-strong);
-  color: var(--ink);
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--tile-line);
+  background: var(--tile);
+  box-shadow: var(--specular);
+  color: var(--text);
   font: inherit;
   outline: none;
 }
+.chat-input textarea::placeholder {
+  color: var(--text-faint);
+}
 .chat-input textarea:focus {
-  border-color: var(--pink);
+  border-color: rgba(255, 255, 255, 0.6);
+  background: var(--tile-hover);
 }
 .chat-input .send,
 .chat-input .stop {
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 12px;
-  background: var(--pink);
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: linear-gradient(135deg, var(--pink), var(--pink-deep));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 6px 16px var(--pink-glow);
   color: #fff;
-  font-size: 14px;
   cursor: pointer;
 }
 .chat-input .stop {
-  background: var(--danger);
+  background: linear-gradient(135deg, #ff8a9b, #e0566e);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 6px 16px rgba(224, 86, 110, 0.4);
 }
 
 /* ───────────────────────── painel ───────────────────────── */
 
+/* Abas em pílula de vidro. */
 .tabs {
   display: flex;
-  gap: 4px;
-  padding: 8px 12px 0;
+  gap: 6px;
+  margin: 14px 16px 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 .tab {
-  border: none;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid transparent;
   background: transparent;
-  padding: 6px 12px;
-  border-radius: 10px 10px 0 0;
-  color: var(--ink-dim);
+  padding: 8px 12px;
+  border-radius: 10px;
+  color: var(--text-dim);
+  font-weight: 500;
   cursor: pointer;
 }
 .tab[aria-selected="true"] {
-  background: var(--glass-strong);
-  color: var(--ink);
-  font-weight: 600;
+  background: var(--tile-hover);
+  border-color: var(--tile-line);
+  box-shadow: var(--specular);
+  color: var(--text);
 }
 
 .panel-list {
   flex: 1;
   margin: 0;
-  padding: 12px;
+  padding: 12px 16px 16px;
   list-style: none;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.35);
+  gap: 10px;
   user-select: text;
 }
 
 .empty {
   margin: auto 0;
-  padding: 24px;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   text-align: center;
-  color: var(--ink-dim);
+  color: var(--text-dim);
   font-size: 13px;
+  line-height: 1.5;
+}
+.empty .icon {
+  opacity: 0.7;
 }
 
 .job {
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: var(--glass-strong);
-  border: 1px solid var(--glass-line);
-  box-shadow: 0 1px 3px rgba(80, 40, 90, 0.06);
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--tile);
+  border: 1px solid var(--tile-line);
+  box-shadow: var(--specular);
 }
 .job-head {
   display: flex;
@@ -554,9 +683,12 @@ body[data-window="panel"] #root {
   gap: 6px;
 }
 .badge.agent {
-  background: var(--pink-wash);
-  color: var(--pink);
-  border-color: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 95, 168, 0.22);
+  border-color: rgba(255, 95, 168, 0.45);
+  color: var(--text);
   font-weight: 600;
 }
 .job[data-status="running"] .badge.status {
@@ -571,65 +703,66 @@ body[data-window="panel"] #root {
 .job-time {
   flex: 1;
   text-align: right;
-  font-size: 11px;
-  color: var(--ink-dim);
+  font-size: 11.5px;
+  color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
 .job-cancel {
-  width: 24px;
-  height: 24px;
-  color: var(--danger);
+  width: 28px;
+  height: 28px;
 }
 .job-task {
-  margin: 8px 0 2px;
-  line-height: 1.35;
+  margin: 10px 0 4px;
+  line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .job-folder {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   font-size: 11px;
-  color: var(--ink-dim);
+  color: var(--text-faint);
   font-family: "Cascadia Mono", Consolas, monospace;
 }
 .job-result {
-  margin: 0 0 6px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.8);
-  border-left: 3px solid var(--ok);
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.14);
+  box-shadow: inset 3px 0 0 var(--ok);
   white-space: pre-wrap;
   font-size: 13px;
 }
 .job[data-status="failed"] .job-result {
-  border-left-color: var(--danger);
+  box-shadow: inset 3px 0 0 var(--danger);
 }
 .job-log {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   max-height: 180px;
   overflow: auto;
-  padding: 8px;
-  border-radius: 8px;
-  background: rgba(42, 34, 51, 0.04);
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 11px;
   white-space: pre-wrap;
+  text-shadow: none;
 }
 
 .activity-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  border-radius: 10px;
-  background: var(--glass-strong);
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--tile);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   font-size: 13px;
 }
 .act-time {
-  color: var(--ink-dim);
-  font-size: 11px;
+  color: var(--text-faint);
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
 }
 .act-name {
@@ -639,7 +772,8 @@ body[data-window="panel"] #root {
   color: var(--ok);
 }
 .activity-item[data-outcome="error"] .outcome,
-.activity-item[data-outcome^="denied"] .outcome {
+.activity-item[data-outcome^="denied"] .outcome,
+.activity-item[data-outcome^="blocked"] .outcome {
   color: var(--danger);
 }
 
@@ -679,7 +813,7 @@ body[data-window^="border-"] #root {
   top: 22px;
   padding: 2px 9px;
   border-radius: 999px;
-  background: var(--pink);
+  background: linear-gradient(135deg, var(--pink), var(--pink-deep));
   color: #fff;
   font-size: 11px;
   font-weight: 600;
@@ -709,7 +843,7 @@ body[data-window^="border-"] #root {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.85);
   border: 1px solid rgba(232, 69, 143, 0.4);
-  color: var(--ink);
+  color: #2a2233;
   font-size: 12px;
   white-space: nowrap;
 }
@@ -728,16 +862,368 @@ body[data-window^="border-"] #root {
   }
 }
 
-.approval-taint {
-  margin: 0 0 6px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(214, 69, 93, 0.08);
-  border: 1px solid rgba(214, 69, 93, 0.35);
-  color: var(--danger);
-  font-size: 12px;
+/* ───────────────────────── borda elétrica ───────────────────────── */
+
+/* Ângulo animável do feixe de luz (CSS Houdini, suportado no WebView2). */
+@property --spin {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
 }
 
-.msg.system.blocked {
-  color: var(--pink);
+.electric,
+.electric-glow,
+.electric-line {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  pointer-events: none;
+}
+.electric {
+  z-index: 3;
+}
+.electric-line,
+.electric-glow {
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--spin),
+    transparent 0deg,
+    rgba(255, 95, 168, 0.95) 40deg,
+    rgba(255, 255, 255, 0.95) 60deg,
+    rgba(180, 155, 255, 0.9) 85deg,
+    transparent 130deg,
+    transparent 180deg,
+    rgba(255, 95, 168, 0.8) 220deg,
+    rgba(180, 155, 255, 0.85) 250deg,
+    transparent 300deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.35;
+  transition: opacity 0.4s;
+}
+.electric-glow {
+  padding: 3px;
+  filter: blur(6px);
+}
+
+.glass.live .electric-line {
+  opacity: 1;
+  filter: url(#electric-filter);
+  animation: spin 4s linear infinite;
+}
+.glass.live .electric-glow {
+  opacity: 0.8;
+  animation: spin 4s linear infinite;
+}
+/* Pensando/agindo: o feixe acelera. */
+.glass.busy .electric-line,
+.glass.busy .electric-glow {
+  animation-duration: 1.6s;
+}
+
+@keyframes spin {
+  to {
+    --spin: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass.live .electric-line,
+  .glass.live .electric-glow {
+    animation: none;
+    filter: none;
+  }
+}
+
+/* ───────────────────────── botões neon de vidro ───────────────────────── */
+
+/* Vidro com contorno e halo neon; no hover o halo cresce e um brilho
+   atravessa o botão. */
+.neon {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 140, 200, 0.75) !important;
+  background: linear-gradient(135deg, rgba(255, 95, 168, 0.32), rgba(255, 95, 168, 0.12)) !important;
+  color: #fff;
+  text-shadow: 0 0 8px rgba(255, 95, 168, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 0 12px rgba(255, 95, 168, 0.35),
+    0 0 6px rgba(255, 95, 168, 0.7),
+    0 0 18px rgba(255, 95, 168, 0.35) !important;
+  transition: box-shadow 0.25s, transform 0.1s, background 0.25s;
+}
+.neon::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.5s ease;
+  pointer-events: none;
+}
+.neon:hover {
+  background: linear-gradient(135deg, rgba(255, 95, 168, 0.45), rgba(255, 95, 168, 0.2)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 0 16px rgba(255, 95, 168, 0.5),
+    0 0 10px rgba(255, 95, 168, 0.9),
+    0 0 32px rgba(255, 95, 168, 0.55) !important;
+}
+.neon:hover::after {
+  left: 130%;
+}
+.neon:active {
+  transform: scale(0.96);
+}
+
+/* Variante discreta (ícones do cabeçalho, abas): neon só no hover. */
+.neon-soft {
+  transition: box-shadow 0.25s, border-color 0.25s;
+}
+.neon-soft:hover {
+  border-color: rgba(255, 140, 200, 0.7);
+  box-shadow: var(--specular), 0 0 8px rgba(255, 95, 168, 0.6), 0 0 20px rgba(255, 95, 168, 0.25);
+}
+
+/* Variante de perigo (parar). */
+.neon.danger {
+  border-color: rgba(255, 150, 165, 0.8) !important;
+  background: linear-gradient(135deg, rgba(255, 110, 130, 0.38), rgba(255, 110, 130, 0.14)) !important;
+  text-shadow: 0 0 8px rgba(255, 110, 130, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 0 6px rgba(255, 110, 130, 0.75),
+    0 0 18px rgba(255, 110, 130, 0.35) !important;
+}
+
+/* ───────────────────────── abas do chat ───────────────────────── */
+
+.chat-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 2px;
+}
+.chat-tab-list {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.chat-tab-list::-webkit-scrollbar {
+  display: none;
+}
+.chat-tab {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 160px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.25s;
+}
+.chat-tab:hover {
+  background: var(--tile);
+  color: var(--text);
+}
+.chat-tab[aria-selected="true"] {
+  background: var(--tile-hover);
+  border-color: rgba(255, 140, 200, 0.6);
+  color: var(--text);
+  box-shadow: var(--specular), 0 0 8px rgba(255, 95, 168, 0.45);
+}
+.chat-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pink);
+  box-shadow: 0 0 6px var(--pink);
+}
+.chat-tab-close {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  opacity: 0.55;
+}
+.chat-tab-close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.18);
+}
+.new-chat {
+  width: 30px;
+  height: 30px;
+}
+.chat-logs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chat-logs .chat-log {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ───────────────────────── permissões (painel) ───────────────────────── */
+
+.rule-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 14px;
+  border-radius: 14px;
+  background: var(--tile);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+.rule-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rule-text strong {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rule-text small {
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+.rule-kind[data-rule="allow"] {
+  color: var(--ok);
+}
+.rule-kind[data-rule="deny"] {
+  color: var(--danger);
+}
+.rule-revoke {
+  width: 30px;
+  height: 30px;
+}
+
+/* ───────────────────────── histórico de conversas ───────────────────────── */
+
+.chat-logs {
+  position: relative;
+}
+.history {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 8px;
+  background: linear-gradient(180deg, rgba(20, 18, 30, 0.35), rgba(20, 18, 30, 0.2));
+}
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.history-head strong {
+  font-size: 15px;
+}
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.history-day {
+  margin: 10px 4px 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 4px;
+  border-radius: 14px;
+  background: var(--tile);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.history-item.is-open {
+  border-color: rgba(255, 140, 200, 0.55);
+}
+.history-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.history-title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.history-open small {
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+.history-item .icon-btn {
+  width: 30px;
+  height: 30px;
+}
+
+.rename-field {
+  width: 100%;
+  min-width: 80px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 140, 200, 0.7);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+/* ───────────────────────── tarefas por conversa (painel) ───────────────────────── */
+
+.group-head {
+  margin: 6px 4px -2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }

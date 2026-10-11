@@ -79,6 +79,8 @@ pub struct Job {
     pub agent: String,
     pub task: String,
     pub folder: PathBuf,
+    /// Conversa (aba do chat) que pediu a tarefa — o painel agrupa por ela.
+    pub conversation: Option<String>,
     pub status: JobStatus,
     pub started_ms: u64,
     pub finished_ms: Option<u64>,
@@ -132,7 +134,13 @@ impl Jobs {
     }
 
     /// Inicia o agente em segundo plano e retorna logo com o job criado.
-    pub fn start(self: &Arc<Self>, agent: &str, task: &str, folder: PathBuf) -> Result<Job, String> {
+    pub fn start(
+        self: &Arc<Self>,
+        agent: &str,
+        task: &str,
+        folder: PathBuf,
+        conversation: Option<String>,
+    ) -> Result<Job, String> {
         let spec = self
             .agents
             .get(agent)
@@ -159,6 +167,7 @@ impl Jobs {
             agent: agent.into(),
             task: task.into(),
             folder,
+            conversation,
             status: JobStatus::Running,
             started_ms: now_ms(),
             finished_ms: None,
@@ -320,7 +329,7 @@ mod tests {
         let ev = events.clone();
         let jobs = Jobs::new(agents, move |e| ev.lock().unwrap().push(e));
         let dir = tempfile::tempdir().unwrap();
-        let job = jobs.start("echo", "olá & echo INJETADO | calc", dir.path().to_path_buf()).unwrap();
+        let job = jobs.start("echo", "olá & echo INJETADO | calc", dir.path().to_path_buf(), None).unwrap();
 
         for _ in 0..100 {
             if jobs.get(job.id).unwrap().status != JobStatus::Running {
@@ -338,8 +347,8 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let jobs = Jobs::new(default_agents(), |_| {});
-            assert!(jobs.start("gpt-99", "x", std::env::temp_dir()).unwrap_err().contains("não configurado"));
-            assert!(jobs.start("claude", "x", PathBuf::from("Z:\\nao\\existe")).unwrap_err().contains("não existe"));
+            assert!(jobs.start("gpt-99", "x", std::env::temp_dir(), None).unwrap_err().contains("não configurado"));
+            assert!(jobs.start("claude", "x", PathBuf::from("Z:\\nao\\existe"), None).unwrap_err().contains("não existe"));
         });
     }
 }

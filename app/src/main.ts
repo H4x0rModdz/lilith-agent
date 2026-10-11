@@ -1,3 +1,4 @@
+import "@fontsource-variable/inter";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { mountOrb } from "./orb";
 import { mountChat } from "./chat";

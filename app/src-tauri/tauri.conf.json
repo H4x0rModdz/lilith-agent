@@ -40,13 +40,13 @@
         "visible": false,
         "windowEffects": {
           "effects": [
-            "acrylic"
+            "blur"
           ],
           "color": [
             255,
             255,
             255,
-            70
+            12
           ]
         }
       },
@@ -65,13 +65,13 @@
         "visible": false,
         "windowEffects": {
           "effects": [
-            "acrylic"
+            "blur"
           ],
           "color": [
             255,
             255,
             255,
-            70
+            12
           ]
         }
       },
