@@ -430,6 +430,50 @@ pub fn message_input(id: isize) -> Result<UiElement, WinError> {
                 _ => cand,
             });
         }
+        match best {
+            Some(b) => Ok(b),
+            // Alguns apps (Teams) não devolvem o campo na busca por tipo, mas
+            // ele aparece caminhando a árvore — que nesses casos é pequena.
+            None => message_input_by_walking(id),
+        }
+    }
+}
+
+/// Mesmo critério (campo de texto mais baixo e largo), nó a nó.
+fn message_input_by_walking(id: isize) -> Result<UiElement, WinError> {
+    unsafe {
+        let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+        let root = uia.ElementFromHandle(HWND(id as *mut _))?;
+        let walker = uia.ControlViewWalker()?;
+        let mut stack = vec![root];
+        let mut best: Option<UiElement> = None;
+        let mut visited = 0usize;
+        while let Some(el) = stack.pop() {
+            visited += 1;
+            if visited > FIND_MAX_NODES {
+                break;
+            }
+            if el.CurrentControlType().unwrap_or_default() == UIA_EditControlTypeId {
+                let offscreen = el.CurrentIsOffscreen().map(|b| b.as_bool()).unwrap_or(false);
+                let focusable = el.CurrentIsKeyboardFocusable().map(|b| b.as_bool()).unwrap_or(false);
+                let r = el.CurrentBoundingRectangle().unwrap_or_default();
+                let rect = Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top };
+                if !offscreen && focusable && rect.w > 0 && rect.h > 0 {
+                    let cand = UiElement::field(rect);
+                    best = Some(match best {
+                        Some(b) if is_lower_input(&b.rect, &cand.rect) => b,
+                        _ => cand,
+                    });
+                }
+            }
+            let mut children = Vec::new();
+            let mut next = walker.GetFirstChildElement(&el);
+            while let Ok(child) = next {
+                next = walker.GetNextSiblingElement(&child);
+                children.push(child);
+            }
+            stack.extend(children.into_iter().rev());
+        }
         best.ok_or_else(|| WinError::NotFound("campo de mensagem nessa janela".into()))
     }
 }
