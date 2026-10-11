@@ -1,0 +1,213 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { makeDraggable } from "./drag";
+import { actionLabel } from "./labels";
+
+type JobStatus = "running" | "done" | "failed" | "cancelled";
+
+interface Job {
+  id: number;
+  agent: string;
+  task: string;
+  folder: string;
+  status: JobStatus;
+  started_ms: number;
+  finished_ms: number | null;
+  log: string[];
+  result: string | null;
+}
+
+type JobEvent = { kind: "updated"; job: Job } | { kind: "line"; id: number; line: string };
+
+interface Activity {
+  ts: string;
+  channel: string;
+  action: string;
+  outcome: string;
+}
+
+const STATUS_LABEL: Record<JobStatus, string> = {
+  running: "rodando",
+  done: "concluído",
+  failed: "falhou",
+  cancelled: "cancelado",
+};
+
+const OUTCOME_LABEL: Record<string, string> = {
+  success: "ok",
+  error: "erro",
+  denied: "bloqueado",
+  denied_by_user: "negado",
+  aborted: "parado",
+};
+
+/// Painel da Lilith (aberto pelo ícone na área de notificação): tarefas
+/// delegadas a agentes de código e o histórico de ações.
+export function mountPanel(root: HTMLElement) {
+  root.innerHTML = `
+    <section class="glass panel">
+      <header class="glass-head">
+        <span class="sigil" aria-hidden="true"></span>
+        <div class="glass-title">
+          <strong>Painel da Lilith</strong>
+          <small class="panel-summary">nenhuma tarefa</small>
+        </div>
+        <button class="icon-btn" data-act="close" title="Fechar">✕</button>
+      </header>
+      <nav class="tabs" role="tablist">
+        <button role="tab" class="tab" data-tab="jobs" aria-selected="true">Tarefas</button>
+        <button role="tab" class="tab" data-tab="activity" aria-selected="false">Atividade</button>
+      </nav>
+      <ol class="panel-list jobs" data-view="jobs"></ol>
+      <ol class="panel-list activity" data-view="activity" hidden></ol>
+    </section>`;
+
+  const jobsEl = root.querySelector<HTMLOListElement>('[data-view="jobs"]')!;
+  const activityEl = root.querySelector<HTMLOListElement>('[data-view="activity"]')!;
+  const summary = root.querySelector<HTMLElement>(".panel-summary")!;
+  const jobs = new Map<number, Job>();
+  makeDraggable(root.querySelector(".glass-head")!);
+  const expanded = new Set<number>();
+
+  root.querySelector('[data-act="close"]')!.addEventListener("click", () =>
+    invoke("hide_window", { label: "panel" }),
+  );
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") invoke("hide_window", { label: "panel" });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>(".tab").forEach((tab) =>
+    tab.addEventListener("click", () => showTab(tab.dataset.tab!)),
+  );
+
+  function showTab(name: string) {
+    root.querySelectorAll<HTMLButtonElement>(".tab").forEach((t) =>
+      t.setAttribute("aria-selected", String(t.dataset.tab === name)),
+    );
+    jobsEl.hidden = name !== "jobs";
+    activityEl.hidden = name !== "activity";
+    if (name === "activity") loadActivity();
+  }
+
+  // ── tarefas ──────────────────────────────────────────────────────────
+
+  function renderJobs() {
+    const list = [...jobs.values()].sort((a, b) => b.id - a.id);
+    const running = list.filter((j) => j.status === "running").length;
+    summary.textContent =
+      list.length === 0 ? "nenhuma tarefa" : running > 0 ? `${running} rodando agora` : `${list.length} tarefa(s)`;
+
+    if (list.length === 0) {
+      jobsEl.innerHTML = `<li class="empty">Peça algo à Lilith como “pede pro Claude arrumar o build do projeto X” e acompanhe aqui.</li>`;
+      return;
+    }
+    jobsEl.replaceChildren(...list.map(renderJob));
+  }
+
+  function renderJob(job: Job): HTMLLIElement {
+    const li = document.createElement("li");
+    li.className = "job";
+    li.dataset.id = String(job.id);
+    li.dataset.status = job.status;
+    li.innerHTML = `
+      <div class="job-head">
+        <span class="badge agent"></span>
+        <span class="badge status"></span>
+        <span class="job-time"></span>
+        <button class="icon-btn job-cancel" title="Cancelar">■</button>
+      </div>
+      <p class="job-task"></p>
+      <p class="job-folder"></p>
+      <p class="job-result"></p>
+      <button class="link job-toggle"></button>
+      <pre class="job-log"></pre>`;
+    li.querySelector(".agent")!.textContent = job.agent;
+    li.querySelector(".status")!.textContent = STATUS_LABEL[job.status];
+    li.querySelector(".job-time")!.textContent = elapsed(job);
+    li.querySelector(".job-task")!.textContent = job.task;
+    li.querySelector(".job-folder")!.textContent = job.folder;
+
+    const result = li.querySelector<HTMLElement>(".job-result")!;
+    result.textContent = job.result ?? "";
+    result.hidden = !job.result;
+
+    const cancelBtn = li.querySelector<HTMLButtonElement>(".job-cancel")!;
+    cancelBtn.hidden = job.status !== "running";
+    cancelBtn.addEventListener("click", () => invoke("cancel_job", { id: job.id }));
+
+    const log = li.querySelector<HTMLPreElement>(".job-log")!;
+    const toggle = li.querySelector<HTMLButtonElement>(".job-toggle")!;
+    const open = expanded.has(job.id);
+    log.textContent = job.log.join("\n");
+    log.hidden = !open;
+    toggle.textContent = open ? "esconder log" : `ver log (${job.log.length})`;
+    toggle.addEventListener("click", () => {
+      if (expanded.has(job.id)) expanded.delete(job.id);
+      else expanded.add(job.id);
+      renderJobs();
+    });
+    if (open) requestAnimationFrame(() => (log.scrollTop = log.scrollHeight));
+    return li;
+  }
+
+  listen<JobEvent>("lilith://job", (e) => {
+    const ev = e.payload;
+    if (ev.kind === "updated") {
+      jobs.set(ev.job.id, ev.job);
+    } else {
+      const job = jobs.get(ev.id);
+      if (job) job.log.push(ev.line);
+    }
+    renderJobs();
+  });
+
+  // Atualiza os tempos de quem ainda está rodando.
+  window.setInterval(() => {
+    jobsEl.querySelectorAll<HTMLElement>('.job[data-status="running"]').forEach((li) => {
+      const job = jobs.get(Number(li.dataset.id));
+      if (job) li.querySelector(".job-time")!.textContent = elapsed(job);
+    });
+  }, 1000);
+
+  // ── atividade ────────────────────────────────────────────────────────
+
+  async function loadActivity() {
+    const items = await invoke<Activity[]>("recent_activity", { limit: 80 });
+    if (items.length === 0) {
+      activityEl.innerHTML = `<li class="empty">Nada ainda. Toda ação da Lilith aparece aqui.</li>`;
+      return;
+    }
+    activityEl.replaceChildren(
+      ...items.map((a) => {
+        const li = document.createElement("li");
+        li.className = "activity-item";
+        li.dataset.outcome = a.outcome;
+        li.innerHTML = `<span class="act-time"></span><span class="act-name"></span><span class="badge outcome"></span>`;
+        li.querySelector(".act-time")!.textContent = new Date(a.ts).toLocaleTimeString("pt-BR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        li.querySelector(".act-name")!.textContent =
+          actionLabel(a.action) + (a.channel !== "local" ? ` · ${a.channel}` : "");
+        li.querySelector(".outcome")!.textContent = OUTCOME_LABEL[a.outcome] ?? a.outcome;
+        return li;
+      }),
+    );
+  }
+
+  getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+    if (focused && !activityEl.hidden) loadActivity();
+  });
+
+  invoke<Job[]>("list_jobs").then((list) => {
+    list.forEach((j) => jobs.set(j.id, j));
+    renderJobs();
+  });
+}
+
+function elapsed(job: Job): string {
+  const end = job.finished_ms ?? Date.now();
+  const s = Math.max(0, Math.round((end - job.started_ms) / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}min ${s % 60}s`;
+}

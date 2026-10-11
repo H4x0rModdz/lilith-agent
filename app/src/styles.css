@@ -1,0 +1,567 @@
+/* Tema da Lilith: glassmorphism branco. Chat e painel usam o acrylic do
+   Windows (blur real do que está atrás); a orb simula o vidro em CSS. */
+
+:root {
+  --pink: #e8458f;
+  --pink-soft: #ff8cc6;
+  --pink-wash: rgba(232, 69, 143, 0.1);
+  --lilac: #9b7bff;
+  --ink: #2a2233;
+  --ink-dim: #6f6578;
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-strong: rgba(255, 255, 255, 0.78);
+  --glass-line: rgba(255, 255, 255, 0.85);
+  --hairline: rgba(42, 34, 51, 0.08);
+  --shadow: 0 8px 28px rgba(80, 40, 90, 0.16);
+  --ok: #2e9d6b;
+  --warn: #c98a00;
+  --danger: #d6455d;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--pink);
+  outline-offset: 2px;
+}
+
+/* ───────────────────────── orb (forma 2D) ───────────────────────── */
+
+body[data-window="orb"] #root {
+  display: grid;
+  place-items: center;
+  height: 100%;
+}
+
+.orb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--glass-line);
+  border-radius: 50%;
+  padding: 0;
+  cursor: pointer;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0) 45%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 228, 242, 0.85) 55%, rgba(232, 214, 255, 0.85) 100%);
+  box-shadow:
+    0 0 0 2px rgba(232, 69, 143, 0.55),
+    0 6px 16px rgba(232, 69, 143, 0.28);
+  animation: breathe 4s ease-in-out infinite;
+  transition: box-shadow 0.3s;
+}
+
+.orb:hover {
+  box-shadow:
+    0 0 0 2px var(--pink),
+    0 6px 22px rgba(232, 69, 143, 0.45);
+}
+
+.orb-horn {
+  position: absolute;
+  top: -7px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 14px solid var(--pink);
+}
+.orb-horn.left {
+  left: 13px;
+  transform: rotate(-22deg);
+}
+.orb-horn.right {
+  right: 13px;
+  transform: rotate(22deg);
+}
+
+.orb-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+.orb-eye {
+  width: 8px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--pink);
+  animation: blink 5s infinite;
+  transition: all 0.25s;
+}
+
+.orb[data-mood="happy"] .orb-eye {
+  height: 6px;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  border: 2.5px solid var(--pink);
+  border-bottom: none;
+}
+.orb[data-mood="concerned"] .orb-eye {
+  height: 4px;
+  border-radius: 2px;
+  transform: rotate(-12deg);
+}
+.orb[data-mood="concerned"] .orb-eye + .orb-eye {
+  transform: rotate(12deg);
+}
+
+.orb[data-state="thinking"] {
+  animation: think 1.2s linear infinite;
+}
+.orb[data-state="thinking"] .orb-eye {
+  animation: look 1.6s ease-in-out infinite;
+}
+.orb[data-state="asking"] {
+  box-shadow:
+    0 0 0 2px var(--warn),
+    0 6px 20px rgba(201, 138, 0, 0.35);
+}
+
+.orb-bubble {
+  position: absolute;
+  bottom: 70px;
+  right: 0;
+  white-space: nowrap;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-line);
+}
+
+@keyframes breathe {
+  50% {
+    transform: scale(1.04);
+  }
+}
+@keyframes blink {
+  0%, 96%, 100% {
+    transform: scaleY(1);
+  }
+  98% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes look {
+  0%, 100% {
+    translate: 0 0;
+  }
+  30% {
+    translate: -3px -1px;
+  }
+  70% {
+    translate: 3px -1px;
+  }
+}
+@keyframes think {
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--pink), 0 6px 16px rgba(155, 123, 255, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 2px var(--lilac), 0 6px 22px rgba(232, 69, 143, 0.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb,
+  .orb-eye {
+    animation: none !important;
+  }
+}
+
+/* ───────────────────────── superfícies de vidro ───────────────────────── */
+
+body[data-window="chat"] #root,
+body[data-window="panel"] #root {
+  height: 100%;
+}
+
+.glass {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--glass);
+  overflow: hidden;
+}
+
+.glass-head {
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.sigil {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(150deg, #fff 0%, #ffe4f2 60%, #e8d6ff 100%);
+  box-shadow: 0 0 0 1.5px var(--pink);
+}
+
+.glass-title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.glass-title small {
+  color: var(--ink-dim);
+  font-size: 11px;
+}
+
+.icon-btn {
+  border: none;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 13px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--ink);
+}
+
+.badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--glass-strong);
+  border: 1px solid var(--hairline);
+  color: var(--ink-dim);
+}
+
+.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--pink);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(42, 34, 51, 0.15);
+  border-radius: 3px;
+}
+
+/* ───────────────────────── chat ───────────────────────── */
+
+.chat-log {
+  flex: 1;
+  margin: 0;
+  padding: 12px;
+  list-style: none;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  user-select: text;
+}
+
+.msg {
+  max-width: 85%;
+  padding: 8px 11px;
+  border-radius: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.msg.user {
+  align-self: flex-end;
+  background: var(--pink);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.msg.lilith {
+  align-self: flex-start;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 1px 3px rgba(80, 40, 90, 0.06);
+  border-bottom-left-radius: 4px;
+}
+.msg.lilith[data-emotion="concerned"] {
+  border-left: 3px solid var(--danger);
+}
+.msg.system {
+  align-self: center;
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--ink-dim);
+  padding: 2px 8px;
+  text-align: center;
+}
+
+.msg.approval {
+  align-self: stretch;
+  max-width: 100%;
+  /* O card é montado por template; só os parâmetros preservam quebras. */
+  white-space: normal;
+  background: rgba(255, 249, 235, 0.85);
+  border: 1px solid rgba(201, 138, 0, 0.35);
+}
+.approval-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--warn);
+}
+.approval-action {
+  margin: 0;
+}
+.approval-params {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--hairline);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.approval-scope,
+.approval-result {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+.approval-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.approval-buttons button {
+  flex: 1;
+  padding: 6px 4px;
+  border-radius: 10px;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  cursor: pointer;
+}
+.approval-buttons button:hover {
+  background: #fff;
+}
+.approval-buttons button.primary {
+  background: var(--pink);
+  border-color: var(--pink);
+  color: #fff;
+  font-weight: 600;
+}
+
+.chat-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--hairline);
+}
+.chat-input textarea {
+  flex: 1;
+  resize: none;
+  max-height: 120px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-line);
+  background: var(--glass-strong);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.chat-input textarea:focus {
+  border-color: var(--pink);
+}
+.chat-input .send,
+.chat-input .stop {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 12px;
+  background: var(--pink);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.chat-input .stop {
+  background: var(--danger);
+}
+
+/* ───────────────────────── painel ───────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+}
+.tab {
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 10px 10px 0 0;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.tab[aria-selected="true"] {
+  background: var(--glass-strong);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.panel-list {
+  flex: 1;
+  margin: 0;
+  padding: 12px;
+  list-style: none;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.35);
+  user-select: text;
+}
+
+.empty {
+  margin: auto 0;
+  padding: 24px;
+  text-align: center;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+.job {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 1px 3px rgba(80, 40, 90, 0.06);
+}
+.job-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.badge.agent {
+  background: var(--pink-wash);
+  color: var(--pink);
+  border-color: transparent;
+  font-weight: 600;
+}
+.job[data-status="running"] .badge.status {
+  color: var(--pink);
+}
+.job[data-status="done"] .badge.status {
+  color: var(--ok);
+}
+.job[data-status="failed"] .badge.status {
+  color: var(--danger);
+}
+.job-time {
+  flex: 1;
+  text-align: right;
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+.job-cancel {
+  width: 24px;
+  height: 24px;
+  color: var(--danger);
+}
+.job-task {
+  margin: 8px 0 2px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.job-folder {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+.job-result {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.8);
+  border-left: 3px solid var(--ok);
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+.job[data-status="failed"] .job-result {
+  border-left-color: var(--danger);
+}
+.job-log {
+  margin: 6px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(42, 34, 51, 0.04);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--glass-strong);
+  font-size: 13px;
+}
+.act-time {
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.act-name {
+  flex: 1;
+}
+.activity-item[data-outcome="success"] .outcome {
+  color: var(--ok);
+}
+.activity-item[data-outcome="error"] .outcome,
+.activity-item[data-outcome^="denied"] .outcome {
+  color: var(--danger);
+}

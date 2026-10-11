@@ -1,0 +1,30 @@
+[package]
+name = "lilith-companion"
+description = "Lilith — companion de IA para Windows"
+edition.workspace = true
+version.workspace = true
+
+[lib]
+# O sufixo `_lib` evita conflito de nome entre lib e bin no Windows
+# (https://github.com/rust-lang/cargo/issues/8519).
+name = "lilith_companion_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+lilith-brain = { path = "../../crates/lilith-brain" }
+lilith-guard = { path = "../../crates/lilith-guard" }
+lilith-win = { path = "../../crates/lilith-win" }
+lilith-agents = { path = "../../crates/lilith-agents" }
+async-trait.workspace = true
+dirs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2.4.1"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tauri-plugin-window-state = "2.5.0"
