@@ -320,6 +320,8 @@ export async function mountChat(root: HTMLElement) {
       }),
     );
     slashMenu.hidden = false;
+    // A lista mostra ~5 por vez; mantém o escolhido à vista ao usar as setas.
+    slashMenu.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
 
   /// Escolheu um comando: com argumento pendente, completa e espera o

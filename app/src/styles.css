@@ -1494,3 +1494,14 @@ body[data-window^="border-"] #root {
   font-size: 11.5px;
   color: var(--text-dim);
 }
+
+/* Lista do "/": no máximo ~5 comandos à vista, o resto rolando. */
+.slash-menu {
+  max-height: calc(5 * 50px + 12px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.slash-item {
+  min-height: 50px;
+  justify-content: center;
+}
