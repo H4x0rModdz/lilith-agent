@@ -242,7 +242,12 @@ pub async fn run_with(
     let started = std::time::Instant::now();
     let raw = ollama.structured(&messages_with(user_text, recent, tools, know), &schema(tools)).await;
     let parsed = match raw {
-        Ok(v) => parse(&v, tools),
+        Ok(v) => parse(&v, tools).map(|mut i| {
+            // Correções determinísticas dos erros previsíveis do modelo pequeno.
+            i.tools = crate::refine::plan(user_text, std::mem::take(&mut i.tools));
+            i.message = crate::refine::message(user_text, &i.tools, std::mem::take(&mut i.message), recent);
+            i
+        }),
         Err(e) => {
             tracing::debug!("intérprete indisponível: {e}");
             None
