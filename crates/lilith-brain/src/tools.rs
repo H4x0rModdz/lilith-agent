@@ -246,8 +246,8 @@ pub fn all_tools() -> Vec<Tool> {
                 json!({
                     "target": { "type": "string", "description": "Programa (ex.: 'whatsapp')" },
                     "element": { "type": "string", "description": "Opcional: nome do campo. Omita — ela acha o campo de mensagem sozinha" },
-                    "text": { "type": "string" },
-                    "submit": { "type": "boolean", "description": "Apertar Enter para enviar" },
+                    "text": { "type": "string", "description": "EXATAMENTE o que o usuário mandou escrever, palavra por palavra — não acrescente emojis, reticências ou palavras suas" },
+                    "submit": { "type": "boolean", "description": "Enviar com Enter (padrão: sim). false só se o usuário pedir para NÃO enviar" },
                     "mentions": { "type": "boolean", "description": "Transformar @nome em menção de verdade (padrão: sim)" }
                 }),
                 &["target", "text"],

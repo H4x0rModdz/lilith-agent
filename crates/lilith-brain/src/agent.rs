@@ -47,6 +47,17 @@ pub const BLOCKED_NOT_FROM_CHAT: &str = "BLOCKED_NOT_FROM_CHAT";
 /// rodaria para sempre prendendo a GPU. O kill switch para qualquer coisa.
 const MAX_SAME_CALL: usize = 3;
 
+/// Quantas vezes, no máximo, cobra o plano quando o modelo responde em texto.
+const MAX_NUDGES: usize = 3;
+
+/// Ferramentas do plano do intérprete que ainda não rodaram (na ordem).
+fn pending_tools(plan: &[String], calls: &[ToolCall]) -> Vec<String> {
+    plan.iter()
+        .filter(|t| !calls.iter().any(|c| &c.action == *t))
+        .cloned()
+        .collect()
+}
+
 pub struct Agent {
     ollama: Arc<dyn Ollama>,
     memory: SessionMemory,
@@ -124,7 +135,8 @@ impl Agent {
         let mut calls: Vec<ToolCall> = Vec::new();
         let mut last_step_reply = String::new();
         let mut answer_only = false;
-        let mut nudged = false;
+        // Quantas vezes já cobrou o resto do plano (no máximo MAX_NUDGES).
+        let mut nudges = 0usize;
         // Última leitura bem-sucedida (para responder sem o modelo se um
         // pedido injetado for bloqueado).
         let mut last_read: Option<(String, Value)> = None;
@@ -142,7 +154,7 @@ impl Agent {
             // final, já verificada, aparece.
             // Idem enquanto o pedido precisa de tools e nenhuma rodou ainda: o
             // texto desse passo pode ser conteúdo inventado.
-            let quiet = last_read.is_some() || (calls.is_empty() && !needs_tools.is_empty());
+            let quiet = last_read.is_some() || !pending_tools(&needs_tools, &calls).is_empty();
             // Agrupa tokens em ~20 eventos/s em vez de um por token — evita
             // re-layout da UI a cada token (mesma disciplina do jarvis-os).
             let forwarder = tokio::spawn(async move {
@@ -191,19 +203,23 @@ impl Agent {
             };
 
             if reply.tool_calls.is_empty() {
-                // Fundamento: o pedido precisa de ferramentas (segundo o
-                // intérprete) e nenhuma rodou — a resposta seria inventada
-                // ("no chat da Sheylinha ela reclama…" sem nem abrir o chat).
-                // Descarta e exige a ferramenta, uma vez.
-                if calls.is_empty() && !needs_tools.is_empty() && !answer_only && !nudged {
-                    nudged = true;
-                    tracing::warn!(step, tools = ?needs_tools, "resposta sem ferramenta descartada");
+                // Fundamento: o pedido precisa de um plano (segundo o intérprete,
+                // que só viu o chat) e o modelo respondeu em texto sem
+                // cumpri-lo. Duas falhas reais: inventar o conteúdo de um chat
+                // sem abri-lo, e abrir o chat e PARAR, "respondendo" que vai
+                // mandar a mensagem em vez de mandar. Descarta o texto e cobra
+                // o próximo passo do plano.
+                let pending = pending_tools(&needs_tools, &calls);
+                if !pending.is_empty() && !answer_only && nudges < MAX_NUDGES {
+                    nudges += 1;
+                    tracing::warn!(step, pending = ?pending, "resposta sem cumprir o plano descartada");
                     messages.push(serde_json::json!({
                         "role": "system",
                         "content": format!(
-                            "Você respondeu sem usar ferramentas, mas este pedido precisa de: {}. \
-                             Chame a primeira agora. Nunca invente o conteúdo de conversas, \
-                             janelas ou arquivos.",
+                            "Ainda falta cumprir o pedido do usuário: chame agora {} (plano: {}). \
+                             Não responda em texto antes de terminar, não diga que vai fazer — faça. \
+                             Nunca invente o conteúdo de conversas, janelas ou arquivos.",
+                            pending[0],
                             needs_tools.join(" → ")
                         ),
                     }));
@@ -262,6 +278,11 @@ impl Agent {
                 }));
                 answer_only = true;
                 continue;
+            }
+            // Falhou ou o usuário negou: o resto do plano não vale mais — ela
+            // conta o que aconteceu em vez de insistir.
+            if response["status"] != "success" {
+                needs_tools.clear();
             }
             if READ_ACTIONS.contains(&call.action.as_str()) && response["status"] == "success" {
                 last_read = Some((call.action.clone(), response["result"].clone()));
@@ -618,6 +639,78 @@ mod tests {
         let r = a.process("loop", &d, Arc::new(NullSink)).await;
         assert_eq!(d.0.lock().unwrap().len(), MAX_SAME_CALL - 1, "a repetição N não executa");
         assert!(r.reply.starts_with("Parei: eu estava repetindo"));
+    }
+
+    #[test]
+    fn pending_plan_steps() {
+        let call = |a: &str| ToolCall { action: a.into(), params: json!({}) };
+        let plan = vec!["ui.open_chat".to_string(), "ui.type".to_string()];
+        assert_eq!(pending_tools(&plan, &[]), plan);
+        assert_eq!(pending_tools(&plan, &[call("ui.open_chat")]), vec!["ui.type"]);
+        assert!(pending_tools(&plan, &[call("ui.open_chat"), call("ui.type")]).is_empty());
+        assert!(pending_tools(&[], &[]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn stopping_after_the_first_step_is_pushed_to_finish_the_plan() {
+        // O bug real: abriu o chat e "respondeu" que ia mandar a mensagem.
+        struct TwoStepPlan(Mutex<Vec<OllamaReply>>);
+        #[async_trait]
+        impl Ollama for TwoStepPlan {
+            async fn chat_messages(
+                &self,
+                _: &[Value],
+                _: &[Tool],
+                _: Option<UnboundedSender<String>>,
+            ) -> Result<OllamaReply, LilithError> {
+                Ok(self.0.lock().unwrap().remove(0))
+            }
+            async fn structured(&self, _: &[Value], _: &Value) -> Result<Value, LilithError> {
+                Ok(json!({ "intent": "mandar um oi pra Clarinha no whatsapp", "tools": ["ui.open_chat", "ui.type"] }))
+            }
+        }
+        let o = Arc::new(TwoStepPlan(Mutex::new(vec![
+            tool("ui.open_chat").unwrap(),
+            text("Ok, abri o chat. Agora vou te responder que tenho fofocas!").unwrap(),
+            tool("ui.type").unwrap(),
+            text("Mandei o oi pra Clarinha!").unwrap(),
+        ])));
+        let d = MockDispatcher::default();
+        let r = Agent::new(o).process("manda um oi pra Clarinha no whatsapp", &d, Arc::new(NullSink)).await;
+        assert_eq!(*d.0.lock().unwrap(), vec!["ui.open_chat", "ui.type"]);
+        assert_eq!(r.reply, "Mandei o oi pra Clarinha!");
+    }
+
+    #[tokio::test]
+    async fn a_failed_step_ends_the_plan_instead_of_insisting() {
+        struct FailsFirst(Mutex<Vec<OllamaReply>>);
+        #[async_trait]
+        impl Ollama for FailsFirst {
+            async fn chat_messages(
+                &self,
+                _: &[Value],
+                _: &[Tool],
+                _: Option<UnboundedSender<String>>,
+            ) -> Result<OllamaReply, LilithError> {
+                Ok(self.0.lock().unwrap().remove(0))
+            }
+            async fn structured(&self, _: &[Value], _: &Value) -> Result<Value, LilithError> {
+                Ok(json!({ "intent": "x", "tools": ["ui.open_chat", "ui.type"] }))
+            }
+        }
+        struct Fails;
+        #[async_trait]
+        impl Dispatcher for Fails {
+            async fn dispatch(&self, call: &ToolCall) -> Value {
+                json!({ "action": call.action, "status": "error", "error": { "code": "NOT_FOUND", "message": "sem chat" } })
+            }
+        }
+        let o = Arc::new(FailsFirst(Mutex::new(vec![
+            tool("ui.open_chat").unwrap(),
+            text("Não achei esse chat.").unwrap(),
+        ])));
+        let r = Agent::new(o).process("manda oi", &Fails, Arc::new(NullSink)).await;
+        assert_eq!(r.reply, "Não achei esse chat.");
     }
 
     #[test]
