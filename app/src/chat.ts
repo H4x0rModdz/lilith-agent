@@ -81,7 +81,8 @@ export async function mountChat(root: HTMLElement) {
         </aside>
       </div>
       <form class="chat-input">
-        <textarea rows="1" placeholder="Fala comigo…" aria-label="Mensagem"></textarea>
+        <ul class="slash-menu" role="listbox" aria-label="Atalhos" hidden></ul>
+        <textarea rows="1" placeholder="Fala comigo… (/ para atalhos)" aria-label="Mensagem"></textarea>
         <button type="submit" class="send neon" title="Enviar"><span data-icon="send" data-size="18"></span></button>
         <button type="button" class="stop neon danger" title="Parar tudo (Ctrl+Alt+Esc)" hidden><span data-icon="stop" data-size="16"></span></button>
       </form>
@@ -100,6 +101,17 @@ export async function mountChat(root: HTMLElement) {
   const status = root.querySelector<HTMLElement>(".chat-status")!;
   makeDraggable(root.querySelector(".glass-head")!, () => invoke("chat_moved"));
   fillSigil(root.querySelector(".glass-head .sigil")!);
+
+  const slashMenu = form.querySelector<HTMLUListElement>(".slash-menu")!;
+  // Atalhos (bolhas em conversa nova + lista do "/"), editáveis no painel.
+  let prompts: string[] = await invoke<string[]>("get_quick_prompts");
+  listen<string[]>("lilith://quick-prompts", (e) => {
+    prompts = e.payload;
+    open.forEach((c) => {
+      const chips = c.log.querySelector(".quick-prompts");
+      if (chips) chips.replaceWith(...quickPrompts(c));
+    });
+  });
 
   const open = new Map<string, Conversation>();
   let active!: Conversation;
@@ -145,6 +157,7 @@ export async function mountChat(root: HTMLElement) {
       for (const m of saved.messages) add(conv, m.role, m.text, undefined, new Date(m.ts));
     } else {
       add(conv, "lilith", GREETING);
+      conv.log.append(...quickPrompts(conv));
     }
     activate(conv);
     return conv;
@@ -183,6 +196,58 @@ export async function mountChat(root: HTMLElement) {
   /// Marca a aba com um pontinho quando algo chega numa conversa em segundo plano.
   function notify(conv: Conversation) {
     if (conv !== active) conv.tab.querySelector<HTMLElement>(".chat-tab-dot")!.hidden = false;
+  }
+
+  // ── atalhos ───────────────────────────────────────────────────────────
+
+  /// Bolhas de escrita rápida: clicou, enviou. Somem na primeira mensagem.
+  function quickPrompts(conv: Conversation): HTMLElement[] {
+    if (prompts.length === 0) return [];
+    const li = document.createElement("li");
+    li.className = "quick-prompts";
+    for (const p of prompts) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "quick-chip";
+      chip.textContent = p;
+      chip.addEventListener("click", () => send(conv, p));
+      li.append(chip);
+    }
+    return [li];
+  }
+
+  // Lista do "/": filtra os atalhos pelo que vem depois da barra.
+  let slashItems: string[] = [];
+  let slashIndex = 0;
+
+  function updateSlash() {
+    const v = input.value;
+    if (!v.startsWith("/") || v.includes("\n")) return closeSlash();
+    const q = fold(v.slice(1).trim());
+    slashItems = prompts.filter((p) => fold(p).includes(q)).slice(0, 6);
+    if (slashItems.length === 0) return closeSlash();
+    slashIndex = Math.min(slashIndex, slashItems.length - 1);
+    slashMenu.replaceChildren(
+      ...slashItems.map((p, i) => {
+        const li = document.createElement("li");
+        li.setAttribute("role", "option");
+        li.className = "slash-item";
+        li.setAttribute("aria-selected", String(i === slashIndex));
+        li.textContent = p;
+        li.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          send(active, p);
+        });
+        return li;
+      }),
+    );
+    slashMenu.hidden = false;
+  }
+
+  function closeSlash() {
+    slashMenu.hidden = true;
+    slashItems = [];
+    slashIndex = 0;
   }
 
   // ── renomear ──────────────────────────────────────────────────────────
@@ -326,20 +391,53 @@ export async function mountChat(root: HTMLElement) {
 
   // ── entrada ───────────────────────────────────────────────────────────
 
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const text = input.value.trim();
+  function send(conv: Conversation, text: string) {
+    text = text.trim();
     if (!text) return;
-    const conv = active;
+    if (conv !== active) activate(conv);
+    conv.log.querySelector(".quick-prompts")?.remove();
     add(conv, "user", text);
     input.value = "";
     autosize();
+    closeSlash();
     conv.live = null;
     conv.liveStep = -1;
     invoke("send_message", { text, conversation: conv.id });
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    send(active, input.value);
   });
 
   input.addEventListener("keydown", (e) => {
+    // Lista do "/" aberta: setas escolhem, Enter envia, Tab só preenche.
+    if (!slashMenu.hidden && slashItems.length > 0) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const n = slashItems.length;
+        slashIndex = (slashIndex + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+        updateSlash();
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        send(active, slashItems[slashIndex]);
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        input.value = slashItems[slashIndex];
+        closeSlash();
+        autosize();
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeSlash();
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       form.requestSubmit();
@@ -348,7 +446,11 @@ export async function mountChat(root: HTMLElement) {
       else invoke("hide_window", { label: "chat" });
     }
   });
-  input.addEventListener("input", autosize);
+  input.addEventListener("input", () => {
+    autosize();
+    updateSlash();
+  });
+  input.addEventListener("blur", () => window.setTimeout(closeSlash, 120));
   function autosize() {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
@@ -523,6 +625,11 @@ export async function mountChat(root: HTMLElement) {
     ? await invoke<Saved | null>("load_conversation", { conversation: recent.id })
     : null;
   openTab(saved ?? undefined);
+}
+
+/// Minúsculas e sem acento, para filtrar atalhos.
+function fold(s: string): string {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 }
 
 function isToday(ms: number): boolean {

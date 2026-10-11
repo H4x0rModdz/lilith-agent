@@ -161,6 +161,19 @@ fn add_fact(key: String, value: String, app: AppHandle, state: State<'_, AppStat
 }
 
 #[tauri::command]
+fn get_quick_prompts(state: State<'_, AppState>) -> Vec<String> {
+    profile::quick_prompts(&state.store)
+}
+
+/// Salva e avisa as janelas (o chat atualiza as bolhas e o "/" na hora).
+#[tauri::command]
+fn save_quick_prompts(prompts: Vec<String>, app: AppHandle, state: State<'_, AppState>) -> Vec<String> {
+    let saved = profile::save_quick_prompts(&state.store, &prompts);
+    let _ = app.emit("lilith://quick-prompts", &saved);
+    saved
+}
+
+#[tauri::command]
 fn forget_fact(key: String, app: AppHandle, state: State<'_, AppState>) -> bool {
     let ok = state.store.forget(&key);
     let _ = app.emit("lilith://facts", ());
@@ -434,6 +447,8 @@ pub fn run() {
             list_facts,
             add_fact,
             forget_fact,
+            get_quick_prompts,
+            save_quick_prompts,
             toggle_chat,
             hide_window,
             chat_moved,
