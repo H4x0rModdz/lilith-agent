@@ -53,7 +53,7 @@ Programa aberto x arquivo: \"o que está escrito no bloco de notas\", \"na janel
 (\"relatorio.txt\", \"o arquivo X\", \"na pasta Downloads\") = arquivo no disco (file.read/file.find). \
 Memória: \"o que eu te falei sobre X\", \"lembra quando…\", \"naquela conversa de ontem\" = \
 procurar nas conversas anteriores (memory.search); \"lembra que…\" = memory.remember. \
-Navegador: \"abre uma aba e pesquisa X\", \"procura imagens de X\", \"pesquisa X no waterfox e \
+Navegador: \"abre o youtube numa janela privada/anônima\" = browser.open com mode private (não app.open); \"fecha essa aba\", \"próxima aba\", \"reabre a aba\" = browser.tab; sem citar o navegador, vale o padrão do usuário. \"abre uma aba e pesquisa X\", \"procura imagens de X\", \"pesquisa X no waterfox e \
 vai em imagens\" = browser.search (com kind images/videos/news); NUNCA abrir o navegador de novo \
 com app.open se ele já está aberto. \
 Mandar mensagem: \"manda um oi pra <pessoa ou grupo> no whatsapp/discord/teams\" = abrir a conversa \

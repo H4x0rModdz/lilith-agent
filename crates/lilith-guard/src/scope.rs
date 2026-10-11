@@ -91,6 +91,8 @@ const DANGEROUS_SCOPES: &[&str] = &[
 pub fn scope_for(action: &str) -> &'static str {
     match action {
         "app.open" | "browser.open" | "browser.search" | "file.open" => "app.launch",
+        // Navegar entre abas é só mexer na janela; fechar aba é decidido pelo app.
+        "browser.tab" => "window.control",
         "app.close" | "window.close" => "app.terminate",
         "window.list" | "window.focus" | "window.minimize" | "window.maximize" | "window.restore" | "window.move"
         | "window.tile" | "cursor.point" | "ui.find" => "window.control",
@@ -164,6 +166,7 @@ mod tests {
             "app.close",
             "browser.open",
             "browser.search",
+            "browser.tab",
             "file.open",
             "file.run",
             "file.find",

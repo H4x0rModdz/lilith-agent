@@ -173,6 +173,8 @@ impl Dispatcher for GuardedDispatcher {
             // aba); botão, menu ou nome com verbo de efeito ("Excluir",
             // "Enviar"…) pede aprovação. Decide pelo elemento de verdade.
             "ui.click" if !self.click_is_navigation(&call.params).await => "ui.click_effect",
+            // Fechar uma aba pode perder um formulário não salvo: pede, como fechar janela.
+            "browser.tab" if matches!(call.params["op"].as_str(), Some("close" | "fechar")) => "window.close",
             // Memória entra no contexto de todo pedido futuro: só grava/apaga
             // direto quando o usuário pediu isso NESTA mensagem do chat
             // ("lembra que…"); se a ideia foi do modelo, pergunta.

@@ -105,7 +105,8 @@ pub async fn browser_open(params: Value) -> Result<Value, WinError> {
     let raw = req_str(&params, "url")?;
     let raw = if raw.contains("://") { raw.to_string() } else { format!("https://{raw}") };
     let url = normalize_url(&raw)?;
-    let via = open_url_in(&url, params["browser"].as_str()).await?;
+    let mode = crate::browsers::Mode::parse(params["mode"].as_str());
+    let via = open_url_in(&url, params["browser"].as_str(), mode).await?;
     Ok(json!({ "opened": url, "browser": via }))
 }
 
@@ -116,7 +117,8 @@ pub async fn browser_search(params: Value) -> Result<Value, WinError> {
     let query = req_str(&params, "query")?;
     let kind = params["kind"].as_str().unwrap_or("web");
     let url = search_url(query, kind)?;
-    let via = open_url_in(&url, params["browser"].as_str()).await?;
+    let mode = crate::browsers::Mode::parse(params["mode"].as_str());
+    let via = open_url_in(&url, params["browser"].as_str(), mode).await?;
     Ok(json!({ "searched": query, "kind": kind, "url": url, "browser": via }))
 }
 
@@ -152,90 +154,66 @@ pub(crate) fn normalize_url(raw: &str) -> Result<String, WinError> {
     Ok(s)
 }
 
-/// Nome de navegador conhecido (família), ou None. Só esses podem ser
-/// lançados por browser.*: o parâmetro vem do modelo e não pode virar
-/// "abrir qualquer executável".
-pub(crate) fn known_browser(name: &str) -> Option<&'static str> {
-    let n = fold(name);
-    let n = n.trim().trim_end_matches(".exe");
-    let n = match n {
-        "edge" | "microsoft edge" => "msedge",
-        "google chrome" => "chrome",
-        "zen browser" => "zen",
-        other => other,
-    };
-    BROWSERS.iter().copied().find(|b| n == *b)
-}
-
-const BROWSERS: &[&str] = &[
-    "firefox", "waterfox", "librewolf", "floorp", "zen", "chrome", "msedge", "brave", "opera", "vivaldi",
-    "chromium", "arc",
-];
-
 /// Navegador com janela aberta, o de cima na ordem Z (o último usado).
 fn running_browser() -> Option<String> {
     crate::window::list()
         .into_iter()
         .map(|w| fold(&w.app))
-        .find(|app| BROWSERS.iter().any(|b| app == b || app.starts_with(b)))
+        .find(|app| crate::browsers::family_of_exe(app).is_some())
 }
 
-/// Família Firefox recebe `-new-tab URL`; Chromium aceita a URL como
-/// argumento. Ambos entregam para a instância aberta (nova aba).
-fn tab_args(exe: &std::path::Path, url: &str) -> Vec<String> {
-    let name = exe.file_stem().map(|s| fold(&s.to_string_lossy())).unwrap_or_default();
-    let firefox_like = ["firefox", "waterfox", "librewolf", "floorp", "zen", "mullvadbrowser", "palemoon"]
-        .iter()
-        .any(|f| name.contains(f));
-    if firefox_like {
-        vec!["-new-tab".into(), url.into()]
-    } else {
-        vec![url.into()]
-    }
-}
+/// Abre a URL no navegador certo, na família certa:
+/// 1. o navegador citado (precisa ser conhecido);
+/// 2. senão, o navegador PADRÃO do usuário (lido do registro);
+/// 3. senão, o que já estiver aberto; 4. senão, o padrão do Windows.
+/// `mode`: nova aba (padrão), nova janela ou janela privada.
+async fn open_url_in(url: &str, browser: Option<&str>, mode: crate::browsers::Mode) -> Result<String, WinError> {
+    use crate::browsers::{self, Family};
+    let url = normalize_url(url)?;
+    let named = browser.map(str::trim).filter(|b| !b.is_empty());
 
-/// Abre a URL numa nova aba: do navegador pedido (o processo que já está
-/// rodando, ou pelo nome registrado no Windows), ou do navegador padrão.
-async fn open_url_in(url: &str, browser: Option<&str>) -> Result<String, WinError> {
-    // Sem navegador citado: o que já está aberto (o mais recente em uso);
-    // só sem nenhum aberto cai no navegador padrão do Windows.
-    let named = browser.map(str::trim).filter(|b| !b.is_empty()).map(str::to_string);
-    let named = match named {
-        Some(b) => Some(b),
-        None => blocking(|| Ok(running_browser())).await?,
+    // (executável, família, nome)
+    let target: Option<(std::path::PathBuf, Family, String)> = match named {
+        Some(name) => {
+            let Some(b) = browsers::known(name) else {
+                return Err(WinError::InvalidParams(format!(
+                    "'{name}' não é um navegador conhecido ({})",
+                    browsers::ids().join(", ")
+                )));
+            };
+            let id = b.id;
+            // Janela aberta desse navegador: usa o executável dela.
+            let running = blocking(move || {
+                Ok(crate::window::find_app(id)
+                    .filter(|w| browsers::family_of_exe(&w.app).is_some())
+                    .and_then(|w| crate::window::exe_of(w.id)))
+            })
+            .await?;
+            let exe = running.unwrap_or_else(|| std::path::PathBuf::from(format!("{id}.exe")));
+            Some((exe, b.family, id.to_string()))
+        }
+        None => match blocking(|| Ok(browsers::default_browser())).await? {
+            Some(d) => Some((d.exe, d.family, d.id)),
+            None => blocking(|| Ok(running_browser())).await?.and_then(|app| {
+                browsers::known(&app).map(|b| (std::path::PathBuf::from(format!("{}.exe", b.id)), b.family, b.id.to_string()))
+            }),
+        },
     };
-    let Some(browser) = named.as_deref() else {
-        shell_open(url.to_string()).await?;
+    let Some((exe, family, id)) = target else {
+        shell_open(url).await?;
         return Ok("padrão".into());
     };
-    let Some(browser) = known_browser(browser) else {
-        return Err(WinError::InvalidParams(format!(
-            "'{browser}' não é um navegador conhecido ({})",
-            BROWSERS.join(", ")
-        )));
-    };
-    let url = normalize_url(url)?;
-    // Executável da janela aberta — só se o processo for mesmo esse navegador.
-    let running = blocking(move || {
-        Ok(crate::window::find_app(browser)
-            .filter(|w| known_browser(&w.app) == Some(browser))
-            .and_then(|w| crate::window::exe_of(w.id)))
-    })
-    .await?;
-    let exe_name = format!("{browser}.exe");
-    if let Some(exe) = running {
-        // Sem shell: cada argumento vai separado, nunca reinterpretado.
-        let spawned = std::process::Command::new(&exe).args(tab_args(&exe, &url)).spawn();
-        if spawned.is_ok() {
-            return Ok(browser.to_string());
-        }
+    let args = family.open_args(&exe, mode, &url);
+    // Sem shell: cada argumento vai separado, nunca reinterpretado.
+    if std::process::Command::new(&exe).args(&args).spawn().is_ok() {
+        return Ok(id);
     }
-    // Não está aberto: App Paths do Windows resolve "waterfox.exe" etc.
-    let args = tab_args(std::path::Path::new(&exe_name), &url);
+    // Não está no PATH: App Paths do Windows resolve "<nome>.exe".
+    let exe_name = exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| format!("{id}.exe"));
     shell_exec_with(&exe_name, &quote_args(&args)?)
         .await
-        .map(|_| browser.to_string())
-        .map_err(|_| WinError::NotFound(format!("navegador '{browser}'")))
+        .map(|_| id.clone())
+        .map_err(|_| WinError::NotFound(format!("navegador '{id}'")))
 }
 
 /// Linha de parâmetros para ShellExecute: cada argumento entre aspas;
@@ -251,6 +229,43 @@ fn quote_args(args: &[String]) -> Result<String, WinError> {
         })
         .collect::<Result<Vec<_>, _>>()
         .map(|v| v.join(" "))
+}
+
+/// Operação de aba (nova, fechar, próxima, anterior, reabrir, endereço,
+/// localizar, recarregar) por teclado, na janela do navegador. Os atalhos
+/// são iguais em Firefox e Chromium. Sem `browser`, usa o padrão do usuário.
+pub async fn browser_tab(params: Value) -> Result<Value, WinError> {
+    use crate::browsers::{self, TabOp};
+    let op = TabOp::parse(req_str(&params, "op")?)
+        .ok_or_else(|| WinError::InvalidParams("op: new, close, next, previous, reopen, address, find, reload".into()))?;
+    let named = params["browser"].as_str().map(str::trim).filter(|b| !b.is_empty()).map(str::to_string);
+    let id = match named {
+        Some(n) => browsers::known(&n)
+            .map(|b| b.id.to_string())
+            .ok_or_else(|| WinError::InvalidParams(format!("'{n}' não é um navegador conhecido")))?,
+        None => blocking(|| Ok(browsers::default_browser().map(|d| d.id).or_else(running_browser))).await?
+            .ok_or_else(|| WinError::NotFound("navegador padrão".into()))?,
+    };
+    let wid = id.clone();
+    let win = blocking(move || Ok(crate::window::find_app(&wid))).await?
+        .ok_or_else(|| WinError::NotFound(format!("janela do {id} (abra o navegador antes)")))?;
+    blocking(move || {
+        crate::window::focus(win.id)?;
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let (shift, key) = match op {
+            TabOp::New => (false, "t"),
+            TabOp::Close => (false, "w"),
+            TabOp::Next => (false, "tab"),
+            TabOp::Previous => (true, "tab"),
+            TabOp::Reopen => (true, "t"),
+            TabOp::Address => (false, "l"),
+            TabOp::Find => (false, "f"),
+            TabOp::Reload => (false, "r"),
+        };
+        crate::input::press_ctrl_key(shift, key)
+    })
+    .await?;
+    Ok(json!({ "browser": id, "op": format!("{op:?}").to_lowercase() }))
 }
 
 async fn shell_exec_with(file: &str, args: &str) -> Result<(), WinError> {
@@ -445,11 +460,11 @@ mod tests {
 
     #[test]
     fn only_known_browsers_can_be_launched() {
-        assert_eq!(known_browser("Waterfox"), Some("waterfox"));
-        assert_eq!(known_browser("waterfox.exe"), Some("waterfox"));
-        assert_eq!(known_browser("Microsoft Edge"), Some("msedge"));
+        assert_eq!(crate::browsers::known_id("Waterfox"), Some("waterfox"));
+        assert_eq!(crate::browsers::known_id("waterfox.exe"), Some("waterfox"));
+        assert_eq!(crate::browsers::known_id("Microsoft Edge"), Some("msedge"));
         for bad in ["calc", "cmd", "powershell", "notepad", "../../evil", "chrome2", ""] {
-            assert_eq!(known_browser(bad), None, "{bad}");
+            assert_eq!(crate::browsers::known_id(bad), None, "{bad}");
         }
     }
 
@@ -468,12 +483,11 @@ mod tests {
 
     #[test]
     fn new_tab_args_by_browser_family() {
+        use crate::browsers::{Family, Mode};
         use std::path::Path;
         let url = "https://x.y";
-        assert_eq!(tab_args(Path::new(r"C:\Program Files\Waterfox\waterfox.exe"), url), vec!["-new-tab", url]);
-        assert_eq!(tab_args(Path::new("firefox.exe"), url), vec!["-new-tab", url]);
-        assert_eq!(tab_args(Path::new("chrome.exe"), url), vec![url]);
-        assert_eq!(tab_args(Path::new("msedge.exe"), url), vec![url]);
+        assert_eq!(Family::Firefox.open_args(Path::new("waterfox.exe"), Mode::Tab, url), vec!["-new-tab", url]);
+        assert_eq!(Family::Chromium.open_args(Path::new("chrome.exe"), Mode::Tab, url), vec![url]);
     }
 
     #[test]
