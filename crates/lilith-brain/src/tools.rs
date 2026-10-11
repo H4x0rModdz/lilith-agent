@@ -194,7 +194,7 @@ pub fn all_tools() -> Vec<Tool> {
             action: "window.read",
             description: "Lê o texto que está aberto num PROGRAMA/JANELA agora (Bloco de Notas, Word, \
                           navegador, chat…), mesmo sem estar salvo. Use para 'lê o que está escrito no \
-                          bloco de notas', 'o que diz essa janela'. `target`: app ou título. Em chats \
+                          bloco de notas', 'o que diz essa janela'. `target`: o PROGRAMA (ex.: 'discord', 'whatsapp'), nunca o nome de uma conversa. Em chats \
                           (Discord…) traz só as mensagens dos últimos 5 minutos. Passe `since_minutes` \
                           SÓ se o usuário disser um período ('da última hora' = 60, 'de hoje' = 1440); \
                           sem período dito, omita.",
@@ -221,10 +221,25 @@ pub fn all_tools() -> Vec<Tool> {
             ),
         },
         Tool {
+            action: "ui.open_chat",
+            description: "Abre uma conversa (pessoa OU grupo) pelo NOME no WhatsApp ou no Discord, usando \
+                          a busca do próprio app — acha qualquer conversa, mesmo fora da lista visível. \
+                          É o jeito certo de abrir um chat antes de ler ou mandar mensagem. Se o app \
+                          não estiver aberto, abra antes com app.open. Para outros programas use \
+                          ui.find + ui.click.",
+            schema: obj(
+                json!({
+                    "target": { "type": "string", "description": "'whatsapp' ou 'discord'" },
+                    "name": { "type": "string", "description": "SÓ o nome da pessoa ou do grupo, sem as palavras 'grupo', 'chat' ou 'conversa' (ex.: 'família', não 'grupo da família')" }
+                }),
+                &["target", "name"],
+            ),
+        },
+        Tool {
             action: "ui.type",
             description: "Digita um texto num campo de um programa e, com `submit`, envia (Enter). Use \
                           para 'manda um <texto> pra <pessoa> no whatsapp/discord' DEPOIS de abrir a \
-                          conversa com ui.click. `element` é o nome visível do campo de mensagem (ex.: \
+                          conversa com ui.open_chat. `element` é o nome visível do campo de mensagem (ex.: \
                           'Digite uma mensagem', 'Mensagem'); use ui.find se não souber. Pede aprovação \
                           do usuário, mostrando o que será enviado.",
             schema: obj(

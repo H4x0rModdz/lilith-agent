@@ -94,7 +94,7 @@ pub fn scope_for(action: &str) -> &'static str {
         "app.close" | "window.close" => "app.terminate",
         "window.list" | "window.focus" | "window.minimize" | "window.maximize" | "window.restore" | "window.move"
         | "window.tile" | "cursor.point" | "ui.find" => "window.control",
-        "ui.click" => "ui.interact",
+        "ui.click" | "ui.open_chat" => "ui.interact",
         // Digitar/enviar texto num app = falar em nome do usuário.
         "ui.type" => "input.control",
         "memory.search" => "memory.read",
@@ -199,6 +199,7 @@ mod tests {
             "ui.click",
             "ui.click_effect",
             "ui.type",
+            "ui.open_chat",
             "memory.search",
             "memory.remember",
             "memory.forget",

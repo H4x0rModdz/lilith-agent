@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT, VIRTUAL_KEY, VK_RETURN,
+    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT, VIRTUAL_KEY, VK_CONTROL, VK_RETURN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, SetCursorPos};
 
@@ -92,6 +92,21 @@ pub fn type_text(text: &str) -> Result<(), WinError> {
         std::thread::sleep(Duration::from_millis(4));
     }
     Ok(())
+}
+
+/// Ctrl + uma letra (A–Z), ex.: Ctrl+F, Ctrl+K.
+pub fn press_ctrl(letter: char) -> Result<(), WinError> {
+    let c = letter.to_ascii_uppercase();
+    if !c.is_ascii_uppercase() {
+        return Err(WinError::InvalidParams("atalho: só letras A–Z".into()));
+    }
+    let vk = VIRTUAL_KEY(c as u16); // as teclas A–Z têm o código do próprio caractere
+    send(&[
+        key(VK_CONTROL, 0, Default::default()),
+        key(vk, 0, Default::default()),
+        key(vk, 0, KEYEVENTF_KEYUP),
+        key(VK_CONTROL, 0, KEYEVENTF_KEYUP),
+    ])
 }
 
 pub fn press_enter() -> Result<(), WinError> {
