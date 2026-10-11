@@ -77,6 +77,7 @@ fn send_message(text: String, conversation: String, app: AppHandle, state: State
         approvals: state.approvals.clone(),
         tainted: Default::default(),
         chat_intent: Default::default(),
+        opened_chats: Default::default(),
     };
     let agent = state.agent_for(&conversation);
     if let Some(title) = state.store.append(&conversation, "user", &text) {

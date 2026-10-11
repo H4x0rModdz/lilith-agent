@@ -145,6 +145,35 @@ pub(crate) fn clean_chat_name(raw: &str) -> Option<String> {
     (!name.trim().is_empty()).then_some(name)
 }
 
+/// O nome procurado aparece em `haystack` (título da janela ou nome do campo
+/// de mensagem)? Por palavras inteiras e sem acento: "Ana" não casa com
+/// "Mariana", mas "Verônica" casa com "para Veronica".
+pub(crate) fn names_match(haystack: &str, name: &str) -> bool {
+    let words = |s: &str| -> Vec<String> {
+        paths::fold(s)
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let hay = words(haystack);
+    let wanted = words(name);
+    !wanted.is_empty() && wanted.iter().all(|w| hay.contains(w))
+}
+
+/// Já estamos nessa conversa? Dois sinais baratos (sem varrer a árvore): o
+/// título da janela (Discord: "@gui - Discord") e o nome do campo de
+/// mensagem quando ele está com o foco. Se nenhum dos dois der certeza,
+/// devolve false e a busca do app é usada.
+fn already_in_chat(w: &window::WindowInfo, name: &str) -> bool {
+    // O título mudou desde que a janela foi listada? Lê de novo, é barato.
+    let title = window::find(&format!("id:{}", w.id)).map(|f| f.title).unwrap_or_else(|_| w.title.clone());
+    if names_match(&title, name) {
+        return true;
+    }
+    window::is_foreground(w.id) && uia::focused_name().is_some_and(|n| names_match(&n, name))
+}
+
 /// Abre uma conversa pelo nome usando a busca do app (atalho, nome, Enter).
 fn open_chat(w: &window::WindowInfo, raw_name: &str) -> Result<Value, WinError> {
     let name = clean_chat_name(raw_name).ok_or_else(|| WinError::InvalidParams("'name' vazio".into()))?;
@@ -155,8 +184,18 @@ fn open_chat(w: &window::WindowInfo, raw_name: &str) -> Result<Value, WinError> 
         ))
     })?;
     let pause = |ms: u64| std::thread::sleep(std::time::Duration::from_millis(ms));
-    window::focus(w.id)?;
-    pause(350);
+    // Já em primeiro plano? Não refaz o foco nem espera.
+    let was_in_front = window::is_foreground(w.id);
+    if !was_in_front {
+        window::focus(w.id)?;
+        pause(300);
+    }
+    // Já estamos nessa conversa? Então não abre a busca de novo.
+    if already_in_chat(w, &name) {
+        return Ok(serde_json::json!({
+            "window": w.title, "opened": name, "already_open": true, "was_in_front": was_in_front,
+        }));
+    }
     input::press_ctrl(search.shortcut)?;
     pause(300);
     input::type_text(&name)?;
@@ -164,7 +203,9 @@ fn open_chat(w: &window::WindowInfo, raw_name: &str) -> Result<Value, WinError> 
     pause(800);
     input::press_enter()?;
     pause(500);
-    Ok(serde_json::json!({ "window": w.title, "opened": name, "via": format!("busca do {}", search.app) }))
+    Ok(serde_json::json!({
+        "window": w.title, "opened": name, "via": format!("busca do {}", search.app), "was_in_front": was_in_front,
+    }))
 }
 
 /// Retângulo do campo já localizado pelo app (evita uma segunda busca).
@@ -257,6 +298,17 @@ mod open_chat_tests {
         assert_eq!(chat_search_for("WhatsApp.Root"), Some(ChatSearch { app: "whatsapp", shortcut: 'f' }));
         assert_eq!(chat_search_for("Discord"), Some(ChatSearch { app: "discord", shortcut: 'k' }));
         assert_eq!(chat_search_for("notepad"), None);
+    }
+
+    #[test]
+    fn current_chat_is_matched_by_whole_words() {
+        assert!(names_match("@gui - Discord", "gui"));
+        assert!(names_match("Conversar em @gui", "Gui"));
+        assert!(names_match("Digite uma mensagem para Verônica", "veronica"));
+        assert!(names_match("#chat-geral | Cantinho da are - Discord", "chat geral"));
+        assert!(!names_match("Digite uma mensagem para Mariana", "Ana"));
+        assert!(!names_match("WhatsApp", "Clarinha"));
+        assert!(!names_match("qualquer coisa", ""));
     }
 
     #[test]

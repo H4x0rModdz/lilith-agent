@@ -362,6 +362,20 @@ pub fn forget_message_input(app: &str) {
 
 const MESSAGE_INPUT: &str = "message_input";
 
+/// Nome acessível do elemento com o foco do teclado — no WhatsApp e no
+/// Discord o campo de mensagem se chama "…para <chat>" / "Conversar em <chat>",
+/// então diz em que conversa estamos (quando o foco está nele).
+pub fn focused_name() -> Option<String> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+        let el = uia.GetFocusedElement().ok()?;
+        (el.CurrentControlType().ok()? == UIA_EditControlTypeId)
+            .then(|| el.CurrentName().ok().map(|b| b.to_string()))
+            .flatten()
+    }
+}
+
 /// O elemento com o foco do teclado é um campo de texto? Uma chamada só —
 /// é como confirmamos que o clique caiu no campo certo (o teste "o que existe
 /// neste ponto" não serve em apps web: devolve só um painel genérico).

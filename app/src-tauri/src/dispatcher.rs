@@ -146,6 +146,8 @@ pub struct GuardedDispatcher {
     pub audit: Arc<AuditLog>,
     pub approvals: Arc<Approvals>,
     pub tainted: AtomicBool,
+    /// Conversas já abertas neste pedido (app, nome): não refaz os passos.
+    pub opened_chats: Mutex<Vec<(String, String)>>,
     /// O que a mensagem do chat pediu neste turno (ver `taint_gate`).
     pub chat_intent: Mutex<Option<Vec<String>>>,
 }
@@ -392,13 +394,25 @@ impl GuardedDispatcher {
         let screen = self.app.state::<Arc<crate::screen::Screen>>().inner().clone();
         let _presence = screen.begin();
         let target = params["target"].as_str().unwrap_or("active").to_string();
-        if let Ok(w) = blocking(move || window::find(&target)).await {
-            if !w.minimized {
+        let name = params["name"].as_str().unwrap_or("").trim().to_lowercase();
+        // Já abriu essa conversa neste pedido: não refaz.
+        let key = (target.to_lowercase(), name);
+        if self.opened_chats.lock().unwrap().contains(&key) {
+            return Ok(json!({ "opened": params["name"], "already_open": true, "note": "já aberta neste pedido" }));
+        }
+        let t = target.clone();
+        if let Ok(w) = blocking(move || window::find(&t)).await {
+            // Só aponta para a janela se ela não estiver já em primeiro plano.
+            if !w.minimized && !window::is_foreground(w.id) {
                 screen.fly_to((w.frame.x + w.frame.w / 5, w.frame.y + 70)).await;
                 screen.click().await;
             }
         }
-        lilith_win::dispatch("ui.open_chat", params.clone()).await
+        let result = lilith_win::dispatch("ui.open_chat", params.clone()).await;
+        if result.is_ok() {
+            self.opened_chats.lock().unwrap().push(key);
+        }
+        result
     }
 
     /// Digita (e envia) num campo: o cursor vai até o campo, "clica", e o
