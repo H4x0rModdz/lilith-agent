@@ -107,10 +107,10 @@ export async function mountAvatar(root: HTMLElement) {
     const hips = y("hips");
     const head = y("head");
     const neck = y("neck");
-    waistY = hips + (y("spine") - hips) * 0.15;
-    topY = head + (head - neck) * 2.7;
+    waistY = hips - (y("spine") - hips) * 1.2;
+    topY = head + (head - neck) * 3.6;
     const height = topY - waistY;
-    const dist = (height / 2 / Math.tan((camera.fov * Math.PI) / 360)) * 1.06;
+    const dist = (height / 2 / Math.tan((camera.fov * Math.PI) / 360)) * 1.1;
     camera.position.set(0, (topY + waistY) / 2, dist);
     camera.lookAt(0, (topY + waistY) / 2, 0);
     lookTarget.position.set(0, topY - 0.08, 1.5);
