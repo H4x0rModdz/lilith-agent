@@ -178,7 +178,7 @@ impl Dispatcher for GuardedDispatcher {
             // Memória entra no contexto de todo pedido futuro: só grava/apaga
             // direto quando o usuário pediu isso NESTA mensagem do chat
             // ("lembra que…"); se a ideia foi do modelo, pergunta.
-            "memory.remember" | "memory.forget" if !self.chat_asked_for(action) => "memory.write_unrequested",
+            "memory.remember" | "memory.forget" | "reminder.add" if !self.chat_asked_for(action) => "memory.write_unrequested",
             other => other,
         };
         // Defesa contra prompt injection: depois de ler conteúdo externo,
@@ -298,6 +298,7 @@ pub const APP_ACTIONS: &[&str] = &[
     "cursor.point",
     "memory.search",
     "memory.remember",
+    "reminder.add",
     "memory.forget",
 ];
 
@@ -336,6 +337,15 @@ impl GuardedDispatcher {
                 let ok = self.store.remember(&s("key"), &s("value"), "learned");
                 let _ = self.app.emit("lilith://facts", ());
                 json!({ "remembered": ok, "key": s("key") })
+            }
+            "reminder.add" => {
+                let due = crate::reminders::parse_date(&s("date"), chrono::Local::now().date_naive());
+                let id = due.and_then(|d| self.store.add_reminder(&d.format("%Y-%m-%d").to_string(), &s("text")));
+                let _ = self.app.emit("lilith://reminders", ());
+                match (id, due) {
+                    (Some(_), Some(d)) => json!({ "reminder": true, "date": d.format("%d/%m/%Y").to_string() }),
+                    _ => json!({ "reminder": false, "error": "data inválida; use AAAA-MM-DD" }),
+                }
             }
             _ => {
                 let ok = self.store.forget(&s("key"));

@@ -31,6 +31,8 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2.4.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tauri-plugin-window-state = "2.5.0"
+tauri-plugin-updater = "2"
+tauri-plugin-autostart = "2"
 base64 = "0.22"
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
 chrono.workspace = true

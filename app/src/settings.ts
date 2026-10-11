@@ -7,6 +7,18 @@ interface Settings {
   persona: string;
   auto_learn: boolean;
   chat_minutes: number;
+  auto_update: boolean;
+}
+
+interface Reminder {
+  id: number;
+  due: string;
+  text: string;
+}
+
+interface AppInfo {
+  version: string;
+  autostart: boolean;
 }
 
 interface Term {
@@ -48,6 +60,20 @@ export function mountSettings(view: HTMLElement) {
           <span class="switch-track"><span class="switch-thumb"></span></span>
           <span>Aprender sozinha com as conversas</span>
         </label>
+        <label class="switch">
+          <input name="auto_update" type="checkbox" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span>Atualizar sozinha ao abrir</span>
+        </label>
+        <label class="switch">
+          <input name="autostart" type="checkbox" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span>Iniciar com o Windows</span>
+        </label>
+        <div class="update-row">
+          <small class="hint update-status"></small>
+          <button type="button" class="neon-soft update-btn">Procurar atualização</button>
+        </div>
         <div class="settings-actions">
           <small class="settings-saved" hidden>Salvo ✓</small>
           <button type="submit" class="neon save-btn">Salvar</button>
@@ -62,6 +88,12 @@ export function mountSettings(view: HTMLElement) {
           <input class="prompt-new" maxlength="120" placeholder="ex.: Lê as mensagens novas do WhatsApp" />
           <button type="button" class="icon-btn neon-soft prompt-add-btn" title="Adicionar atalho"><span data-icon="plus" data-size="15"></span></button>
         </div>
+      </section>
+
+      <section class="settings-card">
+        <h3><span data-icon="sparkles" data-size="16"></span>Lembretes</h3>
+        <small class="hint">Peça no chat: “me lembra dia 12/10 de abrir o discord”. Ela avisa quando o chat abrir naquele dia.</small>
+        <ul class="facts reminders-list"></ul>
       </section>
 
       <section class="settings-card">
@@ -199,12 +231,82 @@ export function mountSettings(view: HTMLElement) {
   });
   listen("lilith://glossary", () => loadTerms());
 
+  const remindersEl = view.querySelector<HTMLUListElement>(".reminders-list")!;
+
+  async function loadReminders() {
+    const list = await invoke<Reminder[]>("list_reminders");
+    if (list.length === 0) {
+      const li = document.createElement("li");
+      li.className = "facts-empty";
+      li.textContent = "Nenhum lembrete pendente.";
+      remindersEl.replaceChildren(li);
+      return;
+    }
+    remindersEl.replaceChildren(
+      ...list.map((r) => {
+        const li = document.createElement("li");
+        li.className = "fact";
+        li.innerHTML = `<div class="fact-text"><strong></strong><span></span></div>`;
+        const [y, m, d] = r.due.split("-");
+        li.querySelector("strong")!.textContent = `${d}/${m}/${y}`;
+        li.querySelector(".fact-text span")!.textContent = r.text;
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "icon-btn neon-soft";
+        del.title = "Apagar lembrete";
+        del.append(icon("trash", 14));
+        del.addEventListener("click", () => invoke("remove_reminder", { id: r.id }));
+        li.append(del);
+        return li;
+      }),
+    );
+  }
+  listen("lilith://reminders", () => loadReminders());
+
+  // Versão, início com o Windows e atualização.
+  const updateStatus = view.querySelector<HTMLElement>(".update-status")!;
+  const updateBtn = view.querySelector<HTMLButtonElement>(".update-btn")!;
+  let version = "";
+  const setStatus = (text: string) => (updateStatus.textContent = text);
+
+  let pending = "";
+  updateBtn.addEventListener("click", async () => {
+    updateBtn.disabled = true;
+    try {
+      if (pending) {
+        setStatus(`Baixando a ${pending}… a Lilith vai reiniciar.`);
+        await invoke("check_update", { install: true });
+        return;
+      }
+      setStatus("Procurando…");
+      const found = await invoke<{ version: string } | null>("check_update", { install: false });
+      if (found) {
+        pending = found.version;
+        updateBtn.textContent = `Atualizar para ${pending}`;
+        setStatus(`Versão ${version}: a ${pending} está disponível.`);
+      } else {
+        setStatus(`Versão ${version}: você já está na última.`);
+      }
+    } catch {
+      setStatus("Não consegui agora. Tente de novo mais tarde.");
+    } finally {
+      updateBtn.disabled = false;
+    }
+  });
+  listen<{ version: string }>("lilith://update", (e) => setStatus(`Versão ${version}: a ${e.payload.version} está disponível.`));
+
   async function load() {
     const s = await invoke<Settings>("get_settings");
     field("user_name").value = s.user_name;
     (form.elements.namedItem("persona") as HTMLTextAreaElement).value = s.persona;
     field("chat_minutes").value = String(s.chat_minutes);
     field("auto_learn").checked = s.auto_learn;
+    field("auto_update").checked = s.auto_update;
+    const info = await invoke<AppInfo>("app_info");
+    version = info.version;
+    field("autostart").checked = info.autostart;
+    setStatus(`Versão ${version}`);
+    await loadReminders();
     prompts = await invoke<string[]>("get_quick_prompts");
     renderPrompts();
     await loadFacts();
@@ -249,7 +351,9 @@ export function mountSettings(view: HTMLElement) {
       persona: (form.elements.namedItem("persona") as HTMLTextAreaElement).value,
       chat_minutes: Math.max(1, Math.min(1440, Number(field("chat_minutes").value) || 5)),
       auto_learn: field("auto_learn").checked,
+      auto_update: field("auto_update").checked,
     };
+    field("autostart").checked = await invoke<boolean>("set_autostart", { on: field("autostart").checked });
     await invoke("save_settings", { settings });
     saved.hidden = false;
     window.setTimeout(() => (saved.hidden = true), 1800);

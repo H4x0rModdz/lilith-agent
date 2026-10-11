@@ -100,7 +100,7 @@ pub fn scope_for(action: &str) -> &'static str {
         // Digitar/enviar texto num app = falar em nome do usuário.
         "ui.type" => "input.control",
         "memory.search" => "memory.read",
-        "memory.remember" | "memory.forget" => "memory.write",
+        "memory.remember" | "memory.forget" | "reminder.add" => "memory.write",
         // Escalonado pelo app quando o chat não pediu isso.
         "memory.write_unrequested" => "memory.persist",
         // Escalonado pelo app quando o alvo não é pura navegação.
@@ -205,6 +205,7 @@ mod tests {
             "ui.open_chat",
             "memory.search",
             "memory.remember",
+            "reminder.add",
             "memory.forget",
             "memory.write_unrequested",
         ] {
