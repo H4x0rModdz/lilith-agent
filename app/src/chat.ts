@@ -205,15 +205,101 @@ export async function mountChat(root: HTMLElement) {
     if (prompts.length === 0) return [];
     const li = document.createElement("li");
     li.className = "quick-prompts";
+    const track = document.createElement("div");
+    track.className = "quick-track";
     for (const p of prompts) {
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "quick-chip";
       chip.textContent = p;
-      chip.addEventListener("click", () => send(conv, p));
-      li.append(chip);
+      chip.addEventListener("click", (e) => {
+        // Soltar depois de arrastar o carrossel não é clique.
+        if (track.dataset.dragged === "1") {
+          e.preventDefault();
+          return;
+        }
+        send(conv, p);
+      });
+      track.append(chip);
     }
+    li.append(track);
+    makeCarousel(track);
     return [li];
+  }
+
+  /// Carrossel: arrastar com o mouse (com inércia leve), roda do mouse
+  /// vertical vira rolagem horizontal, e as bordas esmaecem quando há mais.
+  function makeCarousel(track: HTMLElement) {
+    let startX = 0;
+    let startScroll = 0;
+    let dragging = false;
+    let velocity = 0;
+    let lastX = 0;
+    let lastT = 0;
+
+    const edges = () => {
+      const max = track.scrollWidth - track.clientWidth;
+      track.classList.toggle("more-left", track.scrollLeft > 2);
+      track.classList.toggle("more-right", track.scrollLeft < max - 2);
+    };
+
+    track.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      track.dataset.dragged = "0";
+      startX = lastX = e.clientX;
+      startScroll = track.scrollLeft;
+      lastT = performance.now();
+      velocity = 0;
+    });
+    track.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      if (Math.abs(dx) > 4 && track.dataset.dragged !== "1") {
+        // Só captura o ponteiro quando vira arraste: clique simples segue
+        // indo para a bolha.
+        track.dataset.dragged = "1";
+        track.classList.add("dragging");
+        track.setPointerCapture(e.pointerId);
+      }
+      if (track.dataset.dragged === "1") {
+        track.scrollLeft = startScroll - dx;
+        const now = performance.now();
+        velocity = (e.clientX - lastX) / Math.max(1, now - lastT);
+        lastX = e.clientX;
+        lastT = now;
+      }
+    });
+    const release = () => {
+      if (!dragging) return;
+      dragging = false;
+      track.classList.remove("dragging");
+      // Inércia curta depois de soltar.
+      let v = velocity * 16;
+      const glide = () => {
+        if (Math.abs(v) < 0.5) return;
+        track.scrollLeft -= v;
+        v *= 0.92;
+        requestAnimationFrame(glide);
+      };
+      requestAnimationFrame(glide);
+      // O click vem logo depois do pointerup: limpa a marca em seguida.
+      window.setTimeout(() => (track.dataset.dragged = "0"), 0);
+    };
+    track.addEventListener("pointerup", release);
+    track.addEventListener("pointercancel", release);
+    track.addEventListener(
+      "wheel",
+      (e) => {
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+          e.preventDefault();
+          track.scrollLeft += e.deltaY;
+        }
+      },
+      { passive: false },
+    );
+    track.addEventListener("scroll", edges, { passive: true });
+    requestAnimationFrame(edges);
   }
 
   // ── comandos "/" ──────────────────────────────────────────────────────
