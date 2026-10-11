@@ -12,6 +12,7 @@ pub mod knowledge;
 pub mod learn;
 pub mod memory;
 pub mod ollama;
+pub mod refine;
 pub mod shortcut;
 pub mod tools;
 

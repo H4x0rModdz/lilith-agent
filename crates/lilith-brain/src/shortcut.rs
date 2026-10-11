@@ -46,11 +46,89 @@ fn alias(name: &str) -> String {
     }
 }
 
-/// Sites e coisas que NÃO são programas: "abre o github" é navegador.
-const NOT_APPS: &[&str] = &[
-    "youtube", "github", "google", "gmail", "wikipedia", "twitter", "facebook", "instagram", "reddit", "netflix",
-    "twitch", "linkedin", "stackoverflow", "amazon", "tiktok", "pinterest", "x", "chatgpt", "maps", "drive",
+/// Sites conhecidos → endereço. "abre o github" é navegador, não programa.
+const SITES: &[(&str, &str)] = &[
+    ("youtube", "https://www.youtube.com"),
+    ("github", "https://github.com"),
+    ("google", "https://www.google.com"),
+    ("gmail", "https://mail.google.com"),
+    ("wikipedia", "https://www.wikipedia.org"),
+    ("twitter", "https://twitter.com"),
+    ("facebook", "https://www.facebook.com"),
+    ("instagram", "https://www.instagram.com"),
+    ("reddit", "https://www.reddit.com"),
+    ("netflix", "https://www.netflix.com"),
+    ("twitch", "https://www.twitch.tv"),
+    ("linkedin", "https://www.linkedin.com"),
+    ("stackoverflow", "https://stackoverflow.com"),
+    ("tiktok", "https://www.tiktok.com"),
+    ("pinterest", "https://www.pinterest.com"),
+    ("chatgpt", "https://chatgpt.com"),
 ];
+
+/// Outros nomes que também não são programas.
+const NOT_APPS: &[&str] = &["x", "maps", "drive"];
+
+/// O texto cita um site conhecido?
+pub fn mentions_site(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    lower.split(|c: char| !c.is_alphanumeric()).any(|w| SITES.iter().any(|(s, _)| *s == w))
+}
+
+/// "abre o youtube", "vai pro gmail", "abre o github numa janela privada".
+fn site_shortcut(t: &str) -> Option<Shortcut> {
+    const FILLER: &[&str] = &[
+        "o", "a", "no", "na", "pro", "pra", "para", "do", "da", "de", "site", "numa", "num", "uma", "um", "em", "in",
+        "the", "janela", "window", "nova", "novo", "new", "privada", "private", "anônima", "anonima", "anônimo",
+        "anonimo", "aba", "tab", "modo", "navegador", "to",
+    ];
+    let words: Vec<&str> = t.split_whitespace().collect();
+    if !matches!(words.first().copied(), Some("abre" | "abra" | "entra" | "vai" | "open" | "go" | "navega")) {
+        return None;
+    }
+    let mut site = None;
+    for w in &words[1..] {
+        if let Some((_, url)) = SITES.iter().find(|(s, _)| s == w) {
+            if site.replace(*url).is_some() {
+                return None;
+            }
+        } else if !FILLER.contains(w) {
+            return None;
+        }
+    }
+    let private = words.iter().any(|w| matches!(*w, "privada" | "private" | "anônima" | "anonima" | "anônimo" | "anonimo"));
+    let window = words.iter().any(|w| matches!(*w, "janela" | "window")) && words.iter().any(|w| matches!(*w, "nova" | "novo" | "new"));
+    let mode = if private { "private" } else if window { "window" } else { "tab" };
+    Some(Shortcut {
+        calls: vec![call("browser.open", json!({ "url": site?, "mode": mode }))],
+        reply: "Abri!".into(),
+    })
+}
+
+/// Programas onde "clica em X" navega pela interface.
+const UI_APPS: &str = "discord|spotify|steam|teams|whatsapp|telegram|slack";
+
+/// "clica em histórico no discord", "vai na aba downloads do spotify".
+fn ui_shortcut(t: &str) -> Option<Shortcut> {
+    static CLICK: OnceLock<Regex> = OnceLock::new();
+    static TAB: OnceLock<Regex> = OnceLock::new();
+    let click = re(&CLICK, &format!(r"^(?:clica|clique|aperta|aperte)\s+(.+?)\s+(?:no|na|do|da)\s+({UI_APPS})$"));
+    let tab = re(&TAB, &format!(r"^vai\s+(?:na|pra|para\s+a)\s+aba\s+(.+?)\s+(?:no|na|do|da)\s+({UI_APPS})$"));
+    let c = click.captures(t).or_else(|| tab.captures(t))?;
+    let mut element = c[1].trim();
+    for lead in ["em ", "no ", "na ", "nos ", "nas ", "aba ", "botão ", "o ", "a "] {
+        while let Some(rest) = element.strip_prefix(lead) {
+            element = rest;
+        }
+    }
+    if element.is_empty() || element.split_whitespace().count() > 3 {
+        return None;
+    }
+    Some(Shortcut {
+        calls: vec![call("ui.click", json!({ "target": &c[2], "element": element }))],
+        reply: "Pronto!".into(),
+    })
+}
 
 /// Palavras que indicam um pedido mais complexo que "abrir um programa".
 const COMPLEX: &[&str] = &[
@@ -66,7 +144,7 @@ fn plain_target(t: &str) -> Option<String> {
         return None;
     }
     let name = alias(t);
-    if NOT_APPS.contains(&name.as_str()) || name.starts_with("o ") || name.starts_with("a ") {
+    if NOT_APPS.contains(&name.as_str()) || SITES.iter().any(|(s, _)| *s == name) || name.starts_with("o ") || name.starts_with("a ") {
         return None;
     }
     Some(name)
@@ -132,6 +210,11 @@ pub fn parse(text: &str) -> Option<Shortcut> {
         return Some(Shortcut { calls: vec![call(action, json!({ "target": target }))], reply: "Pronto!".into() });
     }
 
+    // Site conhecido e cliques dentro de programas.
+    if let Some(sc) = site_shortcut(&t).or_else(|| ui_shortcut(&t)) {
+        return Some(sc);
+    }
+
     // Abrir um programa.
     static OPEN: OnceLock<Regex> = OnceLock::new();
     let open = re(
@@ -186,17 +269,27 @@ mod tests {
     fn windows_and_apps() {
         assert_eq!(one("minimiza o discord"), Some(("window.minimize".into(), json!({ "target": "discord" }))));
         assert_eq!(one("maximiza a janela do spotify por favor").unwrap().0, "window.maximize");
+        assert_eq!(
+            one("abre o github numa janela privada"),
+            Some(("browser.open".into(), json!({ "url": "https://github.com", "mode": "private" })))
+        );
+        assert_eq!(one("vai pro gmail").unwrap().0, "browser.open");
+        assert_eq!(
+            one("clica em histórico no discord"),
+            Some(("ui.click".into(), json!({ "target": "discord", "element": "histórico" })))
+        );
+        assert_eq!(one("vai na aba downloads do spotify").unwrap().1["element"], "downloads");
         assert_eq!(one("abre o zap"), Some(("app.open".into(), json!({ "app": "whatsapp" }))));
         assert_eq!(one("abre o bloco de notas pra mim").unwrap().1, json!({ "app": "bloco de notas" }));
         // Casos que o modelo resolve melhor:
         for t in [
-            "abre o github",
+            "abre o github e pesquisa rust",
             "abre uma aba e pesquisa gatos",
             "abre mais um bloco de notas",
             "minimiza o discord e abre o spotify",
             "abre o spotify e toca algo",
             "joga o discord pro lado",
-            "abre o youtube numa janela privada",
+            "abre o youtube e o github",
             "abre a pasta downloads",
         ] {
             assert_eq!(one(t), None, "{t}");
