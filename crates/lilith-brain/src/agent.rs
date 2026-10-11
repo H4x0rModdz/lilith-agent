@@ -63,7 +63,7 @@ impl Agent {
     /// Recarrega turnos antigos (conversa reaberta do histórico).
     pub fn seed(&self, turns: Vec<(String, String)>) {
         for (user_text, reply_text) in turns {
-            self.memory.record(Turn { user_text, tool_call: None, reply_text });
+            self.memory.record(Turn { user_text, tool_call: None, reply_text, actions: vec![] });
         }
     }
 
@@ -75,22 +75,36 @@ impl Agent {
         let mut tools = all_tools();
 
         // Interpreta antes de agir (gírias, referências, "mover ≠ fechar").
+        // O intérprete vê também as ações de cada pedido recente: é assim que
+        // "e no chat da fulana?" vira o mesmo caminho com outro alvo.
         let recent: Vec<(String, String)> = history
             .iter()
             .rev()
             .take(2)
             .rev()
-            .map(|t| (t.user_text.clone(), t.reply_text.clone()))
+            .map(|t| {
+                let actions = t.actions_summary();
+                let reply = if actions.is_empty() {
+                    t.reply_text.clone()
+                } else {
+                    format!("{}\n[ações nesse pedido: {actions}]", t.reply_text)
+                };
+                (t.user_text.clone(), reply)
+            })
             .collect();
+        let mut needs_tools: Vec<String> = Vec::new();
         if let Some(i) = interpret::run(self.ollama.as_ref(), text, &recent, &tools).await {
             dispatcher.authorize_from_chat(&i.tools);
+            needs_tools = i.tools.clone();
             let last = messages.len() - 1;
             messages.insert(last, serde_json::json!({ "role": "system", "content": interpret::hint(&i) }));
             tools = interpret::narrow(tools, &i.tools);
         }
         let mut last_call: Option<ToolCall> = None;
+        let mut calls: Vec<ToolCall> = Vec::new();
         let mut last_step_reply = String::new();
         let mut answer_only = false;
+        let mut nudged = false;
         // Última leitura bem-sucedida (para responder sem o modelo se um
         // pedido injetado for bloqueado).
         let mut last_read: Option<(String, Value)> = None;
@@ -103,7 +117,9 @@ impl Agent {
             // real: o modelo pode estar "obedecendo" o texto lido ("vou seguir
             // essa instrução…") antes de a ação chegar ao guard. Só a resposta
             // final, já verificada, aparece.
-            let quiet = last_read.is_some();
+            // Idem enquanto o pedido precisa de tools e nenhuma rodou ainda: o
+            // texto desse passo pode ser conteúdo inventado.
+            let quiet = last_read.is_some() || (calls.is_empty() && !needs_tools.is_empty());
             // Agrupa tokens em ~20 eventos/s em vez de um por token — evita
             // re-layout da UI a cada token (mesma disciplina do jarvis-os).
             let forwarder = tokio::spawn(async move {
@@ -147,11 +163,29 @@ impl Agent {
                             "O Ollama respondeu com erro. Confere se o modelo configurado está baixado."
                         }
                     };
-                    return self.finish(text, last_call, text_out.to_string());
+                    return self.finish(text, last_call, calls, text_out.to_string());
                 }
             };
 
             if reply.tool_calls.is_empty() {
+                // Fundamento: o pedido precisa de ferramentas (segundo o
+                // intérprete) e nenhuma rodou — a resposta seria inventada
+                // ("no chat da Sheylinha ela reclama…" sem nem abrir o chat).
+                // Descarta e exige a ferramenta, uma vez.
+                if calls.is_empty() && !needs_tools.is_empty() && !answer_only && !nudged {
+                    nudged = true;
+                    tracing::warn!(step, tools = ?needs_tools, "resposta sem ferramenta descartada");
+                    messages.push(serde_json::json!({
+                        "role": "system",
+                        "content": format!(
+                            "Você respondeu sem usar ferramentas, mas este pedido precisa de: {}. \
+                             Chame a primeira agora. Nunca invente o conteúdo de conversas, \
+                             janelas ou arquivos.",
+                            needs_tools.join(" → ")
+                        ),
+                    }));
+                    continue;
+                }
                 let final_text = if !reply.text.trim().is_empty() {
                     reply.text.trim().to_string()
                 } else if !last_step_reply.is_empty() {
@@ -159,7 +193,7 @@ impl Agent {
                 } else {
                     "Hm, não entendi. Pode repetir de outro jeito?".into()
                 };
-                return self.finish(text, last_call, final_text);
+                return self.finish(text, last_call, calls, final_text);
             }
 
             // Uma tool por passo; se o modelo quiser as outras, re-emite depois.
@@ -174,7 +208,7 @@ impl Agent {
                 // ainda "anuncia" que vai fazer. Num caso de segurança, a
                 // resposta tem de ser exata.
                 if let Some(summary) = last_read.as_ref().and_then(|(a, r)| read_summary(a, r)) {
-                    return self.finish(text, last_call, summary);
+                    return self.finish(text, last_call, calls, summary);
                 }
                 // Ação que só existia no texto lido (prompt injection). Não
                 // entra no contexto — se o modelo vê a própria tentativa, tende
@@ -193,6 +227,7 @@ impl Agent {
             }
             last_step_reply = summarize_step(&call.action, &response);
             append_tool_step(&mut messages, &call, &response);
+            calls.push(call.clone());
             last_call = Some(call);
         }
 
@@ -200,16 +235,18 @@ impl Agent {
         self.finish(
             text,
             last_call,
+            calls,
             format!("(parei após {MAX_STEPS} passos) {last_step_reply}"),
         )
     }
 
-    fn finish(&self, user_text: &str, call: Option<ToolCall>, reply: String) -> Reply {
+    fn finish(&self, user_text: &str, call: Option<ToolCall>, actions: Vec<ToolCall>, reply: String) -> Reply {
         let action = call.as_ref().map(|c| c.action.clone());
         self.memory.record(Turn {
             user_text: user_text.into(),
             tool_call: call,
             reply_text: reply.clone(),
+            actions,
         });
         Reply {
             emotion: emotion::classify(&reply),
@@ -470,6 +507,48 @@ mod tests {
         // A tentativa bloqueada não aparece no contexto.
         let msgs = o.last_messages.lock().unwrap();
         assert!(!serde_json::to_string(&*msgs).unwrap().contains("window.move"));
+    }
+
+    /// Intérprete diz que precisa de window.read; o modelo primeiro "inventa"
+    /// a resposta, depois obedece.
+    struct HallucinatingOllama {
+        replies: Mutex<Vec<OllamaReply>>,
+    }
+
+    #[async_trait]
+    impl Ollama for HallucinatingOllama {
+        async fn chat_messages(
+            &self,
+            _: &[Value],
+            _: &[Tool],
+            _: Option<UnboundedSender<String>>,
+        ) -> Result<OllamaReply, LilithError> {
+            Ok(self.replies.lock().unwrap().remove(0))
+        }
+
+        async fn structured(&self, _: &[Value], _: &Value) -> Result<Value, LilithError> {
+            Ok(json!({ "intent": "ler o chat da Sheylinha no Discord", "tools": ["ui.click", "window.read"] }))
+        }
+    }
+
+    #[tokio::test]
+    async fn answer_without_required_tool_is_discarded_and_tool_is_called() {
+        let o = Arc::new(HallucinatingOllama {
+            replies: Mutex::new(vec![
+                text("No chat, a Sheylinha reclama que está lento…").unwrap(),
+                tool("ui.click").unwrap(),
+                tool("window.read").unwrap(),
+                text("No chat da Sheylinha: \"oi\"").unwrap(),
+            ]),
+        });
+        let d = MockDispatcher::default();
+        let a = Agent::new(o);
+        let r = a.process("e no chat da sheylinha?", &d, Arc::new(NullSink)).await;
+        assert_eq!(*d.0.lock().unwrap(), vec!["ui.click", "window.read"]);
+        assert!(!r.reply.contains("reclama"), "resposta inventada não pode sair: {}", r.reply);
+        // As ações ficam na memória para o próximo "e no chat de…?".
+        let turn = &a.memory.recent(1)[0];
+        assert_eq!(turn.actions.len(), 2);
     }
 
     #[tokio::test]
