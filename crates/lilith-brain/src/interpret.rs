@@ -43,7 +43,9 @@ monitor, \"some com\" = minimizar).
 (no máximo 3). Lista vazia se for só conversa.
 
 Regras: fechar/encerrar/apagar só se o usuário disser isso explicitamente. Mover, \
-arrastar, ajustar, organizar ou trocar de tela uma janela NUNCA é fechar.
+arrastar, ajustar, organizar ou trocar de tela uma janela NUNCA é fechar. \
+\"Mais pro lado\", \"um pouco\", \"um pouquinho\", \"ajusta\" = deslocar levemente (nudge), \
+mantendo o tamanho; encaixar em metade/canto/tela cheia só se o usuário nomear essa região.
 
 Catálogo:
 ";
@@ -99,6 +101,24 @@ pub fn hint(i: &Interpretation) -> String {
     }
 }
 
+/// Reduz o catálogo às famílias (`window.*`, `audio.*`, …) das tools
+/// indicadas. Com 30+ tools o modelo de 4B se confunde (pediu "metade
+/// direita do chrome" e recebeu um tile do Firefox); com só a família certa,
+/// acerta. Família inteira, e não só as tools exatas, para deixar margem a
+/// um intérprete que errou o detalhe. Sem indicação, catálogo completo.
+pub fn narrow(tools: Vec<Tool>, suggested: &[String]) -> Vec<Tool> {
+    let family = |action: &str| action.split('.').next().unwrap_or(action).to_string();
+    let mut families: Vec<String> = suggested.iter().map(|s| family(s)).collect();
+    // Baixar quase sempre começa achando o link certo.
+    if families.iter().any(|f| f == "download") {
+        families.push("web".into());
+    }
+    if families.is_empty() {
+        return tools;
+    }
+    tools.into_iter().filter(|t| families.contains(&family(t.action))).collect()
+}
+
 pub async fn run(ollama: &dyn Ollama, user_text: &str, recent: &[(String, String)], tools: &[Tool]) -> Option<Interpretation> {
     let started = std::time::Instant::now();
     let raw = ollama.structured(&messages(user_text, recent, tools), &schema()).await;
@@ -139,6 +159,20 @@ mod tests {
         assert!(system.contains("- window.move:"));
         // Só a primeira frase de cada descrição.
         assert!(!system.contains("right_two_thirds"));
+    }
+
+    #[test]
+    fn narrow_keeps_whole_families() {
+        let names = |tools: Vec<Tool>| tools.into_iter().map(|t| t.action).collect::<Vec<_>>();
+        let only_windows = names(narrow(all_tools(), &["window.move".into()]));
+        assert!(only_windows.contains(&"window.tile") && only_windows.contains(&"window.list"));
+        assert!(only_windows.iter().all(|a| a.starts_with("window.")));
+
+        let chain = names(narrow(all_tools(), &["download.file".into()]));
+        assert!(chain.contains(&"web.search") && chain.contains(&"download.file"));
+        assert!(!chain.contains(&"window.move"));
+
+        assert_eq!(narrow(all_tools(), &[]).len(), all_tools().len());
     }
 
     #[test]

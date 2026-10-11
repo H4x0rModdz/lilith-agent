@@ -130,6 +130,7 @@ impl GuardedDispatcher {
     /// Ações de tela feitas "à mão" pela Lilith: borda rosa + cursor dela
     /// indo até o lugar, gesto, e a ação real por API.
     async fn screen_action(&self, action: &str, params: &Value) -> Result<Value, lilith_win::WinError> {
+        use crate::elevated::{self, Op};
         use crate::screen::{caption_button, Screen};
         use lilith_win::window;
         use tauri::Manager;
@@ -142,15 +143,32 @@ impl GuardedDispatcher {
             "window.move" => {
                 let p = params.clone();
                 let plan = blocking(move || window::plan_move(&p)).await?;
-                screen.drag(&plan).await?;
-                Ok(json!({ "moved": plan.title, "to": plan.to, "maximized": plan.maximize_after }))
+                if plan.elevated {
+                    screen.drag_gesture(&plan).await;
+                    elevated::run(vec![Op::Frame { id: plan.id, rect: plan.to, maximize_after: plan.maximize_after }])
+                        .await?;
+                } else {
+                    screen.drag(&plan).await?;
+                }
+                Ok(json!({
+                    "moved": plan.title, "to": plan.to, "maximized": plan.maximize_after, "as_admin": plan.elevated,
+                }))
             }
             "window.tile" => {
                 let p = params.clone();
                 let plans = blocking(move || window::plan_tile(&p)).await?;
+                // Janelas de admin: só o gesto agora; todas vão juntas para o
+                // ajudante no fim (um único prompt do UAC).
+                let mut admin_ops = Vec::new();
                 for plan in &plans {
-                    screen.drag(plan).await?;
+                    if plan.elevated {
+                        screen.drag_gesture(plan).await;
+                        admin_ops.push(Op::Frame { id: plan.id, rect: plan.to, maximize_after: false });
+                    } else {
+                        screen.drag(plan).await?;
+                    }
                 }
+                elevated::run(admin_ops).await?;
                 Ok(json!({ "tiled": plans.iter().map(|p| &p.title).collect::<Vec<_>>() }))
             }
             "cursor.point" => {
@@ -181,6 +199,15 @@ impl GuardedDispatcher {
                     };
                     screen.fly_to(spot).await;
                     screen.click().await;
+                }
+                if w.elevated {
+                    let op = match action {
+                        "window.close" => Op::Close { id: w.id },
+                        "window.focus" => Op::Focus { id: w.id },
+                        other => Op::State { id: w.id, state: other.trim_start_matches("window.").into() },
+                    };
+                    elevated::run(vec![op]).await?;
+                    return Ok(json!({ "window": w.title, "done": action, "as_admin": true }));
                 }
                 let mut p = params.clone();
                 p["target"] = json!(format!("id:{}", w.id));

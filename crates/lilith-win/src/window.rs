@@ -13,26 +13,27 @@
 
 use crate::paths::fold;
 use crate::WinError;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
+use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
 use windows::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, MonitorFromWindow, HDC, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::System::Threading::{
-    GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{keybd_event, KEYEVENTF_KEYUP, VK_MENU};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed, PostMessageW, SetForegroundWindow, SetWindowPos,
+    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed, PostMessageW, SetForegroundWindow, SetWindowPos,
     ShowWindow, GWL_EXSTYLE, GW_OWNER, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_MAXIMIZE,
     SW_MINIMIZE, SW_RESTORE, WM_CLOSE, WS_EX_TOOLWINDOW,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -76,6 +77,9 @@ pub struct WindowInfo {
     pub frame: Rect,
     pub maximized: bool,
     pub minimized: bool,
+    /// O app roda como administrador: um processo comum não consegue
+    /// movê-lo nem fechá-lo (UIPI) — precisa do ajudante elevado.
+    pub elevated: bool,
 }
 
 /// Movimento de uma janela: de onde para onde (moldura visível).
@@ -88,6 +92,8 @@ pub struct MovePlan {
     /// Maximizar ao final (posição "maximize", ou janela que já estava
     /// maximizada e mudou de monitor).
     pub maximize_after: bool,
+    /// Janela de app elevado: só o ajudante de administrador consegue movê-la.
+    pub elevated: bool,
 }
 
 fn hwnd(id: isize) -> HWND {
@@ -180,6 +186,7 @@ fn describe(id: isize, own_pid: u32, mons: &[Monitor]) -> Option<WindowInfo> {
             frame: frame_rect(h),
             maximized: IsZoomed(h).as_bool(),
             minimized: IsIconic(h).as_bool(),
+            elevated: process_is_elevated(pid),
         })
     }
 }
@@ -201,6 +208,46 @@ fn process_name(pid: u32) -> Option<String> {
         let path = String::from_utf16_lossy(&buf[..len as usize]);
         std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().into_owned())
     }
+}
+
+/// O processo roda elevado? Se nem dá para ler o token dele, é porque está
+/// acima de nós — também conta como elevado.
+pub fn process_is_elevated(pid: u32) -> bool {
+    unsafe {
+        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            return false;
+        };
+        let elevated = token_elevated(process).unwrap_or(true);
+        let _ = CloseHandle(process);
+        elevated
+    }
+}
+
+/// A própria Lilith está elevada (ex.: rodando como ajudante)?
+pub fn self_elevated() -> bool {
+    unsafe { token_elevated(GetCurrentProcess()).unwrap_or(false) }
+}
+
+unsafe fn token_elevated(process: windows::Win32::Foundation::HANDLE) -> Option<bool> {
+    let mut token = windows::Win32::Foundation::HANDLE::default();
+    OpenProcessToken(process, TOKEN_QUERY, &mut token).ok()?;
+    let mut info = TOKEN_ELEVATION::default();
+    let mut len = 0u32;
+    let ok = GetTokenInformation(
+        token,
+        TokenElevation,
+        Some(&mut info as *mut _ as *mut _),
+        std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+        &mut len,
+    );
+    let _ = CloseHandle(token);
+    ok.ok()?;
+    Some(info.TokenIsElevated != 0)
+}
+
+/// O id ainda é uma janela de verdade? (o ajudante elevado valida antes de agir)
+pub fn exists(id: isize) -> bool {
+    unsafe { IsWindow(Some(hwnd(id))).as_bool() }
 }
 
 /// Moldura visível (sem as bordas invisíveis do Win10/11).
@@ -297,6 +344,24 @@ fn show(id: isize, cmd: windows::Win32::UI::WindowsAndMessaging::SHOW_WINDOW_CMD
     unsafe {
         let _ = ShowWindow(hwnd(id), cmd);
     }
+}
+
+/// minimize / maximize / restore.
+pub fn set_state(id: isize, state: &str) -> Result<(), WinError> {
+    let cmd = match state {
+        "minimize" => SW_MINIMIZE,
+        "maximize" => SW_MAXIMIZE,
+        "restore" => SW_RESTORE,
+        other => return Err(WinError::InvalidParams(format!("estado '{other}'"))),
+    };
+    show(id, cmd);
+    Ok(())
+}
+
+/// WM_CLOSE = clicar no X: o app pode perguntar se quer salvar.
+pub fn close(id: isize) -> Result<(), WinError> {
+    unsafe { PostMessageW(Some(hwnd(id)), WM_CLOSE, WPARAM(0), LPARAM(0))? };
+    Ok(())
 }
 
 /// Posiciona a janela de modo que a moldura *visível* fique em `frame`.
@@ -425,15 +490,57 @@ fn carry_over(frame: Rect, from: Rect, to: Rect) -> Rect {
     Rect { x, y, w, h }
 }
 
-/// `window.move`: `target`, e `position` e/ou `monitor`.
+/// Desloca a janela um pouco, sem mudar o tamanho e sem sair da área útil.
+/// `amount`: pixels, ou small (padrão, ~6% da tela) / medium (~15%) /
+/// large (~30%) — "um pouquinho pro lado" não pode virar um encaixe do Snap.
+pub fn nudge_rect(frame: Rect, work: Rect, direction: &str, amount: &Value) -> Result<Rect, WinError> {
+    // Passo em pixels: número explícito, ou fração da dimensão da tela.
+    let step = |is_x: bool| -> i32 {
+        if let Some(px) = amount.as_i64() {
+            return px.unsigned_abs().min(i32::MAX as u64) as i32;
+        }
+        let fraction = match amount.as_str().map(fold).as_deref() {
+            Some("medium" | "medio") => 0.15,
+            Some("large" | "grande" | "muito") => 0.30,
+            _ => 0.06,
+        };
+        let side = if is_x { work.w } else { work.h };
+        (side as f64 * fraction).round() as i32
+    };
+    let (dx, dy) = match fold(direction).as_str() {
+        "left" | "esquerda" => (-step(true), 0),
+        "right" | "direita" => (step(true), 0),
+        "up" | "cima" => (0, -step(false)),
+        "down" | "baixo" => (0, step(false)),
+        other => return Err(WinError::InvalidParams(format!("direção '{other}' (use left/right/up/down)"))),
+    };
+    let w = frame.w.min(work.w);
+    let h = frame.h.min(work.h);
+    Ok(Rect {
+        x: (frame.x + dx).clamp(work.x, work.x + work.w - w),
+        y: (frame.y + dy).clamp(work.y, work.y + work.h - h),
+        w,
+        h,
+    })
+}
+
+/// `window.move`: `target`, e `nudge` (deslocamento leve) ou `position`
+/// (encaixe) e/ou `monitor`.
 pub fn plan_move(params: &Value) -> Result<MovePlan, WinError> {
     let target = params["target"].as_str().unwrap_or("active");
     let position = params["position"].as_str().filter(|s| !s.trim().is_empty());
-    if position.is_none() && params["monitor"].is_null() {
-        return Err(WinError::InvalidParams("informe 'position' e/ou 'monitor'".into()));
+    let nudge = params["nudge"].as_str().filter(|s| !s.trim().is_empty());
+    if position.is_none() && nudge.is_none() && params["monitor"].is_null() {
+        return Err(WinError::InvalidParams("informe 'nudge', 'position' e/ou 'monitor'".into()));
     }
     let original = find(target)?;
     let mons = monitors();
+    if let Some(direction) = nudge {
+        let w = prepare(&original);
+        let work = mons.iter().find(|m| m.index == original.monitor).map(|m| m.work).unwrap_or(w.frame);
+        let to = nudge_rect(w.frame, work, direction, &params["amount"])?;
+        return Ok(MovePlan { id: w.id, elevated: w.elevated, title: w.title, from: w.frame, to, maximize_after: false });
+    }
     let dest = pick_monitor(&params["monitor"], original.monitor, &mons)?;
     let src_work = mons.iter().find(|m| m.index == original.monitor).map(|m| m.work).unwrap_or(dest.work);
     let w = prepare(&original);
@@ -442,7 +549,7 @@ pub fn plan_move(params: &Value) -> Result<MovePlan, WinError> {
         Some(pos) => position_rect(pos, dest.work, w.frame)?,
         None => (carry_over(w.frame, src_work, dest.work), original.maximized),
     };
-    Ok(MovePlan { id: w.id, title: w.title, from: w.frame, to, maximize_after })
+    Ok(MovePlan { id: w.id, elevated: w.elevated, title: w.title, from: w.frame, to, maximize_after })
 }
 
 /// `window.tile`: divide a área útil de um monitor entre várias janelas,
@@ -466,7 +573,9 @@ pub fn plan_tile(params: &Value) -> Result<Vec<MovePlan>, WinError> {
         }
     }
     if chosen.len() < 2 {
-        return Err(WinError::InvalidParams("preciso de pelo menos 2 janelas para dividir a tela".into()));
+        return Err(WinError::InvalidParams(
+            "window.tile divide a tela entre 2+ janelas; para posicionar uma só, use window.move com `position`".into(),
+        ));
     }
 
     let mons = monitors();
@@ -480,7 +589,7 @@ pub fn plan_tile(params: &Value) -> Result<Vec<MovePlan>, WinError> {
         .zip(cells)
         .map(|(w, to)| {
             let w = prepare(w);
-            MovePlan { id: w.id, title: w.title, from: w.frame, to, maximize_after: false }
+            MovePlan { id: w.id, elevated: w.elevated, title: w.title, from: w.frame, to, maximize_after: false }
         })
         .collect())
 }
@@ -558,7 +667,7 @@ pub fn handle(action: &str, params: &Value) -> Result<Value, WinError> {
                 .map(|w| {
                     json!({
                         "id": w.id, "title": w.title, "app": w.app, "monitor": w.monitor,
-                        "maximized": w.maximized, "minimized": w.minimized,
+                        "maximized": w.maximized, "minimized": w.minimized, "admin": w.elevated,
                     })
                 })
                 .collect();
@@ -575,20 +684,12 @@ pub fn handle(action: &str, params: &Value) -> Result<Value, WinError> {
         }
         "window.minimize" | "window.maximize" | "window.restore" => {
             let w = find(target)?;
-            show(
-                w.id,
-                match action {
-                    "window.minimize" => SW_MINIMIZE,
-                    "window.maximize" => SW_MAXIMIZE,
-                    _ => SW_RESTORE,
-                },
-            );
+            set_state(w.id, action.trim_start_matches("window."))?;
             Ok(json!({ "window": w.title, "done": action }))
         }
         "window.close" => {
             let w = find(target)?;
-            // WM_CLOSE = clicar no X: o app pode perguntar se quer salvar.
-            unsafe { PostMessageW(Some(hwnd(w.id)), WM_CLOSE, WPARAM(0), LPARAM(0))? };
+            close(w.id)?;
             Ok(json!({ "closed": w.title }))
         }
         "window.move" => {
@@ -660,6 +761,23 @@ mod tests {
     }
 
     #[test]
+    fn nudge_moves_a_little_and_stays_on_screen() {
+        let frame = Rect { x: 500, y: 200, w: 800, h: 600 };
+        // Pouquinho = ~6% da largura (1920 → 115 px), tamanho intacto.
+        assert_eq!(
+            nudge_rect(frame, WORK, "direita", &Value::Null).unwrap(),
+            Rect { x: 615, y: 200, w: 800, h: 600 }
+        );
+        assert_eq!(nudge_rect(frame, WORK, "left", &json!(50)).unwrap().x, 450);
+        assert_eq!(nudge_rect(frame, WORK, "up", &json!("medio")).unwrap().y, 44);
+        // Nunca sai da área útil.
+        assert_eq!(nudge_rect(frame, WORK, "right", &json!("muito")).unwrap().x, 1076);
+        assert_eq!(nudge_rect(frame, WORK, "right", &json!(5000)).unwrap().x, 1120);
+        assert_eq!(nudge_rect(frame, WORK, "left", &json!(5000)).unwrap().x, 0);
+        assert!(nudge_rect(frame, WORK, "diagonal", &Value::Null).is_err());
+    }
+
+    #[test]
     fn carry_over_keeps_relative_place() {
         let left = Rect { x: 0, y: 0, w: 1920, h: 1040 };
         let right = Rect { x: 1920, y: 0, w: 3440, h: 1400 };
@@ -677,6 +795,7 @@ mod tests {
             frame: WORK,
             maximized: false,
             minimized: false,
+            elevated: false,
         };
         let wins = vec![
             w(1, "Notas sobre chrome", "notepad"),
