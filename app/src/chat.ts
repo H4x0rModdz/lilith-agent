@@ -171,6 +171,10 @@ export async function mountChat(root: HTMLElement) {
     add("system", "⏹ Parei tudo.");
   });
 
+  listen<{ action: string }>("lilith://blocked", (e) =>
+    add("system", `🛡 Ignorei um pedido escrito no conteúdo que li (${actionLabel(e.payload.action).toLowerCase()}) — só obedeço o chat.`),
+  );
+
   listen<Approval>("lilith://approval", (e) => renderApproval(e.payload));
   listen<number>("lilith://approval-expired", (e) => {
     const card = log.querySelector<HTMLElement>(`[data-approval="${e.payload}"]`);
