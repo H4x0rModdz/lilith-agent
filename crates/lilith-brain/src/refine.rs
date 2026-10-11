@@ -14,7 +14,7 @@ fn has(text: &str, words: &[&str]) -> bool {
 const CHAT_WORDS: &[&str] = &[
     "manda ", "mande", "envia", "enviar", "diz ", "diga", "fala ", "fale ", "pergunta", "avisa", "chama", "convida",
     "agradece", "lê ", "le ", "chat", "mensagem", "conversa", "grupo", "send ", "text ", "tell ", "ask ", "message",
-    "responde", "cobra",
+    "responde", "cobra", "mandou", "escreveu", "falou", "disse", "respondeu", "enviou", "mensagens",
 ];
 
 /// Palavras de posição de janela: o pedido é sobre a tela, não sobre um chat.
@@ -26,18 +26,24 @@ const LAYOUT_WORDS: &[&str] = &[
 const AUDIO_WORDS: &[&str] = &["volume", "som", "áudio", "audio", "mudo", "muta", "mute", "sound", "barulho", "silencia", "baixo", "alto", "aumenta", "diminui"];
 
 const TILE_WORDS: &[&str] = &[
-    "divide", "dividir", "lado a lado", "organiza", "visíveis", "visiveis", "grade", "todas as janelas", "side by side",
-    "tile",
+    "divide", "dividir", "lado a lado", "do lado do", "lado do outro", "juntas", "organiza", "visíveis", "visiveis", "grade",
+    "todas as janelas", "side by side", "tile",
 ];
 
 /// Aplica as regras ao plano do intérprete para o pedido `text`.
-pub fn plan(text: &str, plan: Vec<String>) -> Vec<String> {
+pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<String> {
     let t = text.to_lowercase();
     let mut plan = plan;
     let is = |plan: &[String], a: &str| plan.iter().any(|p| p == a);
 
+    // Continuação de um pedido de chat ("e do user z?") herda o caminho.
+    let chat_followup = (t.starts_with("e ") || t.starts_with("agora ") || has(&t, &["o mesmo", "também", "tambem"]))
+        && recent.iter().any(|(_, r)| r.contains("ui.open_chat") || r.contains("ui.type"));
+
     // Etapas de chat só quando o pedido fala com alguém (e não é de layout).
-    if (!has(&t, CHAT_WORDS) || has(&t, LAYOUT_WORDS)) && (is(&plan, "ui.open_chat") || is(&plan, "ui.type")) {
+    if !chat_followup
+        && (!has(&t, CHAT_WORDS) || has(&t, LAYOUT_WORDS))
+        && (is(&plan, "ui.open_chat") || is(&plan, "ui.type")) {
         plan.retain(|p| p != "ui.open_chat" && p != "ui.type");
     }
 
@@ -112,7 +118,7 @@ pub fn plan(text: &str, plan: Vec<String>) -> Vec<String> {
     if !has(&t, &["lembra", "anota", "guarda", "salva", "memoriza", "remember", "grava"]) {
         plan.retain(|p| p != "memory.remember");
     }
-    if !has(&t, &["lembra", "falei", "falou", "falamos", "falado", "combinamos", "combinado", "mencionei", "comentei", "conversa", "conversamos", "disse", "ontem", "antes", "remember", "told"]) {
+    if !has(&t, &["lembra", "falei", "falou", "falamos", "conversou", "conversaram", "falado", "combinamos", "combinado", "mencionei", "comentei", "conversa", "conversamos", "disse", "ontem", "antes", "remember", "told"]) {
         plan.retain(|p| p != "memory.search");
     }
     // Definição/tradução se responde de cabeça.
@@ -160,6 +166,10 @@ pub fn message(text: &str, plan: &[String], message: String, recent: &[(String, 
 mod tests {
     use super::*;
 
+    fn plan(text: &str, steps: Vec<String>) -> Vec<String> {
+        super::plan(text, steps, &[])
+    }
+
     fn p(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
     }
@@ -197,6 +207,19 @@ mod tests {
             plan("minimiza o discord e o spotify", p(&["window.minimize", "window.minimize"])),
             p(&["window.minimize", "window.minimize"])
         );
+    }
+
+    #[test]
+    fn keeps_chat_steps_for_chat_followups_and_reads() {
+        let recent = vec![(
+            "lê o chat do user x no discord".to_string(),
+            "ok\n[ações nesse pedido: ui.open_chat {} → window.read {}]".to_string(),
+        )];
+        let steps = p(&["ui.open_chat", "window.read"]);
+        assert_eq!(super::plan("e do user z?", steps.clone(), &recent), steps);
+        assert_eq!(plan("o que o user x mandou no whatsapp?", steps.clone()), steps);
+        assert_eq!(plan("põe o chrome e o vscode um do lado do outro", p(&["window.tile"])), p(&["window.tile"]));
+        assert_eq!(plan("o que a gente conversou sobre o wifi?", p(&["memory.search"])), p(&["memory.search"]));
     }
 
     #[test]
