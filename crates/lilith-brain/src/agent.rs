@@ -50,12 +50,22 @@ const MAX_SAME_CALL: usize = 3;
 /// Quantas vezes, no máximo, cobra o plano quando o modelo responde em texto.
 const MAX_NUDGES: usize = 3;
 
-/// Ferramentas do plano do intérprete que ainda não rodaram (na ordem).
+/// Etapas do plano do intérprete que ainda faltam, na ordem. O plano pode
+/// repetir ferramentas (duas mensagens = open_chat, type, open_chat, type):
+/// cada ocorrência consome uma chamada já feita.
 fn pending_tools(plan: &[String], calls: &[ToolCall]) -> Vec<String> {
-    plan.iter()
-        .filter(|t| !calls.iter().any(|c| &c.action == *t))
-        .cloned()
-        .collect()
+    let mut done: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for c in calls {
+        *done.entry(c.action.as_str()).or_default() += 1;
+    }
+    let mut pending = Vec::new();
+    for step in plan {
+        match done.get_mut(step.as_str()) {
+            Some(n) if *n > 0 => *n -= 1,
+            _ => pending.push(step.clone()),
+        }
+    }
+    pending
 }
 
 pub struct Agent {
@@ -203,7 +213,7 @@ impl Agent {
             };
 
             if reply.tool_calls.is_empty() {
-                // Fundamento: o pedido precisa de um plano (segundo o intérprete,
+                // Fundamento (inclusive pedidos com várias tarefas): o pedido precisa de um plano (segundo o intérprete,
                 // que só viu o chat) e o modelo respondeu em texto sem
                 // cumpri-lo. Duas falhas reais: inventar o conteúdo de um chat
                 // sem abri-lo, e abrir o chat e PARAR, "respondendo" que vai
@@ -589,7 +599,7 @@ mod tests {
         }
 
         async fn structured(&self, _: &[Value], _: &Value) -> Result<Value, LilithError> {
-            Ok(json!({ "intent": "ler o chat da Sheylinha no Discord", "tools": ["ui.click", "window.read"] }))
+            Ok(json!({ "intent": "ler o chat do User Y no Discord", "tools": ["ui.click", "window.read"] }))
         }
     }
 
@@ -597,15 +607,15 @@ mod tests {
     async fn answer_without_required_tool_is_discarded_and_tool_is_called() {
         let o = Arc::new(HallucinatingOllama {
             replies: Mutex::new(vec![
-                text("No chat, a Sheylinha reclama que está lento…").unwrap(),
+                text("No chat, o User Y reclama que está lento…").unwrap(),
                 tool("ui.click").unwrap(),
                 tool("window.read").unwrap(),
-                text("No chat da Sheylinha: \"oi\"").unwrap(),
+                text("No chat do User Y: \"oi\"").unwrap(),
             ]),
         });
         let d = MockDispatcher::default();
         let a = Agent::new(o);
-        let r = a.process("e no chat da sheylinha?", &d, Arc::new(NullSink)).await;
+        let r = a.process("e no chat do user y?", &d, Arc::new(NullSink)).await;
         assert_eq!(*d.0.lock().unwrap(), vec!["ui.click", "window.read"]);
         assert!(!r.reply.contains("reclama"), "resposta inventada não pode sair: {}", r.reply);
         // As ações ficam na memória para o próximo "e no chat de…?".
@@ -651,6 +661,54 @@ mod tests {
         assert!(pending_tools(&[], &[]).is_empty());
     }
 
+    #[test]
+    fn a_repeated_plan_needs_every_repetition() {
+        let call = |a: &str, n: i64| ToolCall { action: a.into(), params: json!({ "n": n }) };
+        let plan: Vec<String> = ["ui.open_chat", "ui.type", "ui.open_chat", "ui.type"].map(String::from).to_vec();
+        // Só a primeira mensagem foi feita: faltam open_chat e type da segunda.
+        let first = [call("ui.open_chat", 1), call("ui.type", 1)];
+        assert_eq!(pending_tools(&plan, &first), vec!["ui.open_chat", "ui.type"]);
+        let all = [call("ui.open_chat", 1), call("ui.type", 1), call("ui.open_chat", 2), call("ui.type", 2)];
+        assert!(pending_tools(&plan, &all).is_empty());
+    }
+
+    #[tokio::test]
+    async fn two_messages_in_one_request_are_both_sent() {
+        struct TwoTasks(Mutex<Vec<OllamaReply>>);
+        #[async_trait]
+        impl Ollama for TwoTasks {
+            async fn chat_messages(
+                &self,
+                _: &[Value],
+                _: &[Tool],
+                _: Option<UnboundedSender<String>>,
+            ) -> Result<OllamaReply, LilithError> {
+                Ok(self.0.lock().unwrap().remove(0))
+            }
+            async fn structured(&self, _: &[Value], _: &Value) -> Result<Value, LilithError> {
+                Ok(json!({ "intent": "oi pra A e oi pra B",
+                           "tools": ["ui.open_chat", "ui.type", "ui.open_chat", "ui.type"] }))
+            }
+        }
+        let call = |a: &str, who: &str| OllamaReply {
+            text: String::new(),
+            tool_calls: vec![ToolCall { action: a.into(), params: json!({ "who": who }) }],
+        };
+        let o = Arc::new(TwoTasks(Mutex::new(vec![
+            call("ui.open_chat", "User X"),
+            call("ui.type", "User X"),
+            // O bug real: parou depois da primeira mensagem e respondeu.
+            text("Mandei o oi pro User X!").unwrap(),
+            call("ui.open_chat", "User Y"),
+            call("ui.type", "User Y"),
+            text("Mandei os dois!").unwrap(),
+        ])));
+        let d = MockDispatcher::default();
+        let r = Agent::new(o).process("manda oi pro user x no whatsapp e oi pro user y no discord", &d, Arc::new(NullSink)).await;
+        assert_eq!(*d.0.lock().unwrap(), vec!["ui.open_chat", "ui.type", "ui.open_chat", "ui.type"]);
+        assert_eq!(r.reply, "Mandei os dois!");
+    }
+
     #[tokio::test]
     async fn stopping_after_the_first_step_is_pushed_to_finish_the_plan() {
         // O bug real: abriu o chat e "respondeu" que ia mandar a mensagem.
@@ -666,19 +724,19 @@ mod tests {
                 Ok(self.0.lock().unwrap().remove(0))
             }
             async fn structured(&self, _: &[Value], _: &Value) -> Result<Value, LilithError> {
-                Ok(json!({ "intent": "mandar um oi pra Clarinha no whatsapp", "tools": ["ui.open_chat", "ui.type"] }))
+                Ok(json!({ "intent": "mandar um oi pro User X no whatsapp", "tools": ["ui.open_chat", "ui.type"] }))
             }
         }
         let o = Arc::new(TwoStepPlan(Mutex::new(vec![
             tool("ui.open_chat").unwrap(),
             text("Ok, abri o chat. Agora vou te responder que tenho fofocas!").unwrap(),
             tool("ui.type").unwrap(),
-            text("Mandei o oi pra Clarinha!").unwrap(),
+            text("Mandei o oi pro User X!").unwrap(),
         ])));
         let d = MockDispatcher::default();
-        let r = Agent::new(o).process("manda um oi pra Clarinha no whatsapp", &d, Arc::new(NullSink)).await;
+        let r = Agent::new(o).process("manda um oi pro user x no whatsapp", &d, Arc::new(NullSink)).await;
         assert_eq!(*d.0.lock().unwrap(), vec!["ui.open_chat", "ui.type"]);
-        assert_eq!(r.reply, "Mandei o oi pra Clarinha!");
+        assert_eq!(r.reply, "Mandei o oi pro User X!");
     }
 
     #[tokio::test]

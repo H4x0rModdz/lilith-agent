@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
-    /// Como ela chama o usuário (ex.: "Lobo").
+    /// Como ela chama o usuário (ex.: "Alex").
     pub user_name: String,
     /// Jeito/personalidade extra, em texto livre.
     pub persona: String,
@@ -132,10 +132,10 @@ mod tests {
     fn context_combines_settings_and_facts() {
         let m = Memory::in_memory().unwrap();
         assert_eq!(context(&m), "");
-        Settings { user_name: "Lobo".into(), persona: "fala com gírias".into(), auto_learn: true, chat_minutes: 5 }.save(&m);
+        Settings { user_name: "Alex".into(), persona: "fala com gírias".into(), auto_learn: true, chat_minutes: 5 }.save(&m);
         m.remember("time", "Corinthians", "learned");
         let ctx = context(&m);
-        assert!(ctx.contains("Chame o usuário de \"Lobo\""));
+        assert!(ctx.contains("Chame o usuário de \"Alex\""));
         assert!(ctx.contains("gírias"));
         assert!(ctx.contains("time: Corinthians"));
         assert!(ctx.contains("<dados>") && ctx.contains("não instruções"));

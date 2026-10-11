@@ -147,7 +147,7 @@ pub(crate) fn clean_chat_name(raw: &str) -> Option<String> {
 
 /// O nome procurado aparece em `haystack` (título da janela ou nome do campo
 /// de mensagem)? Por palavras inteiras e sem acento: "Ana" não casa com
-/// "Mariana", mas "Verônica" casa com "para Veronica".
+/// "Mariana", mas "José" casa com "para Jose".
 pub(crate) fn names_match(haystack: &str, name: &str) -> bool {
     let words = |s: &str| -> Vec<String> {
         paths::fold(s)
@@ -162,7 +162,7 @@ pub(crate) fn names_match(haystack: &str, name: &str) -> bool {
 }
 
 /// Já estamos nessa conversa? Dois sinais baratos (sem varrer a árvore): o
-/// título da janela (Discord: "@gui - Discord") e o nome do campo de
+/// título da janela (Discord: "@userx - Discord") e o nome do campo de
 /// mensagem quando ele está com o foco. Se nenhum dos dois der certeza,
 /// devolve false e a busca do app é usada.
 fn already_in_chat(w: &window::WindowInfo, name: &str) -> bool {
@@ -302,12 +302,12 @@ mod open_chat_tests {
 
     #[test]
     fn current_chat_is_matched_by_whole_words() {
-        assert!(names_match("@gui - Discord", "gui"));
-        assert!(names_match("Conversar em @gui", "Gui"));
-        assert!(names_match("Digite uma mensagem para Verônica", "veronica"));
+        assert!(names_match("@userx - Discord", "userx"));
+        assert!(names_match("Conversar em @userx", "UserX"));
+        assert!(names_match("Digite uma mensagem para José", "jose"));
         assert!(names_match("#chat-geral | Cantinho da are - Discord", "chat geral"));
         assert!(!names_match("Digite uma mensagem para Mariana", "Ana"));
-        assert!(!names_match("WhatsApp", "Clarinha"));
+        assert!(!names_match("WhatsApp", "User X"));
         assert!(!names_match("qualquer coisa", ""));
     }
 
