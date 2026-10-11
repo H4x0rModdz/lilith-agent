@@ -26,8 +26,9 @@ const FACES: Record<string, Face> = {
 
 export async function mountAvatar(root: HTMLElement) {
   root.innerHTML = `
-    <div class="avatar3d">
+    <div class="avatar3d intro">
       <canvas></canvas>
+      <span class="dock-hint" hidden>solte para guardar</span>
       <p class="avatar-hint" hidden></p>
       <span class="avatar-badge" hidden></span>
     </div>`;
@@ -35,6 +36,41 @@ export async function mountAvatar(root: HTMLElement) {
   const hint = root.querySelector<HTMLElement>(".avatar-hint")!;
   const badge = root.querySelector<HTMLElement>(".avatar-badge")!;
   const win = getCurrentWindow();
+  const stage = root.querySelector<HTMLElement>(".avatar3d")!;
+  const dockHint = root.querySelector<HTMLElement>(".dock-hint")!;
+
+  /// Faíscas rosa saindo do canto da orb (entrada e saída).
+  function sparkles() {
+    for (let i = 0; i < 16; i++) {
+      const s = document.createElement("span");
+      s.className = "spark";
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 70 + Math.random() * 120;
+      s.style.setProperty("--dx", `${Math.cos(angle) * dist}px`);
+      s.style.setProperty("--dy", `${Math.sin(angle) * dist}px`);
+      s.style.animationDelay = `${Math.random() * 120}ms`;
+      stage.append(s);
+      window.setTimeout(() => s.remove(), 900);
+    }
+  }
+  sparkles();
+  window.setTimeout(() => stage.classList.remove("intro"), 900);
+
+  /// Volta para a forma 2D com a animação de "guardar" (e só então troca a janela).
+  let leaving = false;
+  function dismiss() {
+    if (leaving) return;
+    leaving = true;
+    dockHint.hidden = true;
+    sparkles();
+    stage.classList.add("outro");
+    window.setTimeout(() => void invoke("toggle_avatar"), 420);
+  }
+  void listen<boolean>("lilith://avatar-dock-hint", (e) => {
+    dockHint.hidden = !e.payload || leaving;
+    stage.classList.toggle("near-corner", e.payload);
+  });
+  void listen("lilith://avatar-dock", () => dismiss());
 
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "low-power" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
@@ -293,7 +329,7 @@ export async function mountAvatar(root: HTMLElement) {
       // Duplo clique: volta para a forma 2D.
       clearTimeout(clickTimer);
       clickTimer = undefined;
-      void invoke("toggle_avatar");
+      dismiss();
     } else {
       clickTimer = window.setTimeout(() => {
         clickTimer = undefined;
@@ -310,7 +346,7 @@ export async function mountAvatar(root: HTMLElement) {
         { id: "panel", text: "Painel da Lilith", action: () => void invoke("show_panel_tab", { tab: "jobs" }) },
         { item: "Separator" },
         { id: "stop", text: "Parar tudo (Ctrl+Alt+Esc)", action: () => void invoke("cancel") },
-        { id: "2d", text: "Voltar para a forma 2D", action: () => void invoke("toggle_avatar") },
+        { id: "2d", text: "Voltar para a forma 2D", action: () => dismiss() },
         { item: "Separator" },
         { id: "quit", text: "Sair da Lilith", action: () => void invoke("quit_app") },
       ],

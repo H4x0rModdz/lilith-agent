@@ -1,5 +1,14 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{AppHandle, Manager, PhysicalPosition, WebviewWindow};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
+
+/// Contador de movimentos da janela 3D (para saber quando o arrasto parou).
+static AVATAR_MOVES: AtomicU64 = AtomicU64::new(0);
+/// A janela 3D está encostada num canto da tela (avisa a UI uma vez por mudança).
+static AVATAR_NEAR_CORNER: AtomicBool = AtomicBool::new(false);
+/// Quanto o arrasto precisa parar no canto para guardar a Lilith.
+const DOCK_SETTLE_MS: u64 = 450;
+/// Folga (px lógicos) para considerar a janela encostada nas bordas do canto.
+const DOCK_TOLERANCE: f64 = 36.0;
 
 /// O usuário arrastou o chat nesta sessão — não reposicionar ao lado da orb.
 pub static CHAT_MOVED: AtomicBool = AtomicBool::new(false);
@@ -186,12 +195,49 @@ pub fn show_avatar(app: &AppHandle) {
             w.on_window_event(move |e| {
                 if matches!(e, tauri::WindowEvent::Moved(_)) {
                     sync_orb_to_avatar(&handle);
+                    on_avatar_moved(&handle);
                 }
             });
             hide_orb(app);
             remember_form(app, "3d");
         }
         Err(e) => tracing::warn!(error = %e, "não abri a forma 3D"),
+    }
+}
+
+/// A janela 3D encosta em duas bordas perpendiculares da área útil (um canto)?
+fn avatar_near_corner(app: &AppHandle) -> bool {
+    let Some(av) = app.get_webview_window("avatar") else { return false };
+    let (Ok(pos), Ok(size), Ok(Some(monitor))) = (av.outer_position(), av.outer_size(), av.current_monitor()) else {
+        return false;
+    };
+    let tol = (DOCK_TOLERANCE * av.scale_factor().unwrap_or(1.0)) as i32;
+    let a = monitor.work_area();
+    let (left, top) = (a.position.x, a.position.y);
+    let (right, bottom) = (left + a.size.width as i32, top + a.size.height as i32);
+    let (w, h) = (size.width as i32, size.height as i32);
+    let at_x = pos.x <= left + tol || pos.x + w >= right - tol;
+    let at_y = pos.y <= top + tol || pos.y + h >= bottom - tol;
+    at_x && at_y
+}
+
+/// Chamado a cada movimento da janela 3D: avisa quando ela chega perto de um
+/// canto e, se o arrasto para ali, pede para a Lilith se guardar na orb.
+fn on_avatar_moved(app: &AppHandle) {
+    let seq = AVATAR_MOVES.fetch_add(1, Ordering::Relaxed) + 1;
+    let near = avatar_near_corner(app);
+    if near != AVATAR_NEAR_CORNER.swap(near, Ordering::Relaxed) {
+        let _ = app.emit_to("avatar", "lilith://avatar-dock-hint", near);
+    }
+    if near {
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(DOCK_SETTLE_MS)).await;
+            // Soltou: nenhum movimento novo desde então e ainda no canto.
+            if AVATAR_MOVES.load(Ordering::Relaxed) == seq && avatar_near_corner(&handle) {
+                let _ = handle.emit_to("avatar", "lilith://avatar-dock", ());
+            }
+        });
     }
 }
 
@@ -240,8 +286,11 @@ pub fn hide_avatar(app: &AppHandle) {
         sync_orb_to_avatar(app);
         let _ = w.destroy();
     }
+    AVATAR_NEAR_CORNER.store(false, Ordering::Relaxed);
     if let Some(orb) = app.get_webview_window("orb") {
         let _ = orb.show();
+        // A orb "pula" de volta (animação no front).
+        let _ = app.emit_to("orb", "lilith://orb-pop", ());
     }
     remember_form(app, "2d");
 }
