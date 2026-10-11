@@ -42,6 +42,9 @@ const SAFE_SCOPES: &[&str] = &[
     "desktop.modify",
     // Pesquisar na web é a função de pesquisa que o usuário pediu.
     "web.access",
+    // Navegar dentro de um programa (abrir uma conversa, trocar de aba) é o
+    // que o usuário faria clicando; ações destrutivas têm tools próprias.
+    "ui.interact",
     // Ler o status das tarefas delegadas.
     "agent.read",
 ];
@@ -78,7 +81,8 @@ pub fn scope_for(action: &str) -> &'static str {
         "app.open" | "browser.open" | "file.open" => "app.launch",
         "app.close" | "window.close" => "app.terminate",
         "window.list" | "window.focus" | "window.minimize" | "window.maximize" | "window.restore" | "window.move"
-        | "window.tile" | "cursor.point" => "window.control",
+        | "window.tile" | "cursor.point" | "ui.find" => "window.control",
+        "ui.click" => "ui.interact",
         "file.find" | "file.list" | "file.read" => "filesystem.read",
         // Escalonado pelo app quando o caminho não é pessoal (ver lilith_win::is_personal_read).
         "file.read_protected" => "filesystem.read_protected",
@@ -167,6 +171,8 @@ mod tests {
             "window.move",
             "window.tile",
             "cursor.point",
+            "ui.find",
+            "ui.click",
         ] {
             let scope = scope_for(action);
             assert_ne!(scope, "unknown", "{action} sem scope");

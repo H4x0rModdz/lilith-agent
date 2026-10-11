@@ -22,6 +22,8 @@ const ACTION_LABELS: Record<string, string> = {
   "web.fetch": "Lendo a página",
   "agent.delegate": "Delegando para um agente",
   "window.list": "Olhando as janelas",
+  "ui.find": "Procurando na janela",
+  "ui.click": "Clicando",
   "window.read": "Lendo a janela",
   "file.read": "Lendo o arquivo",
   "window.move": "Arrastando a janela",
@@ -61,6 +63,7 @@ const ACTION_VERBS: Record<string, string> = {
   "window.restore": "restaurar a janela",
   "window.close": "fechar a janela",
   "agent.delegate": "acionar um agente",
+  "ui.click": "clicar num item",
 };
 
 export function actionVerb(action: string): string {

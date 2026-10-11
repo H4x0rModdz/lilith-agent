@@ -655,6 +655,26 @@ pub fn layout_cells(layout: &str, n: usize, work: Rect) -> Result<Vec<Rect>, Win
     })
 }
 
+/// Minutos de mensagens lidas quando o usuário não diz quais.
+pub const DEFAULT_SINCE_MINUTES: i64 = 5;
+
+/// Filtra as mensagens pelos últimos `since_minutes` (padrão 5). Se nada
+/// cair na janela de tempo, devolve as 3 mais recentes e avisa.
+fn recent_messages(w: &WindowInfo, mut messages: Vec<crate::uia::ChatMessage>, params: &Value) -> Value {
+    let since = params["since_minutes"].as_i64().unwrap_or(DEFAULT_SINCE_MINUTES).clamp(1, 7 * 24 * 60);
+    messages.sort_by_key(|m| m.ts);
+    let cutoff = chrono::Local::now().timestamp_millis() - since * 60_000;
+    let recent: Vec<_> = messages.iter().filter(|m| m.ts >= cutoff).cloned().collect();
+    let (shown, note) = if recent.is_empty() {
+        let tail: Vec<_> = messages.iter().rev().take(3).rev().cloned().collect();
+        (tail, format!("nenhuma mensagem nos últimos {since} min; estas são as mais recentes"))
+    } else {
+        (recent, format!("mensagens dos últimos {since} min"))
+    };
+    let text = shown.iter().map(|m| format!("[{}] {}", m.time, m.text)).collect::<Vec<_>>().join("\n");
+    json!({ "window": w.title, "app": w.app, "messages": shown, "text": text, "period": note })
+}
+
 // ── handlers (sem animação) ───────────────────────────────────────────────
 
 pub fn handle(action: &str, params: &Value) -> Result<Value, WinError> {
@@ -684,6 +704,11 @@ pub fn handle(action: &str, params: &Value) -> Result<Value, WinError> {
         }
         "window.read" => {
             let w = find(target)?;
+            // Chat (mensagens com horário): por padrão só os últimos 5 minutos.
+            let messages = crate::uia::read_messages(w.id).unwrap_or_default();
+            if !messages.is_empty() {
+                return Ok(recent_messages(&w, messages, params));
+            }
             let max = params["max_chars"].as_u64().unwrap_or(6000).clamp(200, 20000) as usize;
             let text = crate::uia::read_window_text(w.id, max)?;
             Ok(json!({ "window": w.title, "app": w.app, "text": text }))
