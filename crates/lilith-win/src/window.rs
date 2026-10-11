@@ -13,7 +13,7 @@
 
 use crate::paths::fold;
 use crate::WinError;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT, WPARAM};
@@ -33,7 +33,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SW_MINIMIZE, SW_RESTORE, WM_CLOSE, WS_EX_TOOLWINDOW,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -92,6 +92,8 @@ pub struct MovePlan {
     /// Maximizar ao final (posição "maximize", ou janela que já estava
     /// maximizada e mudou de monitor).
     pub maximize_after: bool,
+    /// Janela de app elevado: só o ajudante de administrador consegue movê-la.
+    pub elevated: bool,
 }
 
 fn hwnd(id: isize) -> HWND {
@@ -537,7 +539,7 @@ pub fn plan_move(params: &Value) -> Result<MovePlan, WinError> {
         let w = prepare(&original);
         let work = mons.iter().find(|m| m.index == original.monitor).map(|m| m.work).unwrap_or(w.frame);
         let to = nudge_rect(w.frame, work, direction, &params["amount"])?;
-        return Ok(MovePlan { id: w.id, title: w.title, from: w.frame, to, maximize_after: false });
+        return Ok(MovePlan { id: w.id, elevated: w.elevated, title: w.title, from: w.frame, to, maximize_after: false });
     }
     let dest = pick_monitor(&params["monitor"], original.monitor, &mons)?;
     let src_work = mons.iter().find(|m| m.index == original.monitor).map(|m| m.work).unwrap_or(dest.work);
@@ -547,7 +549,7 @@ pub fn plan_move(params: &Value) -> Result<MovePlan, WinError> {
         Some(pos) => position_rect(pos, dest.work, w.frame)?,
         None => (carry_over(w.frame, src_work, dest.work), original.maximized),
     };
-    Ok(MovePlan { id: w.id, title: w.title, from: w.frame, to, maximize_after })
+    Ok(MovePlan { id: w.id, elevated: w.elevated, title: w.title, from: w.frame, to, maximize_after })
 }
 
 /// `window.tile`: divide a área útil de um monitor entre várias janelas,
@@ -587,7 +589,7 @@ pub fn plan_tile(params: &Value) -> Result<Vec<MovePlan>, WinError> {
         .zip(cells)
         .map(|(w, to)| {
             let w = prepare(w);
-            MovePlan { id: w.id, title: w.title, from: w.frame, to, maximize_after: false }
+            MovePlan { id: w.id, elevated: w.elevated, title: w.title, from: w.frame, to, maximize_after: false }
         })
         .collect())
 }

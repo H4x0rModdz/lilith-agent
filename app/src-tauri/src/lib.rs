@@ -1,5 +1,6 @@
 mod config;
 mod dispatcher;
+pub mod elevated;
 mod screen;
 mod windows;
 

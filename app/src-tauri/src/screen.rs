@@ -180,6 +180,17 @@ impl Screen {
         Ok(())
     }
 
+    /// Mesmo gesto de arrastar, mas só o cursor se move: para janelas de
+    /// administrador, que quem move de fato é o ajudante elevado no final.
+    pub async fn drag_gesture(&self, plan: &MovePlan) {
+        let grip = title_grip(plan.from);
+        self.fly_to(grip).await;
+        self.cursor_event("press");
+        tokio::time::sleep(Duration::from_millis(90)).await;
+        self.fly_to(title_grip(plan.to)).await;
+        self.cursor_event("release");
+    }
+
     // ── borda ─────────────────────────────────────────────────────────────
 
     /// Uma janela de borda por monitor (criadas sob demanda, depois só
