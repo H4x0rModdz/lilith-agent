@@ -36,6 +36,37 @@ const ACTION_LABELS: Record<string, string> = {
   kill_switch: "Kill switch",
 };
 
+/// O que a ação faria, no infinitivo — para "o texto pedia para …".
+const ACTION_VERBS: Record<string, string> = {
+  "app.open": "abrir um app",
+  "app.close": "fechar um app",
+  "browser.open": "abrir um site",
+  "file.open": "abrir um arquivo",
+  "file.run": "executar um arquivo",
+  "file.move": "mover um arquivo",
+  "file.copy": "copiar um arquivo",
+  "file.delete": "apagar um arquivo",
+  "download.file": "baixar um arquivo",
+  "desktop.set_wallpaper": "trocar o wallpaper",
+  "audio.set_volume": "mudar o volume",
+  "audio.set_mute": "mudar o mudo",
+  "clipboard.set": "copiar um texto",
+  "system.power": "desligar/reiniciar o PC",
+  "web.fetch": "abrir um link",
+  "window.move": "mover a janela",
+  "window.tile": "reorganizar as janelas",
+  "window.focus": "trocar de janela",
+  "window.minimize": "minimizar a janela",
+  "window.maximize": "maximizar a janela",
+  "window.restore": "restaurar a janela",
+  "window.close": "fechar a janela",
+  "agent.delegate": "acionar um agente",
+};
+
+export function actionVerb(action: string): string {
+  return ACTION_VERBS[action] ?? "fazer uma ação";
+}
+
 export function actionLabel(action: string): string {
   return ACTION_LABELS[action] ?? action;
 }

@@ -737,3 +737,7 @@ body[data-window^="border-"] #root {
   color: var(--danger);
   font-size: 12px;
 }
+
+.msg.system.blocked {
+  color: var(--pink);
+}
