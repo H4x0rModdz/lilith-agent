@@ -40,16 +40,15 @@
         "visible": false,
         "windowEffects": {
           "effects": [
-            "acrylic"
+            "blur"
           ],
           "color": [
-            24,
-            20,
-            34,
-            90
+            255,
+            255,
+            255,
+            12
           ]
-        },
-        "theme": "Dark"
+        }
       },
       {
         "label": "panel",
@@ -66,16 +65,15 @@
         "visible": false,
         "windowEffects": {
           "effects": [
-            "acrylic"
+            "blur"
           ],
           "color": [
-            24,
-            20,
-            34,
-            90
+            255,
+            255,
+            255,
+            12
           ]
-        },
-        "theme": "Dark"
+        }
       },
       {
         "label": "cursor",

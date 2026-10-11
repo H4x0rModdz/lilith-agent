@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { fillSigil } from "./avatar";
 import { makeDraggable } from "./drag";
+import { mountElectric } from "./electric";
 import { actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel } from "./labels";
 
@@ -56,7 +57,7 @@ export function mountPanel(root: HTMLElement) {
           <strong>Painel da Lilith</strong>
           <small class="panel-summary">nenhuma tarefa</small>
         </div>
-        <button class="icon-btn" data-act="close" title="Fechar"><span data-icon="close" data-size="17"></span></button>
+        <button class="icon-btn neon-soft" data-act="close" title="Fechar"><span data-icon="close" data-size="17"></span></button>
       </header>
       <nav class="tabs" role="tablist">
         <button role="tab" class="tab" data-tab="jobs" aria-selected="true"><span data-icon="jobs" data-size="16"></span>Tarefas</button>
@@ -66,6 +67,7 @@ export function mountPanel(root: HTMLElement) {
       <ol class="panel-list activity" data-view="activity" hidden></ol>
     </section>`;
   hydrateIcons(root);
+  mountElectric(root.querySelector<HTMLElement>(".glass")!);
 
   const jobsEl = root.querySelector<HTMLOListElement>('[data-view="jobs"]')!;
   const activityEl = root.querySelector<HTMLOListElement>('[data-view="activity"]')!;

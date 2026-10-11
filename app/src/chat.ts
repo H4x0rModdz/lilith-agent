@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { USER_AVATAR_SVG, fillSigil, lilithAvatar } from "./avatar";
 import { makeDraggable } from "./drag";
+import { mountElectric } from "./electric";
 import { type IconName, actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel, actionVerb } from "./labels";
 
@@ -34,17 +35,18 @@ export async function mountChat(root: HTMLElement) {
           <strong>Lilith</strong>
           <small class="chat-status">online</small>
         </div>
-        <button class="icon-btn" data-act="reset" title="Nova conversa"><span data-icon="reset" data-size="17"></span></button>
-        <button class="icon-btn" data-act="close" title="Fechar"><span data-icon="close" data-size="17"></span></button>
+        <button class="icon-btn neon-soft" data-act="reset" title="Nova conversa"><span data-icon="reset" data-size="17"></span></button>
+        <button class="icon-btn neon-soft" data-act="close" title="Fechar"><span data-icon="close" data-size="17"></span></button>
       </header>
       <ol class="chat-log" aria-live="polite"></ol>
       <form class="chat-input">
         <textarea rows="1" placeholder="Fala comigo…" aria-label="Mensagem"></textarea>
-        <button type="submit" class="send" title="Enviar"><span data-icon="send" data-size="18"></span></button>
-        <button type="button" class="stop" title="Parar (Ctrl+Alt+Esc)" hidden><span data-icon="stop" data-size="16"></span></button>
+        <button type="submit" class="send neon" title="Enviar"><span data-icon="send" data-size="18"></span></button>
+        <button type="button" class="stop neon danger" title="Parar (Ctrl+Alt+Esc)" hidden><span data-icon="stop" data-size="16"></span></button>
       </form>
     </section>`;
   hydrateIcons(root);
+  mountElectric(root.querySelector<HTMLElement>(".glass")!);
 
   const log = root.querySelector<HTMLOListElement>(".chat-log")!;
   const form = root.querySelector<HTMLFormElement>(".chat-input")!;
@@ -212,7 +214,7 @@ export async function mountChat(root: HTMLElement) {
       <p class="approval-scope"></p>
       <div class="approval-buttons">
         <button data-answer="deny">Negar</button>
-        <button data-answer="once" class="primary">Permitir uma vez</button>
+        <button data-answer="once" class="primary neon">Permitir uma vez</button>
         <button data-answer="always">Sempre</button>
       </div>`;
     hydrateIcons(li);
