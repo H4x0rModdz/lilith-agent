@@ -244,7 +244,7 @@ pub async fn run_with(
     let parsed = match raw {
         Ok(v) => parse(&v, tools).map(|mut i| {
             // Correções determinísticas dos erros previsíveis do modelo pequeno.
-            i.tools = crate::refine::plan(user_text, std::mem::take(&mut i.tools));
+            i.tools = crate::refine::plan(user_text, std::mem::take(&mut i.tools), recent);
             i.message = crate::refine::message(user_text, &i.tools, std::mem::take(&mut i.message), recent);
             i
         }),
