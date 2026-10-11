@@ -1,0 +1,22 @@
+[package]
+name = "lilith-win"
+description = "Mãos da Lilith no Windows: apps, arquivos, wallpaper, áudio, clipboard, web"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+arboard = "3.6.1"
+dirs.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+scraper = "0.27.0"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+trash = "5.2.9"
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Shutdown", "Win32_System_Power"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
