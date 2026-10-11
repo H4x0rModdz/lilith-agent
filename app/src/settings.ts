@@ -49,6 +49,16 @@ export function mountSettings(view: HTMLElement) {
       </section>
 
       <section class="settings-card">
+        <h3><span data-icon="send" data-size="16"></span>Atalhos do chat</h3>
+        <small class="hint">Aparecem como bolhas em toda conversa nova e na lista do “/” no chat.</small>
+        <ul class="facts prompts-list"></ul>
+        <div class="fact-add">
+          <input class="prompt-new" maxlength="120" placeholder="ex.: Lê as mensagens novas do WhatsApp" />
+          <button type="button" class="icon-btn neon-soft prompt-add-btn" title="Adicionar atalho"><span data-icon="plus" data-size="15"></span></button>
+        </div>
+      </section>
+
+      <section class="settings-card">
         <h3><span data-icon="key" data-size="16"></span>O que ela sabe sobre você</h3>
         <ul class="facts"></ul>
         <div class="fact-add">
@@ -66,6 +76,58 @@ export function mountSettings(view: HTMLElement) {
   const keyIn = view.querySelector<HTMLInputElement>(".fact-key")!;
   const valueIn = view.querySelector<HTMLInputElement>(".fact-value")!;
   const field = (n: string) => form.elements.namedItem(n) as HTMLInputElement;
+  const promptsEl = view.querySelector<HTMLUListElement>(".prompts-list")!;
+  const promptIn = view.querySelector<HTMLInputElement>(".prompt-new")!;
+  let prompts: string[] = [];
+
+  function renderPrompts() {
+    if (prompts.length === 0) {
+      const li = document.createElement("li");
+      li.className = "facts-empty";
+      li.textContent = "Sem atalhos — o chat começa limpo.";
+      promptsEl.replaceChildren(li);
+      return;
+    }
+    promptsEl.replaceChildren(
+      ...prompts.map((p, i) => {
+        const li = document.createElement("li");
+        li.className = "fact";
+        const text = document.createElement("div");
+        text.className = "fact-text";
+        const span = document.createElement("span");
+        span.textContent = p;
+        span.style.color = "var(--text)";
+        text.append(span);
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "icon-btn neon-soft";
+        del.title = "Remover";
+        del.append(icon("trash", 14));
+        del.addEventListener("click", () => savePrompts(prompts.filter((_, j) => j !== i)));
+        li.append(text, del);
+        return li;
+      }),
+    );
+  }
+
+  async function savePrompts(next: string[]) {
+    prompts = await invoke<string[]>("save_quick_prompts", { prompts: next });
+    renderPrompts();
+  }
+
+  function addPrompt() {
+    const p = promptIn.value.trim();
+    if (!p) return;
+    promptIn.value = "";
+    savePrompts([...prompts, p]);
+  }
+  view.querySelector(".prompt-add-btn")!.addEventListener("click", addPrompt);
+  promptIn.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addPrompt();
+    }
+  });
 
   async function load() {
     const s = await invoke<Settings>("get_settings");
@@ -73,6 +135,8 @@ export function mountSettings(view: HTMLElement) {
     (form.elements.namedItem("persona") as HTMLTextAreaElement).value = s.persona;
     field("chat_minutes").value = String(s.chat_minutes);
     field("auto_learn").checked = s.auto_learn;
+    prompts = await invoke<string[]>("get_quick_prompts");
+    renderPrompts();
     await loadFacts();
   }
 
