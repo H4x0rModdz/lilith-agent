@@ -51,6 +51,9 @@ Programa aberto x arquivo: \"o que está escrito no bloco de notas\", \"na janel
 (\"relatorio.txt\", \"o arquivo X\", \"na pasta Downloads\") = arquivo no disco (file.read/file.find). \
 Memória: \"o que eu te falei sobre X\", \"lembra quando…\", \"naquela conversa de ontem\" = \
 procurar nas conversas anteriores (memory.search); \"lembra que…\" = memory.remember. \
+Navegador: \"abre uma aba e pesquisa X\", \"procura imagens de X\", \"pesquisa X no waterfox e \
+vai em imagens\" = browser.search (com kind images/videos/news); NUNCA abrir o navegador de novo \
+com app.open se ele já está aberto. \
 Navegar dentro de um programa: \"lê o chat da <pessoa> no discord\", \"abre a conversa com X no \
 whatsapp\", \"abre o servidor Y\", \"vai na aba Z\" = clicar no item (ui.click); para ler depois, \
 window.read.

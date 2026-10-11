@@ -90,7 +90,7 @@ const DANGEROUS_SCOPES: &[&str] = &[
 /// ao adicionar uma ação, adicione aqui e no teste `no_action_is_unknown`.
 pub fn scope_for(action: &str) -> &'static str {
     match action {
-        "app.open" | "browser.open" | "file.open" => "app.launch",
+        "app.open" | "browser.open" | "browser.search" | "file.open" => "app.launch",
         "app.close" | "window.close" => "app.terminate",
         "window.list" | "window.focus" | "window.minimize" | "window.maximize" | "window.restore" | "window.move"
         | "window.tile" | "cursor.point" | "ui.find" => "window.control",
@@ -161,6 +161,7 @@ mod tests {
             "app.open",
             "app.close",
             "browser.open",
+            "browser.search",
             "file.open",
             "file.run",
             "file.find",

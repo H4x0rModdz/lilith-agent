@@ -198,6 +198,11 @@ fn window_title(h: HWND) -> String {
 }
 
 fn process_name(pid: u32) -> Option<String> {
+    let path = process_path(pid)?;
+    path.file_stem().map(|s| s.to_string_lossy().into_owned())
+}
+
+fn process_path(pid: u32) -> Option<std::path::PathBuf> {
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buf = [0u16; 1024];
@@ -205,9 +210,29 @@ fn process_name(pid: u32) -> Option<String> {
         let ok = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, windows::core::PWSTR(buf.as_mut_ptr()), &mut len);
         let _ = CloseHandle(handle);
         ok.ok()?;
-        let path = String::from_utf16_lossy(&buf[..len as usize]);
-        std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().into_owned())
+        Some(std::path::PathBuf::from(String::from_utf16_lossy(&buf[..len as usize])))
     }
+}
+
+/// Executável do processo dono da janela (para reabrir o mesmo programa
+/// com argumentos — ex.: uma nova aba no navegador que já está aberto).
+pub fn exe_of(id: isize) -> Option<std::path::PathBuf> {
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd(id), Some(&mut pid)) };
+    process_path(pid)
+}
+
+/// Janela de um app já aberto, pelo nome do processo (não pelo título):
+/// "spotify" acha Spotify.exe, mas não uma aba do navegador chamada Spotify.
+pub fn find_app(name: &str) -> Option<WindowInfo> {
+    let wanted = fold(name).trim_end_matches(".exe").to_string();
+    if wanted.is_empty() {
+        return None;
+    }
+    list().into_iter().find(|w| {
+        let app = fold(&w.app);
+        app == wanted || app.starts_with(&wanted) || wanted.starts_with(&app) && app.len() >= 4
+    })
 }
 
 /// O processo roda elevado? Se nem dá para ler o token dele, é porque está
