@@ -1,8 +1,10 @@
 use crate::emotion;
 use crate::error::LilithError;
 use crate::interpret;
+use crate::knowledge::Knowledge;
 use crate::memory::{SessionMemory, Turn};
 use crate::ollama::{append_tool_step, build_initial_messages, Ollama};
+use crate::shortcut;
 use crate::tools::{all_tools, ToolCall};
 use async_trait::async_trait;
 use serde::Serialize;
@@ -71,6 +73,8 @@ fn pending_tools(plan: &[String], calls: &[ToolCall]) -> Vec<String> {
 pub struct Agent {
     ollama: Arc<dyn Ollama>,
     memory: SessionMemory,
+    /// Planos aprendidos e glossário pessoal (opcional).
+    knowledge: Option<Arc<dyn Knowledge>>,
 }
 
 impl Agent {
@@ -78,7 +82,14 @@ impl Agent {
         Self {
             ollama,
             memory: SessionMemory::new(32),
+            knowledge: None,
         }
+    }
+
+    /// Liga o que a Lilith aprende (exemplos de planos e gírias do usuário).
+    pub fn with_knowledge(mut self, knowledge: Arc<dyn Knowledge>) -> Self {
+        self.knowledge = Some(knowledge);
+        self
     }
 
     pub fn reset(&self) {
@@ -108,6 +119,10 @@ impl Agent {
         dispatcher: &dyn Dispatcher,
         sink: Arc<dyn Sink>,
     ) -> Reply {
+        // Comando curto e inequívoco: executa direto, sem chamar o modelo.
+        if let Some(reply) = self.try_shortcut(text, dispatcher).await {
+            return reply;
+        }
         let history = self.memory.recent(HISTORY_TURNS);
         let mut messages = build_initial_messages(text, &history);
         if let Some(ctx) = context.map(str::trim).filter(|c| !c.is_empty()) {
@@ -134,7 +149,7 @@ impl Agent {
             })
             .collect();
         let mut needs_tools: Vec<String> = Vec::new();
-        if let Some(i) = interpret::run(self.ollama.as_ref(), text, &recent, &tools).await {
+        if let Some(i) = interpret::run_with(self.ollama.as_ref(), text, &recent, &tools, self.knowledge.as_deref()).await {
             dispatcher.authorize_from_chat(&i.tools);
             needs_tools = i.tools.clone();
             let last = messages.len() - 1;
@@ -150,6 +165,8 @@ impl Agent {
         // Última leitura bem-sucedida (para responder sem o modelo se um
         // pedido injetado for bloqueado).
         let mut last_read: Option<(String, Value)> = None;
+        // Alguma etapa falhou, foi negada ou bloqueada: o plano não vale como exemplo.
+        let mut failed = false;
 
         let mut next_step = 0usize;
         loop {
@@ -242,6 +259,11 @@ impl Agent {
                 } else {
                     "Hm, não entendi. Pode repetir de outro jeito?".into()
                 };
+                // Terminou sem erro: o plano vira exemplo para pedidos parecidos.
+                if let (Some(k), false, false) = (&self.knowledge, failed, calls.is_empty()) {
+                    let plan: Vec<String> = calls.iter().map(|c| c.action.clone()).collect();
+                    k.record_plan(text, &plan);
+                }
                 return self.finish(text, last_call, calls, final_text);
             }
 
@@ -269,6 +291,9 @@ impl Agent {
             sink.step(step_idx, &call.action).await;
 
             let response = dispatcher.dispatch(&call).await;
+            if response["status"] != "success" {
+                failed = true;
+            }
             if response["error"]["code"] == BLOCKED_NOT_FROM_CHAT {
                 // Com a leitura em mãos, a resposta é montada aqui: o modelo
                 // acabou de tentar obedecer o texto e, mesmo sem tools, às vezes
@@ -302,6 +327,31 @@ impl Agent {
             calls.push(call.clone());
             last_call = Some(call);
         }
+    }
+
+    /// Executa um atalho (ver `shortcut`) pelo dispatcher. `None` = não é um
+    /// atalho, ou a janela/app não foi achado e o modelo deve tentar.
+    async fn try_shortcut(&self, text: &str, dispatcher: &dyn Dispatcher) -> Option<Reply> {
+        let sc = shortcut::parse(text)?;
+        let names: Vec<String> = sc.calls.iter().map(|c| c.action.clone()).collect();
+        dispatcher.authorize_from_chat(&names);
+        let mut done: Vec<ToolCall> = Vec::new();
+        for call in &sc.calls {
+            let response = dispatcher.dispatch(call).await;
+            if response["status"] != "success" {
+                // Nada foi feito por não achar o alvo: deixa o modelo tentar
+                // (apelido, erro de digitação). Negado/bloqueado: é definitivo.
+                if done.is_empty() && response["error"]["code"] == "NOT_FOUND" {
+                    return None;
+                }
+                let why = response["error"]["message"].as_str().unwrap_or("deu erro");
+                let last = done.last().cloned();
+                return Some(self.finish(text, last, done, format!("Não consegui: {why}")));
+            }
+            done.push(call.clone());
+        }
+        let last = done.last().cloned();
+        Some(self.finish(text, last, done, sc.reply))
     }
 
     fn finish(&self, user_text: &str, call: Option<ToolCall>, actions: Vec<ToolCall>, reply: String) -> Reply {

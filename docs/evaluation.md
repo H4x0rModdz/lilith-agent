@@ -51,3 +51,20 @@ she must send, expected `params` per tool (agent mode), and `context`
 - **params**: the parameters of the expected call match.
 
 Add a case whenever she gets something wrong, so it never regresses.
+
+## What the interpreter learns
+
+Three things are injected into the interpreter prompt per request, never all at once:
+
+- **Plan examples**: up to three requests similar to the current one (word
+  overlap), each with the tool plan that solved it. Built-in seeds plus plans of
+  requests that finished without errors (stored in the local database). The
+  seeds are deliberately worded differently from the evaluation cases.
+- **Personal glossary**: slang and nicknames, editable in Settings or taught in
+  chat ("X means Y"). Only the words present in the request are injected.
+- **Shortcuts**: short unambiguous commands (numeric volume, mute, minimize /
+  maximize / restore, open an app) skip the model and go straight to the
+  dispatcher, so they still pass through the guard.
+
+`/wrong [note]` marks the last request as badly handled: it stops being used as
+an example and is kept (with the note) as material for new evaluation cases.

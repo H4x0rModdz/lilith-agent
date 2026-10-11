@@ -6,6 +6,7 @@
 //!
 //! Best-effort: se a chamada falhar ou vier lixo, o turno segue sem dica.
 
+use crate::knowledge::{self, Example, Knowledge};
 use crate::ollama::Ollama;
 use crate::tools::Tool;
 use serde::Deserialize;
@@ -107,11 +108,21 @@ const SLANG: &[(&str, &str)] = &[
 ];
 
 /// Nota de glossário para as gírias presentes no texto (vazia se não houver).
-fn slang_note(text: &str) -> String {
+/// O glossário pessoal do usuário vale mais que o embutido.
+fn slang_note(text: &str, personal: &[(String, String)]) -> String {
     let lower = text.to_lowercase();
     let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
-    let found: Vec<String> =
-        SLANG.iter().filter(|(g, _)| words.contains(g)).map(|(g, m)| format!("{g} = {m}")).collect();
+    let mut found: Vec<String> = personal
+        .iter()
+        .filter(|(g, _)| words.contains(&g.to_lowercase().as_str()))
+        .map(|(g, m)| format!("{g} = {m}"))
+        .collect();
+    found.extend(
+        SLANG
+            .iter()
+            .filter(|(g, _)| words.contains(g) && !personal.iter().any(|(p, _)| p.eq_ignore_ascii_case(g)))
+            .map(|(g, m)| format!("{g} = {m}")),
+    );
     if found.is_empty() {
         return String::new();
     }
@@ -129,11 +140,25 @@ Gírias neste pedido (leia com o sentido certo, nunca como nome próprio): {}.",
 /// Monta as mensagens do intérprete: prompt + catálogo resumido + últimas
 /// falas (contexto) + o pedido atual.
 pub fn messages(user_text: &str, recent: &[(String, String)], tools: &[Tool]) -> Vec<Value> {
+    messages_with(user_text, recent, tools, None)
+}
+
+/// Como `messages`, com o que a Lilith aprendeu: exemplos de planos parecidos
+/// (embutidos + os que deram certo antes) e o glossário pessoal.
+pub fn messages_with(
+    user_text: &str,
+    recent: &[(String, String)],
+    tools: &[Tool],
+    know: Option<&dyn Knowledge>,
+) -> Vec<Value> {
+    let (learned, personal): (Vec<Example>, Vec<(String, String)>) =
+        know.map(|k| (k.plans(), k.glossary())).unwrap_or_default();
+    let examples = knowledge::render(&knowledge::pick(user_text, &learned, 3));
     let catalog: String = tools
         .iter()
         .map(|t| format!("- {}: {}\n", t.action, first_sentence(t.description)))
         .collect();
-    let mut out = vec![json!({ "role": "system", "content": format!("{PROMPT}{catalog}{}", slang_note(user_text)) })];
+    let mut out = vec![json!({ "role": "system", "content": format!("{PROMPT}{catalog}{examples}{}", slang_note(user_text, &personal)) })];
     for (user, reply) in recent {
         out.push(json!({ "role": "user", "content": user }));
         out.push(json!({ "role": "assistant", "content": reply }));
@@ -204,8 +229,18 @@ pub fn narrow(tools: Vec<Tool>, suggested: &[String]) -> Vec<Tool> {
 }
 
 pub async fn run(ollama: &dyn Ollama, user_text: &str, recent: &[(String, String)], tools: &[Tool]) -> Option<Interpretation> {
+    run_with(ollama, user_text, recent, tools, None).await
+}
+
+pub async fn run_with(
+    ollama: &dyn Ollama,
+    user_text: &str,
+    recent: &[(String, String)],
+    tools: &[Tool],
+    know: Option<&dyn Knowledge>,
+) -> Option<Interpretation> {
     let started = std::time::Instant::now();
-    let raw = ollama.structured(&messages(user_text, recent, tools), &schema(tools)).await;
+    let raw = ollama.structured(&messages_with(user_text, recent, tools, know), &schema(tools)).await;
     let parsed = match raw {
         Ok(v) => parse(&v, tools),
         Err(e) => {

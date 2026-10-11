@@ -9,6 +9,12 @@ interface Settings {
   chat_minutes: number;
 }
 
+interface Term {
+  term: string;
+  meaning: string;
+  source: "user" | "learned";
+}
+
 interface Fact {
   key: string;
   value: string;
@@ -55,6 +61,17 @@ export function mountSettings(view: HTMLElement) {
         <div class="fact-add">
           <input class="prompt-new" maxlength="120" placeholder="ex.: Lê as mensagens novas do WhatsApp" />
           <button type="button" class="icon-btn neon-soft prompt-add-btn" title="Adicionar atalho"><span data-icon="plus" data-size="15"></span></button>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <h3><span data-icon="sparkles" data-size="16"></span>Suas gírias</h3>
+        <small class="hint">Palavras ou apelidos que ela deve entender do seu jeito. Só entram na conversa quando você usa a palavra. Também vale dizer no chat: “fulano quer dizer amigo”.</small>
+        <ul class="facts terms-list"></ul>
+        <div class="fact-add">
+          <input class="term-key" maxlength="40" placeholder="gíria (ex.: zap)" />
+          <input class="term-value" maxlength="120" placeholder="significa (ex.: WhatsApp)" />
+          <button type="button" class="icon-btn neon-soft term-add-btn" title="Adicionar"><span data-icon="plus" data-size="15"></span></button>
         </div>
       </section>
 
@@ -129,6 +146,59 @@ export function mountSettings(view: HTMLElement) {
     }
   });
 
+  const termsEl = view.querySelector<HTMLUListElement>(".terms-list")!;
+  const termKeyIn = view.querySelector<HTMLInputElement>(".term-key")!;
+  const termValueIn = view.querySelector<HTMLInputElement>(".term-value")!;
+
+  async function loadTerms() {
+    const terms = await invoke<Term[]>("list_glossary");
+    if (terms.length === 0) {
+      const li = document.createElement("li");
+      li.className = "facts-empty";
+      li.textContent = "Nenhuma gíria sua ainda. Ela já entende as comuns (vc, tb, blz, cmg…).";
+      termsEl.replaceChildren(li);
+      return;
+    }
+    termsEl.replaceChildren(
+      ...terms.map((t) => {
+        const li = document.createElement("li");
+        li.className = "fact";
+        li.innerHTML = `<div class="fact-text"><strong></strong><span></span></div><span class="badge fact-source"></span>`;
+        li.querySelector("strong")!.textContent = t.term;
+        li.querySelector(".fact-text span")!.textContent = t.meaning;
+        const badge = li.querySelector<HTMLElement>(".fact-source")!;
+        badge.textContent = t.source === "user" ? "você" : "aprendido";
+        badge.dataset.source = t.source;
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "icon-btn neon-soft";
+        del.title = "Esquecer";
+        del.append(icon("trash", 14));
+        del.addEventListener("click", () => invoke("remove_term", { term: t.term }));
+        li.append(del);
+        return li;
+      }),
+    );
+  }
+
+  async function addTerm() {
+    const term = termKeyIn.value.trim();
+    const meaning = termValueIn.value.trim();
+    if (!term || !meaning) return;
+    await invoke("add_term", { term, meaning });
+    termKeyIn.value = "";
+    termValueIn.value = "";
+    termKeyIn.focus();
+  }
+  view.querySelector(".term-add-btn")!.addEventListener("click", addTerm);
+  termValueIn.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addTerm();
+    }
+  });
+  listen("lilith://glossary", () => loadTerms());
+
   async function load() {
     const s = await invoke<Settings>("get_settings");
     field("user_name").value = s.user_name;
@@ -138,6 +208,7 @@ export function mountSettings(view: HTMLElement) {
     prompts = await invoke<string[]>("get_quick_prompts");
     renderPrompts();
     await loadFacts();
+    await loadTerms();
   }
 
   async function loadFacts() {

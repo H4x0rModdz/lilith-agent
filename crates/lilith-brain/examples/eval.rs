@@ -16,7 +16,7 @@
 //! frase (`{app}`, `{person}`…) que são expandidos aqui. Só nomes anônimos.
 
 use async_trait::async_trait;
-use lilith_brain::{all_tools, interpret, Agent, Dispatcher, OllamaClient, OllamaConfig, Sink, ToolCall};
+use lilith_brain::{all_tools, interpret, shortcut, Agent, Dispatcher, OllamaClient, OllamaConfig, Sink, ToolCall};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -260,15 +260,12 @@ async fn main() {
 
     let cfg = OllamaConfig::default();
     let path = state_path(agent_mode, &cfg.model);
-    let mut state: HashMap<String, Outcome> = if run_all {
-        HashMap::new()
-    } else {
-        std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
-    };
+    let mut state: HashMap<String, Outcome> =
+        std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     // Roda o que nunca rodou, o que falhou e o que foi editado.
     let pending: Vec<&Case> = cases
         .iter()
-        .filter(|c| state.get(&signature(c)).is_none_or(|o| !o.passed()))
+        .filter(|c| run_all || state.get(&signature(c)).is_none_or(|o| !o.passed()))
         .collect();
     let carried = cases.len() - pending.len();
     println!(
@@ -307,9 +304,14 @@ async fn main() {
             (calls.iter().map(|x| x.action.clone()).collect(), msg, calls)
         } else {
             let recent: Vec<(String, String)> = c.context.iter().map(|[u, r]| (u.clone(), r.clone())).collect();
-            let got = interpret::run(ollama.as_ref(), &c.text, &recent, &tools).await;
-            let (p, m) = got.map(|i| (i.tools, i.message)).unwrap_or_default();
-            (p, m, Vec::new())
+            // Atalho sem IA primeiro, como no agente.
+            if let Some(sc) = shortcut::parse(&c.text) {
+                (sc.calls.iter().map(|x| x.action.clone()).collect(), String::new(), Vec::new())
+            } else {
+                let got = interpret::run(ollama.as_ref(), &c.text, &recent, &tools).await;
+                let (p, m) = got.map(|i| (i.tools, i.message)).unwrap_or_default();
+                (p, m, Vec::new())
+            }
         };
 
         let mut out = Outcome {

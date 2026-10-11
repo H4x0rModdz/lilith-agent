@@ -362,6 +362,18 @@ export async function mountChat(root: HTMLElement) {
         note(ok ? `Esqueci “${arg}”.` : `Não achei “${arg}” na memória (veja em /settings).`, ok ? "check" : "warn");
       },
     },
+    {
+      name: "wrong",
+      arg: "[nota]",
+      help: "marca o último pedido como errado (ela para de usá-lo como exemplo)",
+      run: async (arg) => {
+        const text = await invoke<string | null>("mark_wrong", { conversation: active.id, note: arg });
+        note(
+          text ? `Anotado: “${text}” foi mal resolvido. Não vou usar como exemplo.` : "Ainda não há um pedido para marcar.",
+          text ? "check" : "warn",
+        );
+      },
+    },
     { name: "panel", arg: "", help: "abre o painel da Lilith", run: () => void invoke("show_panel_tab", { tab: "jobs" }) },
     { name: "tasks", arg: "", help: "tarefas delegadas a agentes", run: () => void invoke("show_panel_tab", { tab: "jobs" }) },
     { name: "permissions", arg: "", help: "permissões salvas (“Sempre”)", run: () => void invoke("show_panel_tab", { tab: "rules" }) },
