@@ -81,8 +81,8 @@ export async function mountChat(root: HTMLElement) {
         </aside>
       </div>
       <form class="chat-input">
-        <ul class="slash-menu" role="listbox" aria-label="Atalhos" hidden></ul>
-        <textarea rows="1" placeholder="Fala comigo… (/ para atalhos)" aria-label="Mensagem"></textarea>
+        <ul class="slash-menu" role="listbox" aria-label="Comandos" hidden></ul>
+        <textarea rows="1" placeholder="Fala comigo… (/ para comandos)" aria-label="Mensagem"></textarea>
         <button type="submit" class="send neon" title="Enviar"><span data-icon="send" data-size="18"></span></button>
         <button type="button" class="stop neon danger" title="Parar tudo (Ctrl+Alt+Esc)" hidden><span data-icon="stop" data-size="16"></span></button>
       </form>
@@ -216,32 +216,130 @@ export async function mountChat(root: HTMLElement) {
     return [li];
   }
 
-  // Lista do "/": filtra os atalhos pelo que vem depois da barra.
-  let slashItems: string[] = [];
+  // ── comandos "/" ──────────────────────────────────────────────────────
+
+  interface Command {
+    name: string;
+    /// Dica do argumento (vazio = sem argumento).
+    arg: string;
+    help: string;
+    run: (arg: string) => unknown;
+  }
+
+  const note = (text: string, ic: IconName = "sparkles") => add(active, "system", text, ic);
+
+  const COMMANDS: Command[] = [
+    { name: "new", arg: "", help: "abre uma conversa nova", run: () => void openTab() },
+    {
+      name: "clear",
+      arg: "",
+      help: "limpa a conversa atual",
+      run: () => {
+        invoke("reset_conversation", { conversation: active.id });
+        active.log.replaceChildren();
+        note("Conversa limpa. O que vamos fazer?");
+      },
+    },
+    {
+      name: "rename",
+      arg: "<nome>",
+      help: "renomeia a conversa atual",
+      run: async (arg) => {
+        if (!arg) return note("Use: /rename <nome>", "warn");
+        await invoke("rename_conversation", { conversation: active.id, title: arg });
+      },
+    },
+    { name: "history", arg: "", help: "mostra as conversas anteriores", run: () => void showHistory() },
+    { name: "stop", arg: "", help: "para tudo o que ela está fazendo (Ctrl+Alt+Esc)", run: () => void invoke("cancel") },
+    {
+      name: "remember",
+      arg: "<algo>",
+      help: "pede para ela guardar algo na memória",
+      run: (arg) => (arg ? send(active, `lembra que ${arg}`) : note("Use: /remember <algo>", "warn")),
+    },
+    {
+      name: "forget",
+      arg: "<assunto>",
+      help: "apaga um fato da memória dela",
+      run: async (arg) => {
+        if (!arg) return note("Use: /forget <assunto>", "warn");
+        const ok = await invoke<boolean>("forget_fact", { key: arg });
+        note(ok ? `Esqueci “${arg}”.` : `Não achei “${arg}” na memória (veja em /settings).`, ok ? "check" : "warn");
+      },
+    },
+    { name: "panel", arg: "", help: "abre o painel da Lilith", run: () => void invoke("show_panel_tab", { tab: "jobs" }) },
+    { name: "tasks", arg: "", help: "tarefas delegadas a agentes", run: () => void invoke("show_panel_tab", { tab: "jobs" }) },
+    { name: "permissions", arg: "", help: "permissões salvas (“Sempre”)", run: () => void invoke("show_panel_tab", { tab: "rules" }) },
+    { name: "settings", arg: "", help: "configurações e o que ela sabe sobre você", run: () => void invoke("show_panel_tab", { tab: "settings" }) },
+    {
+      name: "help",
+      arg: "",
+      help: "lista os comandos",
+      run: () => note(COMMANDS.map((c) => `/${c.name}${c.arg ? " " + c.arg : ""} — ${c.help}`).join("\n"), "sparkles"),
+    },
+  ];
+
+  let slashItems: Command[] = [];
   let slashIndex = 0;
+
+  /// "/ren algo" → { name: "ren", arg: "algo" }.
+  function parseSlash(v: string) {
+    const body = v.slice(1);
+    const space = body.search(/\s/);
+    return space < 0 ? { name: fold(body), arg: "" } : { name: fold(body.slice(0, space)), arg: body.slice(space).trim() };
+  }
 
   function updateSlash() {
     const v = input.value;
     if (!v.startsWith("/") || v.includes("\n")) return closeSlash();
-    const q = fold(v.slice(1).trim());
-    slashItems = prompts.filter((p) => fold(p).includes(q)).slice(0, 6);
+    const { name, arg } = parseSlash(v);
+    // Já digitou o argumento de um comando exato: só ele na lista.
+    slashItems = arg
+      ? COMMANDS.filter((c) => c.name === name)
+      : COMMANDS.filter((c) => c.name.startsWith(name) || fold(c.help).includes(name));
     if (slashItems.length === 0) return closeSlash();
     slashIndex = Math.min(slashIndex, slashItems.length - 1);
     slashMenu.replaceChildren(
-      ...slashItems.map((p, i) => {
+      ...slashItems.map((c, i) => {
         const li = document.createElement("li");
         li.setAttribute("role", "option");
         li.className = "slash-item";
         li.setAttribute("aria-selected", String(i === slashIndex));
-        li.textContent = p;
+        const head = document.createElement("span");
+        head.className = "slash-name";
+        head.textContent = `/${c.name}${c.arg ? " " + c.arg : ""}`;
+        const help = document.createElement("span");
+        help.className = "slash-help";
+        help.textContent = c.help;
+        li.append(head, help);
         li.addEventListener("mousedown", (e) => {
           e.preventDefault();
-          send(active, p);
+          pick(c);
         });
         return li;
       }),
     );
     slashMenu.hidden = false;
+  }
+
+  /// Escolheu um comando: com argumento pendente, completa e espera o
+  /// texto; senão executa.
+  function pick(c: Command) {
+    const { name, arg } = parseSlash(input.value);
+    if (c.arg && !(name === c.name && arg)) {
+      input.value = `/${c.name} `;
+      closeSlash();
+      input.focus();
+      return;
+    }
+    runCommand(c, name === c.name ? arg : "");
+  }
+
+  function runCommand(c: Command, arg: string) {
+    input.value = "";
+    autosize();
+    closeSlash();
+    void c.run(arg);
   }
 
   function closeSlash() {
@@ -407,7 +505,15 @@ export async function mountChat(root: HTMLElement) {
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    send(active, input.value);
+    const v = input.value.trim();
+    if (v.startsWith("/")) {
+      const { name, arg } = parseSlash(v);
+      const c = COMMANDS.find((x) => x.name === name);
+      if (c) runCommand(c, arg);
+      else note(`Comando desconhecido: /${name}. Digite /help.`, "warn");
+      return;
+    }
+    send(active, v);
   });
 
   input.addEventListener("keydown", (e) => {
@@ -422,14 +528,14 @@ export async function mountChat(root: HTMLElement) {
       }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        send(active, slashItems[slashIndex]);
+        pick(slashItems[slashIndex]);
         return;
       }
       if (e.key === "Tab") {
         e.preventDefault();
-        input.value = slashItems[slashIndex];
-        closeSlash();
-        autosize();
+        const c = slashItems[slashIndex];
+        input.value = `/${c.name}${c.arg ? " " : ""}`;
+        updateSlash();
         return;
       }
       if (e.key === "Escape") {
