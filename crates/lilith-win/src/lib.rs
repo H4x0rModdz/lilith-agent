@@ -2,6 +2,7 @@
 //! handler aqui. Nada neste crate checa permissão — isso é do `lilith-guard`,
 //! aplicado pelo app antes de chamar [`dispatch`].
 
+pub mod browsers;
 mod error;
 mod handlers;
 mod paths;
@@ -20,6 +21,7 @@ pub const ACTIONS: &[&str] = &[
     "app.close",
     "browser.open",
     "browser.search",
+    "browser.tab",
     "file.open",
     "file.run",
     "file.find",
@@ -60,6 +62,7 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "app.close" => apps::close(params).await,
         "browser.open" => apps::browser_open(params).await,
         "browser.search" => apps::browser_search(params).await,
+        "browser.tab" => apps::browser_tab(params).await,
         "file.open" => apps::file_open(params).await,
         "file.run" => apps::file_run(params).await,
         "file.find" => files::find(params).await,

@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT, VIRTUAL_KEY, VK_CONTROL, VK_DOWN, VK_RETURN, VK_TAB,
+    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT, VIRTUAL_KEY, VK_CONTROL, VK_DOWN, VK_RETURN, VK_SHIFT, VK_TAB,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -233,6 +233,26 @@ pub fn type_human(text: &str, mentions: bool) -> Result<(), WinError> {
         }
     }
     Ok(())
+}
+
+/// Ctrl (+ Shift) + uma tecla: letras A–Z ou Tab. Ex.: Ctrl+T, Ctrl+Shift+Tab.
+pub fn press_ctrl_key(shift: bool, key_name: &str) -> Result<(), WinError> {
+    let vk = match key_name {
+        "tab" => VK_TAB,
+        s if s.len() == 1 && s.as_bytes()[0].is_ascii_alphabetic() => VIRTUAL_KEY(s.as_bytes()[0].to_ascii_uppercase() as u16),
+        other => return Err(WinError::InvalidParams(format!("tecla '{other}'"))),
+    };
+    let mut seq = vec![key(VK_CONTROL, 0, Default::default())];
+    if shift {
+        seq.push(key(VK_SHIFT, 0, Default::default()));
+    }
+    seq.push(key(vk, 0, Default::default()));
+    seq.push(key(vk, 0, KEYEVENTF_KEYUP));
+    if shift {
+        seq.push(key(VK_SHIFT, 0, KEYEVENTF_KEYUP));
+    }
+    seq.push(key(VK_CONTROL, 0, KEYEVENTF_KEYUP));
+    send(&seq)
 }
 
 pub fn press_down() -> Result<(), WinError> {

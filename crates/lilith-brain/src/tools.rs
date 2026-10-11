@@ -51,11 +51,31 @@ pub fn all_tools() -> Vec<Tool> {
         },
         Tool {
             action: "browser.open",
-            description: "Abre uma URL numa NOVA ABA do navegador (o padrão, ou o `browser` pedido, \
-                          ex.: 'waterfox' — usa a janela que já está aberta).",
+            description: "Abre uma URL numa NOVA ABA do navegador (o PADRÃO do usuário, ou o `browser` \
+                          pedido, ex.: 'waterfox' — usa a janela que já está aberta). `mode`: tab \
+                          (padrão), window (nova janela) ou private (janela privada/anônima).",
             schema: obj(
-                json!({ "url": { "type": "string" }, "browser": { "type": "string" } }),
+                json!({
+                    "url": { "type": "string" },
+                    "browser": { "type": "string" },
+                    "mode": { "type": "string", "enum": ["tab", "window", "private"] }
+                }),
                 &["url"],
+            ),
+        },
+        Tool {
+            action: "browser.tab",
+            description: "Mexe nas ABAS do navegador por teclado (igual em Firefox e Chromium): `op` = new \
+                          (nova aba vazia), close, next, previous, reopen (reabrir a última fechada), \
+                          address (foca a barra de endereço), find (localizar na página), reload. Sem \
+                          `browser`, usa o navegador padrão do usuário. Para abrir um site ou pesquisar, \
+                          use browser.open / browser.search.",
+            schema: obj(
+                json!({
+                    "op": { "type": "string", "enum": ["new", "close", "next", "previous", "reopen", "address", "find", "reload"] },
+                    "browser": { "type": "string" }
+                }),
+                &["op"],
             ),
         },
         Tool {
@@ -64,13 +84,14 @@ pub fn all_tools() -> Vec<Tool> {
                           aba, então NÃO chame browser.open antes. Use para 'abre uma aba e pesquisa X', \
                           'procura imagens de X'. `kind`: web (padrão), images, videos ou news — já abre \
                           na aba de resultados certa (não precisa clicar em 'Imagens'). `browser`: o \
-                          navegador que o usuário citou (ex.: 'waterfox'); sem citar, usa o que já está \
-                          aberto.",
+                          navegador que o usuário citou (ex.: 'waterfox'); sem citar, usa o navegador \
+                          PADRÃO do usuário.",
             schema: obj(
                 json!({
                     "query": { "type": "string" },
                     "kind": { "type": "string", "enum": ["web", "images", "videos", "news"] },
-                    "browser": { "type": "string" }
+                    "browser": { "type": "string" },
+                    "mode": { "type": "string", "enum": ["tab", "window", "private"], "description": "tab (padrão), nova janela ou janela privada" }
                 }),
                 &["query"],
             ),
