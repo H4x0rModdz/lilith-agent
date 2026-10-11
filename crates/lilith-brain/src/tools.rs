@@ -239,17 +239,18 @@ pub fn all_tools() -> Vec<Tool> {
             action: "ui.type",
             description: "Digita um texto num campo de um programa e, com `submit`, envia (Enter). Use \
                           para 'manda um <texto> pra <pessoa> no whatsapp/discord' DEPOIS de abrir a \
-                          conversa com ui.open_chat. `element` é o nome visível do campo de mensagem (ex.: \
-                          'Digite uma mensagem', 'Mensagem'); use ui.find se não souber. Pede aprovação \
-                          do usuário, mostrando o que será enviado.",
+                          conversa com ui.open_chat. Ela mesma acha o campo de mensagem da janela, então \
+                          NÃO passe `element`. Pede aprovação do usuário, mostrando o que será enviado. Digita como uma pessoa (devagar, com pausas); \
+                          '@nome' e '@todos' viram menções de verdade, escolhidas na lista do app.",
             schema: obj(
                 json!({
                     "target": { "type": "string", "description": "Programa (ex.: 'whatsapp')" },
-                    "element": { "type": "string", "description": "Nome visível do campo de texto" },
+                    "element": { "type": "string", "description": "Opcional: nome do campo. Omita — ela acha o campo de mensagem sozinha" },
                     "text": { "type": "string" },
-                    "submit": { "type": "boolean", "description": "Apertar Enter para enviar" }
+                    "submit": { "type": "boolean", "description": "Apertar Enter para enviar" },
+                    "mentions": { "type": "boolean", "description": "Transformar @nome em menção de verdade (padrão: sim)" }
                 }),
-                &["target", "element", "text"],
+                &["target", "text"],
             ),
         },
         Tool {

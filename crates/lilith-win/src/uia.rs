@@ -332,6 +332,62 @@ pub fn activate(id: isize, query: &str, index: usize) -> Result<UiElement, WinEr
     Err(WinError::Failed(format!("'{}' não aceita clique por acessibilidade", info.name)))
 }
 
+/// Campo de mensagem da janela, sem depender do nome (que muda em cada app
+/// e idioma): entre os campos de texto visíveis e focáveis, o mais baixo —
+/// e, em empate, o mais largo. A busca fica acima e é mais estreita.
+pub fn message_input(id: isize) -> Result<UiElement, WinError> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+        let root = uia.ElementFromHandle(HWND(id as *mut _)).map_err(|_| {
+            WinError::Unavailable("não consegui acessar essa janela (app de administrador?)".into())
+        })?;
+        let walker = uia.ControlViewWalker()?;
+        let mut stack = vec![root];
+        let mut best: Option<UiElement> = None;
+        let mut visited = 0usize;
+        while let Some(el) = stack.pop() {
+            visited += 1;
+            if visited > FIND_MAX_NODES {
+                break;
+            }
+            if el.CurrentControlType().unwrap_or_default() == UIA_EditControlTypeId {
+                let offscreen = el.CurrentIsOffscreen().map(|b| b.as_bool()).unwrap_or(false);
+                let focusable = el.CurrentIsKeyboardFocusable().map(|b| b.as_bool()).unwrap_or(false);
+                let r = el.CurrentBoundingRectangle().unwrap_or_default();
+                let rect = Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top };
+                if !offscreen && focusable && rect.w > 0 && rect.h > 0 {
+                    let cand = UiElement {
+                        name: short(&el.CurrentName().map(|b| b.to_string()).unwrap_or_default(), MAX_NAME),
+                        kind: "campo de texto".into(),
+                        context: String::new(),
+                        rect,
+                        clickable: true,
+                    };
+                    best = Some(match best {
+                        Some(b) if is_lower_input(&b.rect, &cand.rect) => b,
+                        _ => cand,
+                    });
+                }
+            }
+            let mut children = Vec::new();
+            let mut next = walker.GetFirstChildElement(&el);
+            while let Ok(child) = next {
+                next = walker.GetNextSiblingElement(&child);
+                children.push(child);
+            }
+            stack.extend(children.into_iter().rev());
+        }
+        best.ok_or_else(|| WinError::NotFound("campo de mensagem nessa janela".into()))
+    }
+}
+
+/// `a` ganha de `b` como campo de mensagem? (mais baixo; empate: mais largo)
+pub(crate) fn is_lower_input(a: &Rect, b: &Rect) -> bool {
+    let (ab, bb) = (a.y + a.h, b.y + b.h);
+    ab > bb || (ab == bb && a.w >= b.w)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,6 +420,16 @@ mod tests {
         assert!(!is_navigation(&el("Delete message", "link")));
         // Palavra inteira: "saida" não é "sair", "okay" não é "ok".
         assert!(is_navigation(&el("Caixa de saída", "link")));
+    }
+
+    #[test]
+    fn message_box_is_the_lowest_widest_input() {
+        let search = Rect { x: 10, y: 480, w: 291, h: 21 };
+        let message = Rect { x: 400, y: 973, w: 625, h: 24 };
+        assert!(is_lower_input(&message, &search));
+        assert!(!is_lower_input(&search, &message));
+        let narrow = Rect { x: 0, y: 973, w: 100, h: 24 };
+        assert!(is_lower_input(&message, &narrow), "empate de altura: o mais largo");
     }
 
     #[test]
