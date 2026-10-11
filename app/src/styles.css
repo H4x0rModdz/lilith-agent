@@ -727,3 +727,13 @@ body[data-window^="border-"] #root {
     animation: none;
   }
 }
+
+.approval-taint {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(214, 69, 93, 0.08);
+  border: 1px solid rgba(214, 69, 93, 0.35);
+  color: var(--danger);
+  font-size: 12px;
+}

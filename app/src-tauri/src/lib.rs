@@ -40,6 +40,7 @@ fn send_message(text: String, app: AppHandle, state: State<'_, AppState>) {
         policy: state.policy.clone(),
         audit: state.audit.clone(),
         approvals: state.approvals.clone(),
+        tainted: Default::default(),
     };
     let agent = state.agent.clone();
     let _ = app.emit("lilith://state", "thinking");

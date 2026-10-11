@@ -16,6 +16,7 @@ interface Approval {
   action: string;
   scope: string;
   params: Record<string, unknown>;
+  tainted: boolean;
 }
 
 type Role = "user" | "lilith" | "system";
@@ -191,6 +192,14 @@ export async function mountChat(root: HTMLElement) {
         <button data-answer="once" class="primary">Permitir uma vez</button>
         <button data-answer="always">Sempre</button>
       </div>`;
+    if (req.tainted) {
+      const warn = document.createElement("p");
+      warn.className = "approval-taint";
+      warn.textContent =
+        "⚠ Isso apareceu depois de eu ler conteúdo de fora (janela, arquivo ou web). Confira se foi você que pediu.";
+      li.querySelector(".approval-title")!.after(warn);
+      li.querySelector('[data-answer="always"]')!.remove();
+    }
     li.querySelector(".approval-action")!.textContent = label;
     li.querySelector(".approval-params")!.textContent = formatParams(req.params);
     li.querySelector(".approval-scope")!.textContent =
