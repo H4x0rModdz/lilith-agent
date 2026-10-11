@@ -79,6 +79,11 @@ fn hide_window(label: String, app: AppHandle) {
     }
 }
 
+#[tauri::command]
+fn lilith_avatar() -> Option<String> {
+    config::avatar_data_url()
+}
+
 /// O frontend avisa quando o usuário arrasta o chat.
 #[tauri::command]
 fn chat_moved() {
@@ -228,6 +233,7 @@ pub fn run() {
             toggle_chat,
             hide_window,
             chat_moved,
+            lilith_avatar,
             list_jobs,
             cancel_job,
             recent_activity,
