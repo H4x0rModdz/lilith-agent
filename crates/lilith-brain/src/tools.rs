@@ -51,7 +51,12 @@ pub fn all_tools() -> Vec<Tool> {
         // ── arquivos ────────────────────────────────────────────────────
         Tool {
             action: "file.open",
-            description: "Abre um arquivo ou pasta com o programa padrão do Windows.",
+            description: "Abre uma pasta ou documento (PDF, imagem, vídeo, texto, planilha…)                           com o programa padrão do Windows.",
+            schema: obj(json!({ "path": { "type": "string" } }), &["path"]),
+        },
+        Tool {
+            action: "file.run",
+            description: "Executa um arquivo: programa (.exe), script, instalador ou atalho.                           Pede aprovação do usuário.",
             schema: obj(json!({ "path": { "type": "string" } }), &["path"]),
         },
         Tool {

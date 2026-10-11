@@ -71,6 +71,8 @@ pub fn scope_for(action: &str) -> &'static str {
     match action {
         "app.open" | "app.close" | "browser.open" | "file.open" => "app.launch",
         "file.find" | "file.list" => "filesystem.read",
+        // Executar um arquivo = rodar código arbitrário.
+        "file.run" => "terminal.execute",
         "file.move" | "file.copy" => "filesystem.write",
         "download.file" => "filesystem.write.downloads",
         "file.delete" => "filesystem.delete",
@@ -118,6 +120,7 @@ mod tests {
             "app.close",
             "browser.open",
             "file.open",
+            "file.run",
             "file.find",
             "file.list",
             "file.move",

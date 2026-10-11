@@ -25,10 +25,28 @@ pub async fn open(params: Value) -> Result<Value, WinError> {
         return Ok(json!({ "opened": entry.name, "via": "start_menu" }));
     }
 
+    // Fallback só para nomes simples ("chrome", "code.exe"), resolvidos pelo
+    // PATH / App Paths. Caminhos, esquemas e argumentos não passam: app.open
+    // é scope seguro, e aceitar `C:\x\algo.exe` executaria qualquer binário
+    // sem aprovação — para isso existe file.run.
+    if !is_plain_app_name(&app) {
+        return Err(WinError::InvalidParams(format!(
+            "'{app}' não é nome de app; para executar um arquivo use file.run (pede aprovação)"
+        )));
+    }
     shell_open(app.clone())
         .await
         .map_err(|_| WinError::NotFound(format!("app '{app}' (não está no Menu Iniciar nem no PATH)")))?;
     Ok(json!({ "opened": app, "via": "shell" }))
+}
+
+fn is_plain_app_name(name: &str) -> bool {
+    let n = name.trim();
+    let stem_ok = !n.is_empty()
+        && n.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_'))
+        && !n.starts_with('.');
+    let ext = std::path::Path::new(n).extension().and_then(|e| e.to_str()).map(str::to_lowercase);
+    stem_ok && matches!(ext.as_deref(), None | Some("exe"))
 }
 
 /// Fecha processos cujo nome de imagem contém `app`.
@@ -86,13 +104,46 @@ pub async fn browser_open(params: Value) -> Result<Value, WinError> {
     Ok(json!({ "opened": url }))
 }
 
+/// Abre pastas e documentos. Qualquer outro tipo (executáveis, scripts,
+/// atalhos, instaladores…) seria *executado* pelo handler padrão do Windows,
+/// então é recusado aqui e precisa passar por file.run, que pede aprovação.
+/// Allowlist em vez de denylist: o Windows tem dezenas de tipos executáveis.
 pub async fn file_open(params: Value) -> Result<Value, WinError> {
     let path = resolve(req_str(&params, "path")?);
     if !path.exists() {
         return Err(WinError::NotFound(path.display().to_string()));
     }
+    if !path.is_dir() && !is_document(&path) {
+        return Err(WinError::InvalidParams(format!(
+            "'{}' não é um documento; para executar use file.run (pede aprovação)",
+            path.display()
+        )));
+    }
     shell_open(path.to_string_lossy().into_owned()).await?;
     Ok(json!({ "opened": path }))
+}
+
+/// Executa um arquivo (programa, script, instalador, atalho). Scope perigoso.
+pub async fn file_run(params: Value) -> Result<Value, WinError> {
+    let path = resolve(req_str(&params, "path")?);
+    if !path.is_file() {
+        return Err(WinError::NotFound(path.display().to_string()));
+    }
+    shell_open(path.to_string_lossy().into_owned()).await?;
+    Ok(json!({ "ran": path }))
+}
+
+const DOCUMENT_EXTS: &[&str] = &[
+    "txt", "md", "log", "csv", "json", "xml", "yaml", "yml", "toml", "ini", "pdf", "epub", "doc", "docx", "odt",
+    "rtf", "xls", "xlsx", "ods", "ppt", "pptx", "odp", "png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico",
+    "heic", "avif", "tif", "tiff", "mp3", "wav", "flac", "ogg", "m4a", "aac", "opus", "mp4", "mkv", "avi", "mov",
+    "webm", "wmv", "m4v", "zip", "7z", "rar", "tar", "gz",
+];
+
+fn is_document(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| DOCUMENT_EXTS.contains(&e.to_lowercase().as_str()))
 }
 
 /// `ShellExecuteW(open)` — o mesmo que dar duplo clique / Win+R.
@@ -208,6 +259,36 @@ mod tests {
         assert_eq!(best_match(&apps, "spotify").unwrap().name, "Spotify");
         assert_eq!(best_match(&apps, "code").unwrap().name, "Visual Studio Code");
         assert!(best_match(&apps, "discord").is_none());
+    }
+
+    #[test]
+    fn plain_app_names_only() {
+        for ok in ["chrome", "code.exe", "Visual Studio Code", "obs64"] {
+            assert!(is_plain_app_name(ok), "{ok}");
+        }
+        for bad in [
+            r"C:\Users\x\evil.exe",
+            r"..\evil.exe",
+            r"\\server\share\x.exe",
+            "evil.bat",
+            "script.ps1",
+            "file:///C:/x.exe",
+            "cmd /c calc",
+            "x.lnk",
+            ".hidden",
+        ] {
+            assert!(!is_plain_app_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn only_documents_open_without_run() {
+        use std::path::Path;
+        assert!(is_document(Path::new(r"C:\a\relatorio.PDF")));
+        assert!(is_document(Path::new("foto.jpg")));
+        for exe in ["x.exe", "x.bat", "x.cmd", "x.ps1", "x.vbs", "x.hta", "x.lnk", "x.msi", "x.scr", "x.url", "x.reg", "x"] {
+            assert!(!is_document(Path::new(exe)), "{exe}");
+        }
     }
 
     #[test]

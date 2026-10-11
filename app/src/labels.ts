@@ -4,6 +4,7 @@ const ACTION_LABELS: Record<string, string> = {
   "app.close": "Fechando app",
   "browser.open": "Abrindo no navegador",
   "file.open": "Abrindo arquivo",
+  "file.run": "Executando arquivo",
   "file.find": "Procurando arquivos",
   "file.list": "Olhando a pasta",
   "file.move": "Movendo arquivo",
