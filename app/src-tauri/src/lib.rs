@@ -1,6 +1,7 @@
 mod config;
 mod profile;
 mod dispatcher;
+mod know;
 pub mod elevated;
 mod screen;
 mod windows;
@@ -43,7 +44,8 @@ impl AppState {
             .unwrap()
             .entry(conversation.to_string())
             .or_insert_with(|| {
-                let agent = Agent::new(self.ollama.clone());
+                let agent = Agent::new(self.ollama.clone())
+                    .with_knowledge(Arc::new(know::StoreKnowledge(self.store.clone())));
                 agent.seed(self.store.turns(conversation));
                 Arc::new(agent)
             })
@@ -80,6 +82,12 @@ fn send_message(text: String, conversation: String, app: AppHandle, state: State
         opened_chats: Default::default(),
     };
     let agent = state.agent_for(&conversation);
+    // Definição explícita dita no chat ("X quer dizer Y") vira gíria dela.
+    if let Some((term, meaning)) = lilith_brain::shortcut::parse_definition(&text) {
+        if state.store.set_term(&term, &meaning, "learned") {
+            let _ = app.emit("lilith://glossary", ());
+        }
+    }
     if let Some(title) = state.store.append(&conversation, "user", &text) {
         emit_title(&app, &conversation, &title);
     }
@@ -117,6 +125,40 @@ fn send_message(text: String, conversation: String, app: AppHandle, state: State
     if let Some(old) = state.running.lock().unwrap().insert(conversation, handle) {
         old.abort();
     }
+}
+
+/// `/wrong`: o último pedido da conversa foi mal resolvido. Deixa de ser
+/// exemplo e fica guardado, com a nota, para virar caso de teste.
+#[tauri::command]
+fn mark_wrong(conversation: String, note: String, state: State<'_, AppState>) -> Option<String> {
+    if !lilith_memory::valid_id(&conversation) {
+        return None;
+    }
+    let (last, _) = state.store.turns(&conversation).pop()?;
+    state.store.mark_plan_bad(&last, &note).then_some(last)
+}
+
+#[tauri::command]
+fn list_glossary(state: State<'_, AppState>) -> Vec<lilith_memory::Term> {
+    state.store.glossary()
+}
+
+#[tauri::command]
+fn add_term(term: String, meaning: String, app: AppHandle, state: State<'_, AppState>) -> bool {
+    let ok = state.store.set_term(&term, &meaning, "user");
+    if ok {
+        let _ = app.emit("lilith://glossary", ());
+    }
+    ok
+}
+
+#[tauri::command]
+fn remove_term(term: String, app: AppHandle, state: State<'_, AppState>) -> bool {
+    let ok = state.store.remove_term(&term);
+    if ok {
+        let _ = app.emit("lilith://glossary", ());
+    }
+    ok
 }
 
 #[tauri::command]
@@ -487,6 +529,10 @@ pub fn run() {
             get_settings,
             save_settings,
             list_facts,
+            mark_wrong,
+            list_glossary,
+            add_term,
+            remove_term,
             add_fact,
             forget_fact,
             get_quick_prompts,

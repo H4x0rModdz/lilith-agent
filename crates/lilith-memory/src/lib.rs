@@ -83,6 +83,25 @@ pub struct Fact {
     pub updated_ms: i64,
 }
 
+/// Uma gíria/apelido do usuário e o que significa.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Term {
+    pub term: String,
+    pub meaning: String,
+    /// "user" (editado no painel) ou "learned" (definição dita no chat).
+    pub source: String,
+}
+
+/// Um pedido e o plano de ferramentas que o resolveu.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct PlanExample {
+    pub text: String,
+    pub plan: Vec<String>,
+    /// Marcado como errado pelo usuário (`/wrong`): não vira exemplo.
+    pub bad: bool,
+    pub note: String,
+}
+
 /// Id vindo do frontend: curto e sem nada que vire caminho ou SQL estranho.
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
@@ -140,6 +159,19 @@ impl Memory {
              CREATE TABLE IF NOT EXISTS settings (
                  key   TEXT PRIMARY KEY,
                  value TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS glossary (
+                 term       TEXT PRIMARY KEY COLLATE NOCASE,
+                 meaning    TEXT NOT NULL,
+                 source     TEXT NOT NULL,
+                 updated_ms INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS plans (
+                 text       TEXT PRIMARY KEY COLLATE NOCASE,
+                 plan       TEXT NOT NULL,
+                 bad        INTEGER NOT NULL DEFAULT 0,
+                 note       TEXT NOT NULL DEFAULT '',
+                 updated_ms INTEGER NOT NULL
              );",
         )?;
         // Índice FTS5 "external content" sobre messages (como no jarvis-os):
@@ -438,6 +470,116 @@ impl Memory {
             .unwrap_or_default()
     }
 
+    // ── glossário pessoal ─────────────────────────────────────────────────
+
+    /// Guarda/atualiza uma gíria. Uma definição do usuário ("user") não é
+    /// sobrescrita por uma aprendida ("learned").
+    pub fn set_term(&self, term: &str, meaning: &str, source: &str) -> bool {
+        let (term, meaning) = (term.trim(), meaning.trim());
+        if term.is_empty() || meaning.is_empty() || term.chars().count() > 40 || meaning.chars().count() > 120 {
+            return false;
+        }
+        let conn = self.conn.lock().unwrap();
+        if source == "learned" {
+            let user_owned: bool = conn
+                .query_row("SELECT source = 'user' FROM glossary WHERE term = ?1", params![term], |r| r.get(0))
+                .optional()
+                .ok()
+                .flatten()
+                .unwrap_or(false);
+            if user_owned {
+                return false;
+            }
+        }
+        conn.execute(
+            "INSERT INTO glossary (term, meaning, source, updated_ms) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(term) DO UPDATE SET meaning = excluded.meaning, source = excluded.source,
+                                             updated_ms = excluded.updated_ms",
+            params![term, meaning, source, now_ms()],
+        )
+        .is_ok()
+    }
+
+    pub fn remove_term(&self, term: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM glossary WHERE term = ?1", params![term.trim()]).map(|n| n > 0).unwrap_or(false)
+    }
+
+    pub fn glossary(&self) -> Vec<Term> {
+        let conn = self.conn.lock().unwrap();
+        conn.prepare("SELECT term, meaning, source FROM glossary ORDER BY term")
+            .and_then(|mut s| {
+                Ok(s.query_map([], |r| Ok(Term { term: r.get(0)?, meaning: r.get(1)?, source: r.get(2)? }))?
+                    .filter_map(|r| r.ok())
+                    .collect())
+            })
+            .unwrap_or_default()
+    }
+
+    // ── planos que deram certo ────────────────────────────────────────────
+
+    /// Guarda o plano de um pedido bem-sucedido. Um pedido já marcado como
+    /// errado (`/wrong`) não volta a ser exemplo.
+    pub fn record_plan(&self, text: &str, plan: &[String]) {
+        let text = text.trim();
+        if text.is_empty() || text.chars().count() > 300 || plan.is_empty() {
+            return;
+        }
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute(
+            "INSERT INTO plans (text, plan, updated_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT(text) DO UPDATE SET plan = excluded.plan, updated_ms = excluded.updated_ms
+             WHERE plans.bad = 0",
+            params![text, serde_json::to_string(plan).unwrap_or_default(), now_ms()],
+        );
+    }
+
+    /// Marca um pedido como mal resolvido. Fica guardado (com a nota) para
+    /// virar caso de teste, mas deixa de ser exemplo.
+    pub fn mark_plan_bad(&self, text: &str, note: &str) -> bool {
+        let text = text.trim();
+        if text.is_empty() {
+            return false;
+        }
+        let note: String = note.trim().chars().take(300).collect();
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO plans (text, plan, bad, note, updated_ms) VALUES (?1, '[]', 1, ?2, ?3)
+             ON CONFLICT(text) DO UPDATE SET bad = 1, note = excluded.note, updated_ms = excluded.updated_ms",
+            params![text, note, now_ms()],
+        )
+        .is_ok()
+    }
+
+    /// Os planos mais recentes que deram certo (para escolher exemplos).
+    pub fn good_plans(&self, limit: usize) -> Vec<PlanExample> {
+        self.plans_where("bad = 0", limit)
+    }
+
+    /// Os pedidos marcados como errados (feedback do usuário).
+    pub fn bad_plans(&self, limit: usize) -> Vec<PlanExample> {
+        self.plans_where("bad = 1", limit)
+    }
+
+    fn plans_where(&self, cond: &str, limit: usize) -> Vec<PlanExample> {
+        let conn = self.conn.lock().unwrap();
+        conn.prepare(&format!("SELECT text, plan, bad, note FROM plans WHERE {cond} ORDER BY updated_ms DESC LIMIT ?1"))
+            .and_then(|mut s| {
+                Ok(s.query_map(params![limit as i64], |r| {
+                    let plan: String = r.get(1)?;
+                    Ok(PlanExample {
+                        text: r.get(0)?,
+                        plan: serde_json::from_str(&plan).unwrap_or_default(),
+                        bad: r.get::<_, i64>(2)? != 0,
+                        note: r.get(3)?,
+                    })
+                })?
+                .filter_map(|r| r.ok())
+                .collect())
+            })
+            .unwrap_or_default()
+    }
+
     // ── configurações ─────────────────────────────────────────────────────
 
     pub fn setting(&self, key: &str) -> Option<String> {
@@ -537,6 +679,28 @@ mod tests {
         assert_eq!(facts.iter().find(|f| f.key == "time").unwrap().value, "Palmeiras");
         assert!(m.forget("TIME"));
         assert!(!m.remember(" ", "x", "user"));
+    }
+
+    #[test]
+    fn glossary_and_plan_examples() {
+        let m = Memory::in_memory().unwrap();
+        assert!(m.set_term("zap", "WhatsApp", "user"));
+        assert!(!m.set_term("ZAP", "outra coisa", "learned"), "aprendida não sobrescreve a do usuário");
+        assert!(m.set_term("vlw", "valeu", "learned"));
+        assert_eq!(m.glossary().len(), 2);
+        assert!(m.remove_term("Zap"));
+        assert!(!m.set_term("", "x", "user") && !m.set_term("x", " ", "user"));
+
+        m.record_plan("abre o spotify", &["app.open".into()]);
+        m.record_plan("abre o spotify", &["app.open".into()]);
+        m.record_plan("conversa", &[]);
+        assert_eq!(m.good_plans(10).len(), 1, "sem plano não é exemplo; repetido não duplica");
+        assert!(m.mark_plan_bad("ABRE O SPOTIFY", "abriu o app errado"));
+        assert!(m.good_plans(10).is_empty());
+        m.record_plan("abre o spotify", &["app.open".into()]);
+        assert!(m.good_plans(10).is_empty(), "marcado como errado não volta a ser exemplo");
+        let bad = m.bad_plans(10);
+        assert_eq!((bad.len(), bad[0].note.as_str()), (1, "abriu o app errado"));
     }
 
     #[test]
