@@ -163,6 +163,10 @@ impl Dispatcher for GuardedDispatcher {
             "file.read" if !lilith_win::is_personal_read(call.params["path"].as_str().unwrap_or("")) => {
                 "file.read_protected"
             }
+            // ui.click só é automático para navegação pura (link, conversa,
+            // aba); botão, menu ou nome com verbo de efeito ("Excluir",
+            // "Enviar"…) pede aprovação. Decide pelo elemento de verdade.
+            "ui.click" if !self.click_is_navigation(&call.params).await => "ui.click_effect",
             other => other,
         };
         // Defesa contra prompt injection: depois de ler conteúdo externo,
@@ -270,6 +274,21 @@ async fn blocking<T: Send + 'static>(
 }
 
 impl GuardedDispatcher {
+    /// O alvo do ui.click é pura navegação? Na dúvida (não achou), não.
+    async fn click_is_navigation(&self, params: &Value) -> bool {
+        use lilith_win::{uia, window};
+        let target = params["target"].as_str().unwrap_or("active").to_string();
+        let element = params["element"].as_str().unwrap_or("").trim().to_string();
+        let index = params["index"].as_u64().unwrap_or(0) as usize;
+        blocking(move || {
+            let w = window::find(&target)?;
+            uia::locate(w.id, &element, index)
+        })
+        .await
+        .map(|e| uia::is_navigation(&e))
+        .unwrap_or(false)
+    }
+
     /// Clique dentro de um programa: o cursor vai até o item, "clica", e o
     /// item é acionado por acessibilidade (o mouse do usuário fica livre).
     async fn ui_click(&self, params: &Value) -> Result<Value, lilith_win::WinError> {
