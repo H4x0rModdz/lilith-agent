@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { fillSigil } from "./avatar";
 import { makeDraggable } from "./drag";
 import { mountElectric } from "./electric";
+import { call } from "./ipc";
 import { mountSettings } from "./settings";
 import { actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel } from "./labels";
@@ -288,8 +289,8 @@ export function mountPanel(root: HTMLElement) {
   });
 
   Promise.all([
-    invoke<{ id: string; title: string }[]>("list_conversations"),
-    invoke<Job[]>("list_jobs"),
+    call<{ id: string; title: string }[]>("list_conversations", undefined, []),
+    call<Job[]>("list_jobs", undefined, []),
   ]).then(([convs, list]) => {
     convs.forEach((c) => titles.set(c.id, c.title));
     list.forEach((j) => jobs.set(j.id, j));
