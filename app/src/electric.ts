@@ -20,8 +20,11 @@ export function mountElectric(card: HTMLElement) {
   const update = () => card.classList.toggle("live", focused || busy);
   window.addEventListener("focus", () => ((focused = true), update()));
   window.addEventListener("blur", () => ((focused = false), update()));
-  listen<string>("lilith://state", (e) => {
-    busy = e.payload === "thinking";
+  const thinking = new Set<string>();
+  listen<{ conversation: string; state: string }>("lilith://state", (e) => {
+    if (e.payload.state === "thinking") thinking.add(e.payload.conversation);
+    else thinking.delete(e.payload.conversation);
+    busy = thinking.size > 0;
     card.classList.toggle("busy", busy);
     update();
   });

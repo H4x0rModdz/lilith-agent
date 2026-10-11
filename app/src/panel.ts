@@ -19,6 +19,7 @@ interface Job {
   finished_ms: number | null;
   log: string[];
   result: string | null;
+  conversation: string | null;
 }
 
 type JobEvent = { kind: "updated"; job: Job } | { kind: "line"; id: number; line: string };
@@ -62,17 +63,21 @@ export function mountPanel(root: HTMLElement) {
       <nav class="tabs" role="tablist">
         <button role="tab" class="tab" data-tab="jobs" aria-selected="true"><span data-icon="jobs" data-size="16"></span>Tarefas</button>
         <button role="tab" class="tab" data-tab="activity" aria-selected="false"><span data-icon="activity" data-size="16"></span>Atividade</button>
+        <button role="tab" class="tab" data-tab="rules" aria-selected="false"><span data-icon="key" data-size="16"></span>Permissões</button>
       </nav>
       <ol class="panel-list jobs" data-view="jobs"></ol>
       <ol class="panel-list activity" data-view="activity" hidden></ol>
+      <ol class="panel-list rules" data-view="rules" hidden></ol>
     </section>`;
   hydrateIcons(root);
   mountElectric(root.querySelector<HTMLElement>(".glass")!);
 
   const jobsEl = root.querySelector<HTMLOListElement>('[data-view="jobs"]')!;
   const activityEl = root.querySelector<HTMLOListElement>('[data-view="activity"]')!;
+  const rulesEl = root.querySelector<HTMLOListElement>('[data-view="rules"]')!;
   const summary = root.querySelector<HTMLElement>(".panel-summary")!;
   const jobs = new Map<number, Job>();
+  const titles = new Map<string, string>();
   makeDraggable(root.querySelector(".glass-head")!);
   fillSigil(root.querySelector(".glass-head .sigil")!);
   const expanded = new Set<number>();
@@ -94,7 +99,9 @@ export function mountPanel(root: HTMLElement) {
     );
     jobsEl.hidden = name !== "jobs";
     activityEl.hidden = name !== "activity";
+    rulesEl.hidden = name !== "rules";
     if (name === "activity") loadActivity();
+    if (name === "rules") loadRules();
   }
 
   // ── tarefas ──────────────────────────────────────────────────────────
@@ -110,7 +117,21 @@ export function mountPanel(root: HTMLElement) {
       hydrateIcons(jobsEl);
       return;
     }
-    jobsEl.replaceChildren(...list.map(renderJob));
+    // Agrupadas pela conversa que pediu (título atual, renomeável no chat).
+    const groups = new Map<string, Job[]>();
+    for (const job of list) {
+      const key = job.conversation ?? "";
+      groups.set(key, [...(groups.get(key) ?? []), job]);
+    }
+    const nodes: HTMLElement[] = [];
+    for (const [conv, items] of groups) {
+      const h = document.createElement("li");
+      h.className = "group-head";
+      h.dataset.conversation = conv;
+      h.textContent = conv ? (titles.get(conv) ?? "Conversa") : "Sem conversa";
+      nodes.push(h, ...items.map(renderJob));
+    }
+    jobsEl.replaceChildren(...nodes);
   }
 
   function renderJob(job: Job): HTMLLIElement {
@@ -210,11 +231,58 @@ export function mountPanel(root: HTMLElement) {
     );
   }
 
+  // ── permissões ("Sempre" salvos) ───────────────────────────────────
+
+  async function loadRules() {
+    const rules = await invoke<{ channel: string; scope: string; rule: string }[]>("list_rules");
+    if (rules.length === 0) {
+      rulesEl.innerHTML = `<li class="empty"><span data-icon="key" data-size="28"></span>Nenhuma permissão salva. Quando você escolhe “Sempre” num pedido, ela aparece aqui para você poder revogar.</li>`;
+      hydrateIcons(rulesEl);
+      return;
+    }
+    rulesEl.replaceChildren(
+      ...rules.map((r) => {
+        const li = document.createElement("li");
+        li.className = "rule-item";
+        li.innerHTML = `
+          <div class="rule-text"><strong></strong><small></small></div>
+          <span class="badge rule-kind"></span>
+          <button class="icon-btn neon-soft rule-revoke" title="Revogar"></button>`;
+        li.querySelector("strong")!.textContent = r.scope;
+        li.querySelector("small")!.textContent = r.channel === "local" ? "neste PC" : `via ${r.channel}`;
+        const kind = li.querySelector<HTMLElement>(".rule-kind")!;
+        kind.textContent = r.rule === "allow" ? "sempre permitido" : r.rule === "deny" ? "bloqueado" : "perguntar";
+        kind.dataset.rule = r.rule;
+        const revoke = li.querySelector<HTMLButtonElement>(".rule-revoke")!;
+        revoke.append(icon("trash", 15));
+        revoke.addEventListener("click", async () => {
+          await invoke("revoke_rule", { channel: r.channel, scope: r.scope });
+          loadRules();
+        });
+        return li;
+      }),
+    );
+  }
+
   getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-    if (focused && !activityEl.hidden) loadActivity();
+    if (!focused) return;
+    if (!activityEl.hidden) loadActivity();
+    if (!rulesEl.hidden) loadRules();
   });
 
-  invoke<Job[]>("list_jobs").then((list) => {
+  // Títulos das conversas: carrega e acompanha renomeações em tempo real.
+  listen<{ id: string; title: string }>("lilith://conversation", (e) => {
+    titles.set(e.payload.id, e.payload.title);
+    jobsEl.querySelectorAll<HTMLElement>(".group-head").forEach((h) => {
+      if (h.dataset.conversation === e.payload.id) h.textContent = e.payload.title;
+    });
+  });
+
+  Promise.all([
+    invoke<{ id: string; title: string }[]>("list_conversations"),
+    invoke<Job[]>("list_jobs"),
+  ]).then(([convs, list]) => {
+    convs.forEach((c) => titles.set(c.id, c.title));
     list.forEach((j) => jobs.set(j.id, j));
     renderJobs();
   });

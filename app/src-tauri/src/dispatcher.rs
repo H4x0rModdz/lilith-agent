@@ -23,6 +23,7 @@ pub enum Answer {
 #[derive(Debug, Clone, Serialize)]
 struct ApprovalRequest {
     id: u64,
+    conversation: String,
     channel: String,
     action: String,
     scope: &'static str,
@@ -131,6 +132,8 @@ fn taint_gate(decision: Decision, turn_tainted: bool, action: &str, chat_intent:
 /// Dispatcher que passa toda ação pelo `lilith-guard` antes do `lilith-win`.
 /// Vive um turno: o estado de contaminação é por turno.
 pub struct GuardedDispatcher {
+    /// Aba do chat de onde veio o pedido (eventos voltam para ela).
+    pub conversation: String,
     pub jobs: Arc<lilith_agents::Jobs>,
     pub channel: String,
     pub app: AppHandle,
@@ -178,7 +181,7 @@ impl Dispatcher for GuardedDispatcher {
         if gate.blocked {
             tracing::warn!(action, "ação bloqueada: veio de conteúdo lido, não do chat");
             self.audit.record(&self.channel, action, &call.params, "blocked_injection", &json!({}));
-            let _ = self.app.emit("lilith://blocked", json!({ "action": action }));
+            let _ = self.app.emit("lilith://blocked", json!({ "conversation": self.conversation, "action": action }));
             return error_envelope(action, lilith_brain::agent::BLOCKED_NOT_FROM_CHAT, BLOCKED_REASON, started);
         }
         let scope = match gate.decision {
@@ -374,7 +377,10 @@ impl GuardedDispatcher {
             .map(lilith_win::resolve_path)
             .or_else(dirs::home_dir)
             .ok_or_else(|| WinError::Unavailable("pasta do usuário".into()))?;
-        let job = self.jobs.start(&agent, task, folder).map_err(WinError::InvalidParams)?;
+        let job = self
+            .jobs
+            .start(&agent, task, folder, Some(self.conversation.clone()))
+            .map_err(WinError::InvalidParams)?;
         crate::windows::show_panel(&self.app);
         Ok(json!({
             "job_id": job.id,
@@ -389,6 +395,7 @@ impl GuardedDispatcher {
         let (id, rx) = self.approvals.open();
         let req = ApprovalRequest {
             id,
+            conversation: self.conversation.clone(),
             channel: self.channel.clone(),
             action: call.action.clone(),
             scope,
@@ -418,16 +425,23 @@ fn error_envelope(action: &str, code: &str, message: &str, started: Instant) -> 
 }
 
 /// Repassa o progresso do agente para a UI como eventos.
-pub struct EventSink(pub AppHandle);
+pub struct EventSink {
+    pub app: AppHandle,
+    pub conversation: String,
+}
 
 #[async_trait]
 impl Sink for EventSink {
     async fn partial(&self, step: u32, chunk: &str) {
-        let _ = self.0.emit("lilith://partial", json!({ "step": step, "chunk": chunk }));
+        let _ = self
+            .app
+            .emit("lilith://partial", json!({ "conversation": self.conversation, "step": step, "chunk": chunk }));
     }
 
     async fn step(&self, step: u32, action: &str) {
-        let _ = self.0.emit("lilith://step", json!({ "step": step, "action": action }));
+        let _ = self
+            .app
+            .emit("lilith://step", json!({ "conversation": self.conversation, "step": step, "action": action }));
     }
 }
 

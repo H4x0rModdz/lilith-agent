@@ -32,3 +32,6 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tauri-plugin-window-state = "2.5.0"
 base64 = "0.22"
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

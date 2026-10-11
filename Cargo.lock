@@ -1974,6 +1974,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-window-state",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

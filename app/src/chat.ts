@@ -7,6 +7,7 @@ import { type IconName, actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel, actionVerb } from "./labels";
 
 interface Reply {
+  conversation: string;
   reply: string;
   action: string | null;
   emotion: "neutral" | "happy" | "concerned";
@@ -14,6 +15,7 @@ interface Reply {
 
 interface Approval {
   id: number;
+  conversation: string;
   channel: string;
   action: string;
   scope: string;
@@ -21,9 +23,36 @@ interface Approval {
   tainted: boolean;
 }
 
+interface Summary {
+  id: string;
+  title: string;
+  created_ms: number;
+  updated_ms: number;
+  messages: number;
+}
+
+interface Saved {
+  id: string;
+  title: string;
+  messages: { role: "user" | "lilith"; text: string; ts: number }[];
+}
+
 type Role = "user" | "lilith" | "system";
 
 const NAMES: Record<"user" | "lilith", string> = { user: "Eu", lilith: "Lilith" };
+const GREETING = "Oi! Tô aqui no cantinho. Pede o que precisar 💗";
+const DEFAULT_TITLE = "Nova conversa";
+
+/// Uma aba do chat = uma conversa com memória própria no backend (salva em disco).
+interface Conversation {
+  id: string;
+  log: HTMLOListElement;
+  tab: HTMLButtonElement;
+  /// Bolha da resposta em streaming; cada passo do agente reinicia o texto.
+  live: HTMLElement | null;
+  liveStep: number;
+  busy: boolean;
+}
 
 export async function mountChat(root: HTMLElement) {
   const avatarUrl = await lilithAvatar();
@@ -35,20 +64,35 @@ export async function mountChat(root: HTMLElement) {
           <strong>Lilith</strong>
           <small class="chat-status">online</small>
         </div>
-        <button class="icon-btn neon-soft" data-act="reset" title="Nova conversa"><span data-icon="reset" data-size="17"></span></button>
+        <button class="icon-btn neon-soft" data-act="history" title="Conversas anteriores"><span data-icon="history" data-size="17"></span></button>
         <button class="icon-btn neon-soft" data-act="close" title="Fechar"><span data-icon="close" data-size="17"></span></button>
       </header>
-      <ol class="chat-log" aria-live="polite"></ol>
+      <nav class="chat-tabs">
+        <div class="chat-tab-list" role="tablist" aria-label="Conversas abertas"></div>
+        <button class="icon-btn neon-soft new-chat" title="Nova conversa"><span data-icon="plus" data-size="16"></span></button>
+      </nav>
+      <div class="chat-logs">
+        <aside class="history" hidden>
+          <div class="history-head">
+            <strong>Conversas</strong>
+            <button class="link" data-act="history-close">voltar</button>
+          </div>
+          <div class="history-list"></div>
+        </aside>
+      </div>
       <form class="chat-input">
         <textarea rows="1" placeholder="Fala comigo…" aria-label="Mensagem"></textarea>
         <button type="submit" class="send neon" title="Enviar"><span data-icon="send" data-size="18"></span></button>
-        <button type="button" class="stop neon danger" title="Parar (Ctrl+Alt+Esc)" hidden><span data-icon="stop" data-size="16"></span></button>
+        <button type="button" class="stop neon danger" title="Parar tudo (Ctrl+Alt+Esc)" hidden><span data-icon="stop" data-size="16"></span></button>
       </form>
     </section>`;
   hydrateIcons(root);
   mountElectric(root.querySelector<HTMLElement>(".glass")!);
 
-  const log = root.querySelector<HTMLOListElement>(".chat-log")!;
+  const logs = root.querySelector<HTMLElement>(".chat-logs")!;
+  const tabList = root.querySelector<HTMLElement>(".chat-tab-list")!;
+  const history = root.querySelector<HTMLElement>(".history")!;
+  const historyList = root.querySelector<HTMLElement>(".history-list")!;
   const form = root.querySelector<HTMLFormElement>(".chat-input")!;
   const input = form.querySelector("textarea")!;
   const stopBtn = form.querySelector<HTMLButtonElement>(".stop")!;
@@ -57,13 +101,181 @@ export async function mountChat(root: HTMLElement) {
   makeDraggable(root.querySelector(".glass-head")!, () => invoke("chat_moved"));
   fillSigil(root.querySelector(".glass-head .sigil")!);
 
-  // Bolha da resposta em streaming; cada passo do agente reinicia o texto.
-  let live: HTMLElement | null = null;
-  let liveStep = -1;
+  const open = new Map<string, Conversation>();
+  let active!: Conversation;
+  let counter = 0;
+
+  // ── abas ──────────────────────────────────────────────────────────────
+
+  /// Abre uma aba: conversa nova, ou uma salva (com as falas antigas).
+  function openTab(saved?: Saved): Conversation {
+    const existing = saved && open.get(saved.id);
+    if (existing) {
+      activate(existing);
+      return existing;
+    }
+    counter += 1;
+    const id = saved?.id ?? `c${Date.now().toString(36)}-${counter}`;
+    const log = document.createElement("ol");
+    log.className = "chat-log";
+    log.setAttribute("aria-live", "polite");
+    logs.append(log);
+
+    const tab = document.createElement("button");
+    tab.className = "chat-tab";
+    tab.setAttribute("role", "tab");
+    tab.innerHTML = `<span class="chat-tab-title"></span><span class="chat-tab-dot" hidden></span><span class="chat-tab-close" title="Fechar aba"></span>`;
+    tab.querySelector(".chat-tab-close")!.append(icon("close", 12));
+    tabList.append(tab);
+
+    const conv: Conversation = { id, log, tab, live: null, liveStep: -1, busy: false };
+    setTabTitle(conv, saved?.title ?? DEFAULT_TITLE);
+    tab.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".chat-tab-close")) closeTab(conv);
+      else activate(conv);
+    });
+    // Duplo clique no nome da aba: renomear.
+    tab.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      startRename(tab.querySelector<HTMLElement>(".chat-tab-title")!, id);
+    });
+    open.set(id, conv);
+
+    if (saved && saved.messages.length > 0) {
+      for (const m of saved.messages) add(conv, m.role, m.text, undefined, new Date(m.ts));
+    } else {
+      add(conv, "lilith", GREETING);
+    }
+    activate(conv);
+    return conv;
+  }
+
+  function setTabTitle(conv: Conversation, title: string) {
+    conv.tab.querySelector(".chat-tab-title")!.textContent = title;
+    conv.tab.title = `${title} (duplo clique para renomear)`;
+  }
+
+  function activate(conv: Conversation) {
+    active = conv;
+    hideHistory();
+    open.forEach((c) => {
+      const on = c === conv;
+      c.log.hidden = !on;
+      c.tab.setAttribute("aria-selected", String(on));
+    });
+    conv.tab.querySelector<HTMLElement>(".chat-tab-dot")!.hidden = true;
+    conv.tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    conv.log.scrollTop = conv.log.scrollHeight;
+    refreshBusy();
+    input.focus();
+  }
+
+  /// Fecha a aba (a conversa continua no histórico).
+  function closeTab(conv: Conversation) {
+    invoke("close_conversation", { conversation: conv.id });
+    open.delete(conv.id);
+    conv.log.remove();
+    conv.tab.remove();
+    if (open.size === 0) openTab();
+    else if (active === conv) activate([...open.values()].pop()!);
+  }
+
+  /// Marca a aba com um pontinho quando algo chega numa conversa em segundo plano.
+  function notify(conv: Conversation) {
+    if (conv !== active) conv.tab.querySelector<HTMLElement>(".chat-tab-dot")!.hidden = false;
+  }
+
+  // ── renomear ──────────────────────────────────────────────────────────
+
+  /// Troca o texto por um campo; Enter salva (o backend avisa todas as
+  /// janelas — abas, histórico e painel atualizam juntos), Esc cancela.
+  function startRename(label: HTMLElement, id: string) {
+    const current = label.textContent ?? "";
+    const field = document.createElement("input");
+    field.className = "rename-field";
+    field.value = current;
+    field.maxLength = 60;
+    label.replaceChildren(field);
+    field.focus();
+    field.select();
+    let done = false;
+    const finish = async (save: boolean) => {
+      if (done) return;
+      done = true;
+      const title = field.value.trim();
+      label.textContent = current;
+      if (save && title && title !== current) {
+        await invoke("rename_conversation", { conversation: id, title });
+      }
+    };
+    field.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") finish(true);
+      else if (e.key === "Escape") finish(false);
+    });
+    field.addEventListener("click", (e) => e.stopPropagation());
+    field.addEventListener("blur", () => finish(true));
+  }
+
+  // ── histórico (por dia) ───────────────────────────────────────────────
+
+  async function showHistory() {
+    const items = await invoke<Summary[]>("list_conversations");
+    historyList.replaceChildren();
+    if (items.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = "Nenhuma conversa salva ainda.";
+      historyList.append(empty);
+    }
+    let lastDay = "";
+    for (const c of items) {
+      const day = dayLabel(c.updated_ms);
+      if (day !== lastDay) {
+        const h = document.createElement("h4");
+        h.className = "history-day";
+        h.textContent = day;
+        historyList.append(h);
+        lastDay = day;
+      }
+      const row = document.createElement("div");
+      row.className = "history-item";
+      row.dataset.id = c.id;
+      if (open.has(c.id)) row.classList.add("is-open");
+      row.innerHTML = `
+        <button class="history-open"><span class="history-title"></span><small></small></button>
+        <button class="icon-btn neon-soft history-rename" title="Renomear"></button>
+        <button class="icon-btn neon-soft history-delete" title="Apagar"></button>`;
+      row.querySelector(".history-title")!.textContent = c.title;
+      row.querySelector("small")!.textContent =
+        `${new Date(c.updated_ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} · ${c.messages} mensagens`;
+      row.querySelector(".history-rename")!.append(icon("pencil", 14));
+      row.querySelector(".history-delete")!.append(icon("trash", 14));
+      row.querySelector(".history-open")!.addEventListener("click", async () => {
+        const saved = await invoke<Saved | null>("load_conversation", { conversation: c.id });
+        if (saved) openTab(saved);
+      });
+      row.querySelector(".history-rename")!.addEventListener("click", () =>
+        startRename(row.querySelector<HTMLElement>(".history-title")!, c.id),
+      );
+      row.querySelector(".history-delete")!.addEventListener("click", async () => {
+        await invoke("delete_conversation", { conversation: c.id });
+        showHistory();
+      });
+      historyList.append(row);
+    }
+    history.hidden = false;
+  }
+
+  function hideHistory() {
+    history.hidden = true;
+  }
+
+  // ── mensagens ─────────────────────────────────────────────────────────
 
   /// Adiciona uma mensagem e devolve a bolha (onde vai o texto). Mensagens
   /// do usuário e da Lilith levam avatar, nome e hora; as de sistema não.
-  function add(role: Role, text: string, sysIcon?: IconName): HTMLElement {
+  function add(conv: Conversation, role: Role, text: string, sysIcon?: IconName, when = new Date()): HTMLElement {
     const li = document.createElement("li");
     if (role === "system") {
       li.className = "msg system";
@@ -87,15 +299,14 @@ export async function mountChat(root: HTMLElement) {
       } else {
         avatar.classList.add("sigil");
       }
-      const now = new Date();
       const time = li.querySelector("time")!;
-      time.dateTime = now.toISOString();
-      time.textContent = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      time.dateTime = when.toISOString();
+      time.textContent = when.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
       li.querySelector("strong")!.textContent = NAMES[role];
       li.querySelector(".msg")!.textContent = text;
     }
-    log.append(li);
-    log.scrollTop = log.scrollHeight;
+    conv.log.append(li);
+    conv.log.scrollTop = conv.log.scrollHeight;
     return role === "system" ? li : li.querySelector<HTMLElement>(".msg")!;
   }
 
@@ -106,22 +317,26 @@ export async function mountChat(root: HTMLElement) {
     li.replaceChildren(...(sysIcon ? [icon(sysIcon, 14), span] : [span]));
   }
 
-  function setBusy(busy: boolean) {
-    stopBtn.hidden = !busy;
-    sendBtn.hidden = busy;
-    status.textContent = busy ? "pensando…" : "online";
+  function refreshBusy() {
+    stopBtn.hidden = !active.busy;
+    sendBtn.hidden = active.busy;
+    const others = [...open.values()].filter((c) => c !== active && c.busy).length;
+    status.textContent = active.busy ? "pensando…" : others > 0 ? `trabalhando em ${others} outra(s) aba(s)` : "online";
   }
+
+  // ── entrada ───────────────────────────────────────────────────────────
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const text = input.value.trim();
     if (!text) return;
-    add("user", text);
+    const conv = active;
+    add(conv, "user", text);
     input.value = "";
     autosize();
-    live = null;
-    liveStep = -1;
-    invoke("send_message", { text });
+    conv.live = null;
+    conv.liveStep = -1;
+    invoke("send_message", { text, conversation: conv.id });
   });
 
   input.addEventListener("keydown", (e) => {
@@ -129,7 +344,8 @@ export async function mountChat(root: HTMLElement) {
       e.preventDefault();
       form.requestSubmit();
     } else if (e.key === "Escape") {
-      invoke("hide_window", { label: "chat" });
+      if (!history.hidden) hideHistory();
+      else invoke("hide_window", { label: "chat" });
     }
   });
   input.addEventListener("input", autosize);
@@ -139,74 +355,106 @@ export async function mountChat(root: HTMLElement) {
   }
 
   stopBtn.addEventListener("click", () => invoke("cancel"));
+  root.querySelector(".new-chat")!.addEventListener("click", () => openTab());
   root.querySelector('[data-act="close"]')!.addEventListener("click", () => invoke("hide_window", { label: "chat" }));
-  root.querySelector('[data-act="reset"]')!.addEventListener("click", () => {
-    invoke("reset_conversation");
-    log.replaceChildren();
-    add("system", "Conversa nova. O que vamos fazer?", "sparkles");
+  root.querySelector('[data-act="history"]')!.addEventListener("click", () =>
+    history.hidden ? showHistory() : hideHistory(),
+  );
+  root.querySelector('[data-act="history-close"]')!.addEventListener("click", hideHistory);
+
+  // ── eventos do backend (sempre com o id da conversa) ──────────────────
+
+  const byId = (id: string) => open.get(id);
+
+  // Título novo (automático na 1ª fala ou renomeado em qualquer janela).
+  listen<{ id: string; title: string }>("lilith://conversation", (e) => {
+    const conv = byId(e.payload.id);
+    if (conv) setTabTitle(conv, e.payload.title);
+    const row = historyList.querySelector<HTMLElement>(`.history-item[data-id="${CSS.escape(e.payload.id)}"] .history-title`);
+    if (row && !row.querySelector("input")) row.textContent = e.payload.title;
   });
 
-  listen<string>("lilith://state", (e) => setBusy(e.payload === "thinking"));
+  listen<{ id: string }>("lilith://conversation-deleted", (e) => {
+    const conv = byId(e.payload.id);
+    if (conv) closeTab(conv);
+  });
 
-  listen<{ step: number; chunk: string }>("lilith://partial", (e) => {
-    if (!live || liveStep !== e.payload.step) {
-      live = add("lilith", "");
-      liveStep = e.payload.step;
+  listen<{ conversation: string; state: string }>("lilith://state", (e) => {
+    const conv = byId(e.payload.conversation);
+    if (!conv) return;
+    conv.busy = e.payload.state === "thinking";
+    refreshBusy();
+  });
+
+  listen<{ conversation: string; step: number; chunk: string }>("lilith://partial", (e) => {
+    const conv = byId(e.payload.conversation);
+    if (!conv) return;
+    if (!conv.live || conv.liveStep !== e.payload.step) {
+      conv.live = add(conv, "lilith", "");
+      conv.liveStep = e.payload.step;
     }
-    live.textContent += e.payload.chunk;
-    log.scrollTop = log.scrollHeight;
+    conv.live.textContent += e.payload.chunk;
+    conv.log.scrollTop = conv.log.scrollHeight;
   });
 
-  listen<{ step: number; action: string }>("lilith://step", (e) => {
+  listen<{ conversation: string; step: number; action: string }>("lilith://step", (e) => {
+    const conv = byId(e.payload.conversation);
+    if (!conv) return;
     // Texto de um passo que termina chamando uma tool é o modelo "pensando
     // alto" — nunca a resposta. Some da tela; a resposta final vem depois.
-    if (live) live.closest("li")?.remove();
-    live = null;
-    const label = actionLabel(e.payload.action);
-    add("system", `${label}…`, actionIcon(e.payload.action)).classList.add("step");
+    if (conv.live) conv.live.closest("li")?.remove();
+    conv.live = null;
+    add(conv, "system", `${actionLabel(e.payload.action)}…`, actionIcon(e.payload.action)).classList.add("step");
   });
 
   listen<Reply>("lilith://reply", (e) => {
+    const conv = byId(e.payload.conversation);
+    if (!conv) return;
     const { reply, emotion } = e.payload;
-    if (live) {
-      live.textContent = reply;
-    } else {
-      live = add("lilith", reply);
-    }
-    live.dataset.emotion = emotion;
-    live = null;
-    liveStep = -1;
+    if (conv.live) conv.live.textContent = reply;
+    else conv.live = add(conv, "lilith", reply);
+    conv.live.dataset.emotion = emotion;
+    conv.live = null;
+    conv.liveStep = -1;
+    notify(conv);
   });
 
-  listen("lilith://cancelled", () => {
-    live = null;
-    add("system", "Parei tudo.", "stop");
+  listen<{ conversation: string }>("lilith://cancelled", (e) => {
+    const conv = byId(e.payload.conversation);
+    if (!conv) return;
+    conv.live = null;
+    add(conv, "system", "Parei.", "stop");
   });
 
-  // A linha "⚙ …" do passo bloqueado vira o aviso (ele nunca aconteceu).
-  listen<{ action: string }>("lilith://blocked", (e) => {
+  // A linha do passo bloqueado vira o aviso (ele nunca aconteceu).
+  listen<{ conversation: string; action: string }>("lilith://blocked", (e) => {
+    const conv = byId(e.payload.conversation);
+    if (!conv) return;
     const text = `O texto lido pedia para ${actionVerb(e.payload.action)}. Ignorei — só obedeço o chat.`;
-    const steps = log.querySelectorAll<HTMLElement>(".msg.system.step");
+    const steps = conv.log.querySelectorAll<HTMLElement>(".msg.system.step");
     const last = steps[steps.length - 1];
-    if (last && last === log.lastElementChild) {
+    if (last && last === conv.log.lastElementChild) {
       setSystemText(last, text, "shield");
       last.classList.replace("step", "blocked");
     } else {
-      add("system", text, "shield").classList.add("blocked");
+      add(conv, "system", text, "shield").classList.add("blocked");
     }
   });
 
-  listen<Approval>("lilith://approval", (e) => renderApproval(e.payload));
+  listen<Approval>("lilith://approval", (e) => {
+    const conv = byId(e.payload.conversation) ?? active;
+    activate(conv);
+    renderApproval(conv, e.payload);
+  });
   listen<number>("lilith://approval-expired", (e) => {
-    const card = log.querySelector<HTMLElement>(`[data-approval="${e.payload}"]`);
+    const card = logs.querySelector<HTMLElement>(`[data-approval="${e.payload}"]`);
     if (card) settle(card, "Tempo esgotado — negado.");
   });
 
-  function renderApproval(req: Approval) {
+  function renderApproval(conv: Conversation, req: Approval) {
     const li = document.createElement("li");
     li.className = "msg approval";
     li.dataset.approval = String(req.id);
-    const label = actionLabel(req.action);
     li.innerHTML = `
       <p class="approval-title"><span data-icon="shield" data-size="16"></span>Posso fazer isso?</p>
       <p class="approval-action"></p>
@@ -227,7 +475,7 @@ export async function mountChat(root: HTMLElement) {
       li.querySelector(".approval-title")!.after(warn);
       li.querySelector('[data-answer="always"]')!.remove();
     }
-    li.querySelector(".approval-action")!.textContent = label;
+    li.querySelector(".approval-action")!.textContent = actionLabel(req.action);
     li.querySelector(".approval-params")!.textContent = formatParams(req.params);
     li.querySelector(".approval-scope")!.textContent =
       `permissão: ${req.scope}${req.channel !== "local" ? ` · via ${req.channel}` : ""}`;
@@ -238,8 +486,8 @@ export async function mountChat(root: HTMLElement) {
         settle(li, answer === "deny" ? "Negado." : answer === "once" ? "Permitido uma vez." : "Permitido sempre.");
       }),
     );
-    log.append(li);
-    log.scrollTop = log.scrollHeight;
+    conv.log.append(li);
+    conv.log.scrollTop = conv.log.scrollHeight;
     li.querySelector<HTMLButtonElement>(".primary")!.focus();
   }
 
@@ -251,25 +499,49 @@ export async function mountChat(root: HTMLElement) {
     card.append(p);
   }
 
-  // Avisa no chat quando uma tarefa delegada termina.
-  listen<{ kind: string; job?: { id: number; agent: string; status: string; result: string | null } }>(
-    "lilith://job",
-    (e) => {
-      const job = e.payload.job;
-      if (e.payload.kind !== "updated" || !job) return;
-      if (job.status === "running") {
-        add("system", `${job.agent} começou a tarefa #${job.id} — acompanhe no painel`, "bot");
-      } else if (job.status === "done" || job.status === "failed") {
-        const head = job.status === "done" ? `${job.agent} terminou #${job.id}` : `${job.agent} falhou em #${job.id}`;
-        const body = (job.result ?? "").slice(0, 400);
-        add("lilith", body ? `${head}:
-${body}` : head);
-      }
-    },
-  );
+  // Tarefas delegadas avisam na conversa que pediu (ou na aba em uso).
+  listen<{
+    kind: string;
+    job?: { id: number; agent: string; status: string; result: string | null; conversation: string | null };
+  }>("lilith://job", (e) => {
+    const job = e.payload.job;
+    if (e.payload.kind !== "updated" || !job) return;
+    const conv = (job.conversation && byId(job.conversation)) || active;
+    if (job.status === "running") {
+      add(conv, "system", `${job.agent} começou a tarefa #${job.id} — acompanhe no painel`, "bot");
+    } else if (job.status === "done" || job.status === "failed") {
+      const head = job.status === "done" ? `${job.agent} terminou #${job.id}` : `${job.agent} falhou em #${job.id}`;
+      const body = (job.result ?? "").slice(0, 400);
+      add(conv, "lilith", body ? `${head}:\n${body}` : head);
+      notify(conv);
+    }
+  });
 
-  add("lilith", "Oi! Tô aqui no cantinho. Pede o que precisar 💗");
-  input.focus();
+  // Começa pela conversa de hoje mais recente, se houver; senão, uma nova.
+  const recent = (await invoke<Summary[]>("list_conversations"))[0];
+  const saved = recent && isToday(recent.updated_ms)
+    ? await invoke<Saved | null>("load_conversation", { conversation: recent.id })
+    : null;
+  openTab(saved ?? undefined);
+}
+
+function isToday(ms: number): boolean {
+  return new Date(ms).toDateString() === new Date().toDateString();
+}
+
+/// "Hoje", "Ontem", dia da semana (até 6 dias) ou a data.
+export function dayLabel(ms: number): string {
+  const d = new Date(ms);
+  const today = new Date();
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(today) - startOf(d)) / 86_400_000);
+  if (days <= 0) return "Hoje";
+  if (days === 1) return "Ontem";
+  if (days < 7) {
+    const w = d.toLocaleDateString("pt-BR", { weekday: "long" });
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function formatParams(params: Record<string, unknown>): string {

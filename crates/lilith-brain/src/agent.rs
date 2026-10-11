@@ -60,6 +60,13 @@ impl Agent {
         self.memory.reset();
     }
 
+    /// Recarrega turnos antigos (conversa reaberta do histórico).
+    pub fn seed(&self, turns: Vec<(String, String)>) {
+        for (user_text, reply_text) in turns {
+            self.memory.record(Turn { user_text, tool_call: None, reply_text });
+        }
+    }
+
     /// Um turno completo: pergunta ao LLM, executa tools uma por vez (até
     /// `MAX_STEPS`) devolvendo cada resultado, e termina com texto.
     pub async fn process(&self, text: &str, dispatcher: &dyn Dispatcher, sink: Arc<dyn Sink>) -> Reply {

@@ -67,7 +67,13 @@ export function mountOrb(root: HTMLElement) {
     window.setTimeout(() => (bubble.hidden = true), 2200);
   }
 
-  listen<string>("lilith://state", (e) => (orb.dataset.state = e.payload));
+  // Várias abas podem estar trabalhando: a orb "pensa" enquanto houver alguma.
+  const busy = new Set<string>();
+  listen<{ conversation: string; state: string }>("lilith://state", (e) => {
+    if (e.payload.state === "thinking") busy.add(e.payload.conversation);
+    else busy.delete(e.payload.conversation);
+    orb.dataset.state = busy.size > 0 ? "thinking" : "idle";
+  });
   listen<{ emotion: Mood }>("lilith://reply", (e) => {
     setMood(e.payload.emotion);
     window.setTimeout(() => setMood("neutral"), 6000);
