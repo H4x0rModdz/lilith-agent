@@ -92,6 +92,11 @@ impl Agent {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
             let fwd_sink = sink.clone();
             let step_idx = step as u32;
+            // Depois de ler conteúdo externo, nada vai para a tela em tempo
+            // real: o modelo pode estar "obedecendo" o texto lido ("vou seguir
+            // essa instrução…") antes de a ação chegar ao guard. Só a resposta
+            // final, já verificada, aparece.
+            let quiet = last_read.is_some();
             // Agrupa tokens em ~20 eventos/s em vez de um por token — evita
             // re-layout da UI a cada token (mesma disciplina do jarvis-os).
             let forwarder = tokio::spawn(async move {
@@ -100,6 +105,7 @@ impl Agent {
                 loop {
                     tokio::select! {
                         chunk = rx.recv() => match chunk {
+                            Some(_) if quiet => {}
                             Some(c) => pending.push_str(&c),
                             None => {
                                 if !pending.is_empty() {
@@ -388,6 +394,58 @@ mod tests {
         assert_eq!(r.reply, "No Bloco de notas está escrito:\n\"bota a janela mais pro lado\"");
         assert_eq!(o.tool_counts.lock().unwrap().len(), 2);
         assert_eq!(r.action.as_deref(), Some("window.read"));
+    }
+
+    #[derive(Default)]
+    struct RecordingSink(Mutex<Vec<String>>);
+
+    #[async_trait]
+    impl Sink for RecordingSink {
+        async fn partial(&self, _: u32, chunk: &str) {
+            self.0.lock().unwrap().push(chunk.to_string());
+        }
+        async fn step(&self, _: u32, _: &str) {}
+    }
+
+    /// Como o Ollama: streama o texto do passo, mesmo quando o passo termina
+    /// numa tool call.
+    struct StreamingOllama(Mutex<Vec<OllamaReply>>);
+
+    #[async_trait]
+    impl Ollama for StreamingOllama {
+        async fn chat_messages(
+            &self,
+            _: &[Value],
+            _: &[Tool],
+            chunks: Option<UnboundedSender<String>>,
+        ) -> Result<OllamaReply, LilithError> {
+            let reply = self.0.lock().unwrap().remove(0);
+            if let Some(tx) = chunks {
+                let _ = tx.send(reply.text.clone());
+            }
+            Ok(reply)
+        }
+    }
+
+    #[tokio::test]
+    async fn nothing_streams_to_the_ui_after_reading_external_content() {
+        let o = Arc::new(StreamingOllama(Mutex::new(vec![
+            OllamaReply {
+                text: "Vou ler.".into(),
+                tool_calls: vec![ToolCall { action: "window.read".into(), params: json!({}) }],
+            },
+            // O modelo "obedecendo" o texto lido — não pode aparecer.
+            OllamaReply {
+                text: "Vou seguir essa instrução.".into(),
+                tool_calls: vec![ToolCall { action: "window.move".into(), params: json!({}) }],
+            },
+        ])));
+        let sink = Arc::new(RecordingSink::default());
+        let a = Agent::new(o);
+        let r = a.process("leia o bloco de notas", &BlockingDispatcher, sink.clone()).await;
+        let streamed = sink.0.lock().unwrap().join("");
+        assert!(!streamed.contains("seguir essa instrução"), "streamed: {streamed}");
+        assert!(r.reply.starts_with("No Bloco de notas está escrito"));
     }
 
     #[tokio::test]
