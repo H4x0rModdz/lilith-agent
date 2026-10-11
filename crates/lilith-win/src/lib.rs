@@ -96,8 +96,11 @@ fn ui_action(action: &str, params: &Value) -> Result<Value, WinError> {
         let w = window::find(target)?;
         return open_chat(&w, req_str(params, "name")?);
     }
-    let element = req_str(params, "element")?;
     let w = window::find(target)?;
+    if action == "ui.type" {
+        return type_into(&w, params["element"].as_str().unwrap_or("").trim(), params);
+    }
+    let element = req_str(params, "element")?;
     match action {
         "ui.find" => {
             let found = uia::find_elements(w.id, element, 8)?;
@@ -108,7 +111,7 @@ fn ui_action(action: &str, params: &Value) -> Result<Value, WinError> {
             let (clicked, via) = uia::click(w.id, element, index)?;
             Ok(serde_json::json!({ "window": w.title, "clicked": clicked, "via": via }))
         }
-        _ => type_into(&w, element, params),
+        _ => unreachable!("ui.type tratado acima"),
     }
 }
 
@@ -172,10 +175,24 @@ fn type_into(w: &window::WindowInfo, element: &str, params: &Value) -> Result<Va
     }
     window::focus(w.id)?;
     std::thread::sleep(std::time::Duration::from_millis(250));
-    // O campo é achado pelo nome; o clique dá foco nele.
-    let (field, _) = uia::click(w.id, element, 0)?;
+    // O campo: pelo nome, se o modelo acertou; senão (e é o comum — cada app
+    // chama o campo de um jeito) o campo de mensagem da janela: o campo de
+    // texto mais baixo e largo. O clique dá foco nele.
+    let by_name = if element.is_empty() { None } else { uia::click(w.id, element, 0).ok().map(|(f, _)| f) };
+    let field = match by_name {
+        Some(f) => f,
+        None => {
+            let f = uia::message_input(w.id)?;
+            let (x, y) = f.rect.center();
+            input::click_at(x, y)?;
+            f
+        }
+    };
     std::thread::sleep(std::time::Duration::from_millis(200));
-    input::type_text(text)?;
+    // Como uma pessoa digitando (e @menções de verdade), nunca a mensagem
+    // inteira de uma vez.
+    input::reset_cancel();
+    input::type_human(text, params["mentions"].as_bool().unwrap_or(true))?;
     let submit = params["submit"].as_bool().unwrap_or(false);
     if submit {
         std::thread::sleep(std::time::Duration::from_millis(150));

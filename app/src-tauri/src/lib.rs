@@ -306,6 +306,8 @@ fn recent_activity(limit: usize, state: State<'_, AppState>) -> Vec<Value> {
 /// receiver morre junto e a ação nunca roda). Jobs de agentes de código
 /// continuam; eles são cancelados individualmente pelo painel.
 fn kill_switch(app: &AppHandle, state: &AppState) {
+    // Interrompe uma digitação em andamento (ui.type) na próxima letra.
+    lilith_win::input::cancel();
     let running: Vec<(String, TurnHandle)> = state.running.lock().unwrap().drain().collect();
     let mut stopped = 0;
     for (conversation, task) in running {
