@@ -15,6 +15,12 @@ pub trait Ollama: Send + Sync {
         tools: &[Tool],
         chunks: Option<UnboundedSender<String>>,
     ) -> Result<OllamaReply, LilithError>;
+
+    /// Resposta única em JSON obedecendo `schema` (structured outputs do
+    /// Ollama). Usado pelo intérprete; implementações sem suporte recusam.
+    async fn structured(&self, _messages: &[Value], _schema: &Value) -> Result<Value, LilithError> {
+        Err(LilithError::OllamaInvalid("structured output não suportado".into()))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +69,18 @@ impl OllamaClient {
     pub fn model(&self) -> &str {
         &self.cfg.model
     }
+
+    /// Opções que definem como o modelo é *carregado*. Têm de ser idênticas
+    /// em todas as chamadas: qualquer diferença (ex.: `num_thread` só numa
+    /// delas) faz o Ollama recarregar o modelo, ~3 s cada vez.
+    fn load_options(&self) -> Value {
+        // Deixa um núcleo livre para o resto do sistema: a Lilith roda junto
+        // com o que o usuário está fazendo e não pode travar o PC pensando.
+        let num_thread = std::thread::available_parallelism()
+            .map(|n| n.get().saturating_sub(1).max(1))
+            .unwrap_or(1);
+        json!({ "num_thread": num_thread, "num_ctx": self.cfg.num_ctx })
+    }
 }
 
 #[async_trait]
@@ -77,17 +95,12 @@ impl Ollama for OllamaClient {
     ) -> Result<OllamaReply, LilithError> {
         use futures_util::StreamExt;
 
-        // Deixa um núcleo livre para o resto do sistema: a Lilith roda junto
-        // com o que o usuário está fazendo e não pode travar o PC pensando.
-        let num_thread = std::thread::available_parallelism()
-            .map(|n| n.get().saturating_sub(1).max(1))
-            .unwrap_or(1);
         let mut body = json!({
             "model": self.cfg.model,
             "messages": messages,
             "tools": ollama_tools_payload(tools),
             "stream": true,
-            "options": { "num_thread": num_thread, "num_ctx": self.cfg.num_ctx },
+            "options": self.load_options(),
         });
         if let Some(think) = self.cfg.think {
             body["think"] = json!(think);
@@ -150,6 +163,10 @@ impl Ollama for OllamaClient {
                 .collect(),
         })
     }
+
+    async fn structured(&self, messages: &[Value], schema: &Value) -> Result<Value, LilithError> {
+        self.structured_impl(messages, schema).await
+    }
 }
 
 /// Remove raciocínio que vaze no texto (`<think>…</think>`, ou só o fecho
@@ -185,6 +202,40 @@ fn normalize_host(raw: &str) -> String {
     }
 }
 
+impl OllamaClient {
+    async fn structured_impl(&self, messages: &[Value], schema: &Value) -> Result<Value, LilithError> {
+        let mut body = json!({
+            "model": self.cfg.model,
+            "messages": messages,
+            "format": schema,
+            "stream": false,
+            // Determinístico e curto: é classificação, não conversa.
+        });
+        // Mesmas opções de carga da chamada principal (senão o Ollama recarrega
+        // o modelo a cada troca); temperatura/limite são por requisição.
+        let mut options = self.load_options();
+        options["temperature"] = json!(0);
+        options["num_predict"] = json!(160);
+        body["options"] = options;
+        if let Some(think) = self.cfg.think {
+            body["think"] = json!(think);
+        }
+        let resp = self
+            .http
+            .post(format!("{}/api/chat", self.cfg.host))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LilithError::OllamaUnreachable(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(LilithError::OllamaInvalid(format!("HTTP {}", resp.status())));
+        }
+        let v: Value = resp.json().await.map_err(|e| LilithError::OllamaInvalid(e.to_string()))?;
+        let content = v["message"]["content"].as_str().unwrap_or_default();
+        serde_json::from_str(&strip_think(content)).map_err(|e| LilithError::OllamaInvalid(format!("json: {e}")))
+    }
+}
+
 /// Mensagens da primeira chamada de um turno: system prompt, histórico
 /// achatado e o texto atual. O loop do agente acrescenta os passos de tool.
 pub fn build_initial_messages(user_text: &str, history: &[Turn]) -> Vec<Value> {
@@ -211,14 +262,10 @@ pub fn append_tool_step(messages: &mut Vec<Value>, call: &ToolCall, response: &V
     }));
 }
 
+/// Só a resposta final de cada turno. Um formato estruturado aqui (o antigo
+/// "[chamei X; resultado: …]") era imitado pelo modelo nas respostas.
 fn assistant_message_for(turn: &Turn) -> String {
-    match &turn.tool_call {
-        Some(call) => format!(
-            "[chamei {}({}); resultado: {}]",
-            call.action, call.params, turn.reply_text
-        ),
-        None => turn.reply_text.clone(),
-    }
+    turn.reply_text.clone()
 }
 
 /// Curto de propósito: modelos pequenos (4B) ignoram prompts longos.
@@ -311,7 +358,7 @@ Pronto!"), "Pronto!");
         let m = build_initial_messages("e agora o discord", &history);
         assert_eq!(m.len(), 4);
         assert_eq!(m[0]["role"], "system");
-        assert!(m[2]["content"].as_str().unwrap().contains("app.open"));
+        assert_eq!(m[2]["content"], "Pronto!");
         assert_eq!(m[3]["content"], "e agora o discord");
     }
 }
