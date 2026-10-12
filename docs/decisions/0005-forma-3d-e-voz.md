@@ -29,6 +29,16 @@ médio, sem depender de mais modelos grandes).
    (`lilith://mouth`). Os arquivos (≈150 MB) são baixados no primeiro uso para
    `%APPDATA%\Lilith\voice\`, conferidos por SHA-256, e nunca vão no instalador.
    Voz de entrada (fase 2c): whisper.cpp, push-to-talk.
+6. **Voz opcional "Serena" (GPU NVIDIA): Qwen3-TTS CustomVoice 1.7B** (Apache-2.0).
+   Escolhida de ouvido entre as vozes femininas prontas do modelo (clonar o `mp3`
+   de referência, com o Qwen Base, Kokoro+OpenVoice e outros, soou pior). Roda como
+   processo Python (`voice/qwen_server.py`, protocolo de linhas JSON) gerenciado
+   pelo app, com ambiente instalado sob demanda em `%APPDATA%\Lilithoice\qwen\`
+   (uv + PyTorch/CUDA + modelo, ≈8 GB). Custo medido numa RTX 5070: ≈3,9 GB de
+   VRAM carregado, geração mais lenta que o tempo real (RTF ≈ 1,4), por isso a
+   fala é gerada em pedaços maiores e, enquanto o modelo carrega, a primeira
+   resposta sai com o Kokoro. Descarrega da GPU depois de 20 minutos parada. O
+   Kokoro segue como padrão e plano B para qualquer PC.
 
 ## Fases
 

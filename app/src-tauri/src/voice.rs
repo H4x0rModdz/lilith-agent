@@ -39,6 +39,19 @@ const FRAME_MS: u32 = 40;
 /// Depois deste tempo sem falar, o modelo sai da memória.
 const IDLE_UNLOAD_SECS: u64 = 300;
 
+/// Motor preferido: a voz Serena (GPU) em vez do Kokoro (CPU).
+static PREFER_SERENA: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Copy, PartialEq)]
+enum Voice {
+    Kokoro,
+    Serena,
+}
+
+pub fn set_engine(name: &str) {
+    PREFER_SERENA.store(name == "serena", Ordering::Relaxed);
+}
+
 /// Cada fala nova (ou parada) invalida a anterior.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static INSTALLING: AtomicBool = AtomicBool::new(false);
@@ -451,6 +464,29 @@ pub fn clean_for_speech(text: &str) -> String {
     }
 }
 
+async fn synth_chunk(engine: Voice, text: String) -> Result<(Vec<f32>, u32), String> {
+    match engine {
+        Voice::Kokoro => tokio::task::spawn_blocking(move || synthesize(&text)).await.map_err(|e| e.to_string())?,
+        Voice::Serena => crate::voice_qwen::synthesize(&text).await,
+    }
+}
+
+/// Junta frases curtas até `min_chars`: a Serena é mais lenta que o tempo real,
+/// então menos pedaços grandes dão menos pausas entre uma frase e outra.
+fn merge_chunks(parts: Vec<String>, min_chars: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in parts {
+        match out.last_mut() {
+            Some(last) if last.chars().count() < min_chars => {
+                last.push(' ');
+                last.push_str(&p);
+            }
+            _ => out.push(p),
+        }
+    }
+    out
+}
+
 /// Parte o texto em frases de até `CHUNK_CHARS`: a primeira toca logo.
 fn chunks(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -534,14 +570,35 @@ pub fn stop(app: &AppHandle) {
 /// anterior. Erros só vão para o log.
 pub fn speak(app: &AppHandle, text: &str) {
     let parts = chunks(&clean_for_speech(text));
-    if parts.is_empty() || !is_installed() {
+    let want_serena = PREFER_SERENA.load(Ordering::Relaxed) && crate::voice_qwen::is_installed();
+    if parts.is_empty() || !(want_serena || is_installed()) {
         return;
     }
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     stop_playback();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let synth = |text: String| tokio::task::spawn_blocking(move || synthesize(&text));
+        // Serena na GPU se já carregou; senão, carrega em segundo plano e fala
+        // agora com o Kokoro (ou espera, se só a Serena estiver instalada).
+        let mut engine = Voice::Kokoro;
+        if want_serena {
+            if crate::voice_qwen::is_loaded() {
+                engine = Voice::Serena;
+            } else {
+                tauri::async_runtime::spawn(crate::voice_qwen::warm(app.clone()));
+                if !is_installed() {
+                    for _ in 0..180 {
+                        if crate::voice_qwen::is_loaded() || GENERATION.load(Ordering::SeqCst) != generation {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                    engine = Voice::Serena;
+                }
+            }
+        }
+        let parts = if engine == Voice::Serena { merge_chunks(parts, 110) } else { parts };
+        let synth = |text: String| tokio::spawn(synth_chunk(engine, text));
         let mut next = Some(synth(parts[0].clone()));
         let _ = app.emit("lilith://speaking", true);
         for i in 0..parts.len() {
@@ -573,7 +630,7 @@ pub fn speak(app: &AppHandle, text: &str) {
                 }
             };
             let env = envelope(&samples, rate);
-            let duration = std::time::Duration::from_millis(samples.len() as u64 * 1000 / rate as u64);
+            let duration = std::time::Duration::from_millis(samples.len() as u64 * 1000 / rate.max(1) as u64);
             play_async(&wav);
             let started = std::time::Instant::now();
             let tick = std::time::Duration::from_millis(FRAME_MS as u64);
@@ -600,7 +657,9 @@ pub fn speak(app: &AppHandle, text: &str) {
             let _ = app.emit("lilith://mouth", 0.0f32);
             let _ = app.emit("lilith://speaking", false);
         }
-        schedule_unload();
+        if engine == Voice::Kokoro {
+            schedule_unload();
+        }
     });
 }
 
@@ -609,10 +668,22 @@ pub fn speak(app: &AppHandle, text: &str) {
 pub struct Status {
     pub installed: bool,
     pub installing: bool,
+    /// Voz Serena (GPU): instalada, instalando, carregada na GPU, carregando.
+    pub serena_installed: bool,
+    pub serena_installing: bool,
+    pub serena_loaded: bool,
+    pub serena_loading: bool,
 }
 
 pub fn status() -> Status {
-    Status { installed: is_installed(), installing: INSTALLING.load(Ordering::SeqCst) }
+    Status {
+        installed: is_installed(),
+        installing: INSTALLING.load(Ordering::SeqCst),
+        serena_installed: crate::voice_qwen::is_installed(),
+        serena_installing: crate::voice_qwen::installing(),
+        serena_loaded: crate::voice_qwen::is_loaded(),
+        serena_loading: crate::voice_qwen::is_loading(),
+    }
 }
 
 #[cfg(test)]
@@ -627,6 +698,14 @@ mod tests {
         let long = format!("{} Fim.", "Frase curta. ".repeat(80));
         let cut = clean_for_speech(&long);
         assert!(cut.chars().count() <= MAX_SPOKEN_CHARS && cut.ends_with('.'));
+    }
+
+    #[test]
+    fn short_sentences_are_merged_for_the_slower_voice() {
+        let parts = vec!["Oi.".to_string(), "Tudo bem?".to_string(), "Frase um pouco mais comprida para passar do mínimo de caracteres.".to_string(), "Fim.".to_string()];
+        let merged = merge_chunks(parts, 30);
+        assert_eq!(merged.len(), 2);
+        assert!(merged[0].starts_with("Oi. Tudo bem?") && merged[1] == "Fim.");
     }
 
     #[test]

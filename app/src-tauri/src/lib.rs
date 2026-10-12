@@ -3,6 +3,7 @@ mod profile;
 mod reminders;
 mod update;
 mod voice;
+mod voice_qwen;
 mod dispatcher;
 mod know;
 pub mod elevated;
@@ -253,6 +254,7 @@ fn get_settings(state: State<'_, AppState>) -> profile::Settings {
 #[tauri::command]
 fn save_settings(settings: profile::Settings, state: State<'_, AppState>) {
     settings.save(&state.store);
+    voice::set_engine(&settings.voice_engine);
 }
 
 #[tauri::command]
@@ -364,6 +366,18 @@ fn voice_status() -> voice::Status {
 #[tauri::command]
 async fn voice_install(app: AppHandle) -> Result<(), String> {
     voice::install(app).await
+}
+
+/// Baixa e instala a voz Serena (GPU NVIDIA, ≈8 GB). Progresso em `lilith://voice-install`.
+#[tauri::command]
+async fn voice_install_serena(app: AppHandle) -> Result<(), String> {
+    voice_qwen::install(app).await
+}
+
+/// Carrega a Serena na GPU agora (para a primeira fala não esperar).
+#[tauri::command]
+async fn voice_warm(app: AppHandle) {
+    voice_qwen::warm(app).await;
 }
 
 /// Fala uma frase de teste.
@@ -587,6 +601,16 @@ pub fn run() {
                 windows::show_avatar(app.handle());
             }
 
+            // Voz: motor escolhido e, se for a Serena, já carrega na GPU.
+            {
+                let store = app.state::<AppState>().store.clone();
+                let engine = profile::Settings::load(&store).voice_engine;
+                voice::set_engine(&engine);
+                if engine == "serena" && voice_qwen::is_installed() {
+                    tauri::async_runtime::spawn(voice_qwen::warm(app.handle().clone()));
+                }
+            }
+
             // Início com o Windows (só na primeira execução instalada) e
             // busca de atualização a cada abertura.
             {
@@ -696,6 +720,8 @@ pub fn run() {
             js_log,
             voice_status,
             voice_install,
+            voice_install_serena,
+            voice_warm,
             voice_test,
             voice_stop,
             avatar_model,
