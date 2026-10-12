@@ -745,7 +745,7 @@ mod tests {
         replies.push(text("Minimizei todas as janelas!"));
         let a = agent(replies);
         let d = ChangingDispatcher::default();
-        let r = a.process("minimiza as janelas do monitor 1", &d, Arc::new(NullSink)).await;
+        let r = a.process("vai minimizando uma janela depois da outra", &d, Arc::new(NullSink)).await;
         assert_eq!(*d.0.lock().unwrap(), 8, "as 8 chamadas rodam: cada uma devolveu algo novo");
         assert_eq!(r.reply, "Minimizei todas as janelas!");
     }
