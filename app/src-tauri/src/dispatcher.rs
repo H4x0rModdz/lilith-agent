@@ -519,6 +519,28 @@ impl GuardedDispatcher {
                 elevated::run(admin_ops).await?;
                 Ok(json!({ "tiled": plans.iter().map(|p| &p.title).collect::<Vec<_>>() }))
             }
+            // "Minimiza as janelas do monitor N": todas de uma vez, pelo número do
+            // monitor. (Sem isto, o tratador abaixo só via a janela ativa.)
+            // Janelas de administrador ficam de fora: minimizá-las pede UAC.
+            "window.minimize" if params["monitor"].as_u64().is_some() && params["target"].as_str().is_none() => {
+                let monitor = params["monitor"].as_u64().unwrap_or(1) as usize;
+                let wins = blocking(|| Ok(window::list())).await?;
+                let (mut done, mut skipped) = (Vec::new(), Vec::new());
+                for w in wins.into_iter().filter(|w| w.monitor == monitor && !w.minimized) {
+                    if w.elevated {
+                        skipped.push(w.title);
+                        continue;
+                    }
+                    let id = w.id;
+                    blocking(move || window::set_state(id, "minimize")).await?;
+                    done.push(w.title);
+                }
+                let mut out = json!({ "monitor": monitor, "minimized": done, "count": done.len(), "done": "window.minimize" });
+                if !skipped.is_empty() {
+                    out["skipped_admin"] = json!(skipped);
+                }
+                Ok(out)
+            }
             "cursor.point" => {
                 let spec = params["monitor"].clone();
                 let at = if !spec.is_null() && params["target"].is_null() {
