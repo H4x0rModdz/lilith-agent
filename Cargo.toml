@@ -4,7 +4,7 @@ members = ["crates/*", "app/src-tauri"]
 
 [workspace.package]
 edition = "2021"
-version = "0.2.2"
+version = "0.3.0"
 license = "GPL-3.0-only"
 repository = "https://github.com/H4x0rModdz/lilith-agent"
 
