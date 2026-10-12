@@ -170,6 +170,8 @@ pub fn show_avatar(app: &AppHandle) {
 }
 
 fn show_avatar_now(app: &AppHandle) {
+    let t0 = std::time::Instant::now();
+    tracing::info!("forma 3D: pedido de abertura");
     // Sem o arquivo do modelo, fica na forma 2D (a orb continua).
     if !crate::config::avatar_model_exists() {
         tracing::warn!("sem lilith.vrm em %APPDATA%\\Lilith — ficando na forma 2D");
@@ -181,10 +183,13 @@ fn show_avatar_now(app: &AppHandle) {
         if let Some((x, y)) = avatar_position(app) {
             let _ = w.set_position(tauri::LogicalPosition::new(x, y));
         }
+        tracing::info!(ms = t0.elapsed().as_millis() as u64, "forma 3D: reposicionada");
         let _ = w.show();
+        tracing::info!(ms = t0.elapsed().as_millis() as u64, "forma 3D: janela mostrada");
         let _ = app.emit_to("avatar", "lilith://avatar-visible", true);
         hide_orb(app);
         remember_form(app, "3d");
+        tracing::info!(ms = t0.elapsed().as_millis() as u64, "forma 3D: pronta (orb escondida)");
         return;
     }
     let mut builder = tauri::WebviewWindowBuilder::new(app, "avatar", tauri::WebviewUrl::App("index.html".into()))

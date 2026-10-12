@@ -121,9 +121,15 @@ export async function mountAvatar(root: HTMLElement) {
     relaxArms(vrm);
     frame(vrm);
   } catch (e) {
+    const msg = String(e);
     console.warn("sem modelo 3D", e);
+    // Só pede o arquivo quando ele realmente não existe; outras falhas mostram o motivo.
+    const missing = msg.includes("não encontrado");
     hint.hidden = false;
-    hint.textContent = "Coloque o arquivo lilith.vrm na pasta %APPDATA%\\Lilith e abra a forma 3D de novo.";
+    hint.textContent = missing
+      ? "Coloque o arquivo lilith.vrm na pasta %APPDATA%\Lilith e abra a forma 3D de novo."
+      : `Não consegui carregar o modelo 3D: ${msg.slice(0, 160)}`;
+    void invoke("js_log", { msg: `modelo 3D: ${msg}` });
   }
 
   /// O modelo vem em T-pose: baixa os braços para uma pose natural.
@@ -255,21 +261,6 @@ export async function mountAvatar(root: HTMLElement) {
 
   function frameTick() {
     requestAnimationFrame(frameTick);
-
-  // A janela fica carregada quando volta para a forma 2D: pausa, e na volta
-  // toca a animação de entrada de novo.
-  void listen<boolean>("lilith://avatar-visible", (e) => {
-    paused = !e.payload;
-    if (!e.payload) return;
-    leaving = false;
-    dockHint.hidden = true;
-    stage.classList.remove("outro", "near-corner");
-    stage.classList.add("intro");
-    sparkles();
-    window.setTimeout(() => stage.classList.remove("intro"), 900);
-    clock.getDelta();
-    acc = 0;
-  });
     if (paused) return;
     acc += clock.getDelta();
     if (acc < 1 / FPS) return;
@@ -330,6 +321,21 @@ export async function mountAvatar(root: HTMLElement) {
     vrm.update(dt);
     renderer.render(scene, camera);
   }
+  // A janela fica carregada quando volta para a forma 2D: pausa, e na volta
+  // toca a animação de entrada de novo.
+  void listen<boolean>("lilith://avatar-visible", (e) => {
+    paused = !e.payload;
+    if (!e.payload) return;
+    leaving = false;
+    dockHint.hidden = true;
+    stage.classList.remove("outro", "near-corner");
+    stage.classList.add("intro");
+    sparkles();
+    window.setTimeout(() => stage.classList.remove("intro"), 900);
+    clock.getDelta();
+    acc = 0;
+  });
+
   requestAnimationFrame(frameTick);
 
   // ── clique, duplo clique e arrastar ───────────────────────────────────
