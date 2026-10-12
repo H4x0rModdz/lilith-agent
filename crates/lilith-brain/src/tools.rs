@@ -218,9 +218,18 @@ pub fn all_tools() -> Vec<Tool> {
                           bloco de notas', 'o que diz essa janela'. `target`: o PROGRAMA (ex.: 'discord', 'whatsapp'), nunca o nome de uma conversa. Em chats \
                           (Discord…) traz só as mensagens dos últimos 5 minutos. Passe `since_minutes` \
                           SÓ se o usuário disser um período ('da última hora' = 60, 'de hoje' = 1440); \
-                          sem período dito, omita.",
+                          sem período dito, omita. Traz o documento principal E o resto da janela \
+                          (avisos, barra de status, listas como a Lista de Erros, botões). Para achar \
+                          algo específico ('o aviso de vulnerabilidade', 'o erro de compilação') passe \
+                          `query` com uma palavra-chave (ex.: 'vulnerab'): volta `matches` com o que \
+                          casa. Só vê o que está visível na tela; se `matches` vier vazio, o item pode \
+                          estar rolado ou em outra janela — diga isso, não invente.",
             schema: obj(
-                json!({ "target": { "type": "string" }, "since_minutes": { "type": "integer" } }),
+                json!({
+                    "target": { "type": "string" },
+                    "since_minutes": { "type": "integer" },
+                    "query": { "type": "string", "description": "Palavra-chave para procurar na janela" }
+                }),
                 &["target"],
             ),
         },
@@ -331,8 +340,13 @@ pub fn all_tools() -> Vec<Tool> {
         },
         Tool {
             action: "window.minimize",
-            description: "Minimiza uma janela (`target`: app ou título).",
-            schema: obj(json!({ "target": { "type": "string" } }), &["target"]),
+            description: "Minimiza uma janela (`target`: app ou título). Para minimizar TODAS as \
+                          janelas de um monitor ('minimiza as janelas do monitor 1'), passe só `monitor` \
+                          (o número que window.list mostra) e NÃO `target`: é uma chamada só.",
+            schema: obj(
+                json!({ "target": { "type": "string" }, "monitor": { "type": "integer", "minimum": 1 } }),
+                &[],
+            ),
         },
         Tool {
             action: "window.maximize",

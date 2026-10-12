@@ -63,6 +63,145 @@ pub fn read_window_text(id: isize, max_chars: usize) -> Result<String, WinError>
     }
 }
 
+/// O que a janela mostra além do documento principal: avisos, barras de
+/// status, listas (Lista de Erros, Gerenciador de Soluções…) e botões.
+pub struct WindowRead {
+    /// Texto do documento/campo principal (o editor, a página…), se houver.
+    pub document: Option<String>,
+    /// Demais textos visíveis, na ordem da tela (avisos, status, itens de lista…).
+    pub texts: Vec<String>,
+    /// Itens cujo nome contém a busca (`query`), com o tipo.
+    pub matches: Vec<String>,
+}
+
+/// Teto de nós da visão geral (editores e navegadores têm árvores enormes).
+const OVERVIEW_MAX_NODES: usize = 6000;
+/// Cada texto de terceiros é curto: não vira veículo de prompt injection.
+const OVERVIEW_MAX_TEXT: usize = 300;
+
+/// Lê o documento principal E o resto da janela. `query` procura também por
+/// nome em qualquer item visível (inclusive botões e linhas de lista) e no
+/// texto do documento. Só o que está visível na tela.
+pub fn read_window_overview(id: isize, max_chars: usize, query: Option<&str>) -> Result<WindowRead, WinError> {
+    use windows::Win32::UI::Accessibility::{
+        UIA_ButtonControlTypeId, UIA_CustomControlTypeId, UIA_DataItemControlTypeId, UIA_GroupControlTypeId,
+        UIA_HyperlinkControlTypeId, UIA_ListItemControlTypeId, UIA_PaneControlTypeId, UIA_StatusBarControlTypeId,
+        UIA_TreeItemControlTypeId,
+    };
+    let needle = query.map(|q| crate::paths::fold(q.trim())).filter(|q| !q.is_empty());
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+        let root = uia.ElementFromHandle(HWND(id as *mut _)).map_err(|_| {
+            WinError::Unavailable("não consegui acessar essa janela (app de administrador?)".into())
+        })?;
+        let walker = uia.ControlViewWalker()?;
+
+        let mut document: Option<String> = None;
+        let mut texts: Vec<String> = Vec::new();
+        // Botões e links (barras de ferramentas) vão depois: avisos e textos primeiro.
+        let mut controls: Vec<String> = Vec::new();
+        let mut matches: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut stack = vec![root];
+        let mut visited = 0usize;
+        while let Some(el) = stack.pop() {
+            visited += 1;
+            if visited > OVERVIEW_MAX_NODES {
+                break;
+            }
+            if el.CurrentIsOffscreen().map(|b| b.as_bool()).unwrap_or(false) {
+                continue;
+            }
+            let control = el.CurrentControlType().unwrap_or_default();
+            // O documento/campo principal: pega o texto e não desce nele (o
+            // editor expõe uma linha por nó, o que estoura o limite).
+            if control == UIA_DocumentControlTypeId || control == UIA_EditControlTypeId {
+                if document.is_none() {
+                    document = document_text(&el, max_chars);
+                }
+                if let (Some(n), Some(text)) = (&needle, &document) {
+                    for line in text.lines().filter(|l| crate::paths::fold(l).contains(n.as_str())).take(10) {
+                        matches.push(format!("no documento: {}", clip(line.trim())));
+                    }
+                }
+                continue;
+            }
+            let name = el.CurrentName().map(|n| n.to_string()).unwrap_or_default();
+            let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+            if !name.is_empty() {
+                let (label, shown) = if control == UIA_TextControlTypeId {
+                    ("texto", true)
+                } else if control == UIA_HyperlinkControlTypeId {
+                    ("link", true)
+                } else if control == UIA_ButtonControlTypeId {
+                    ("botão", true)
+                } else if control == UIA_ListItemControlTypeId || control == UIA_DataItemControlTypeId {
+                    ("item", true)
+                } else if control == UIA_TreeItemControlTypeId {
+                    ("árvore", true)
+                } else if control == UIA_StatusBarControlTypeId {
+                    ("status", true)
+                } else if (control == UIA_PaneControlTypeId || control == UIA_GroupControlTypeId || control == UIA_CustomControlTypeId)
+                    && name.chars().count() >= 25
+                    && name.contains(' ')
+                {
+                    // Avisos (barras de informação) costumam ser um painel cujo nome é a frase.
+                    ("aviso", true)
+                } else {
+                    ("", false)
+                };
+                if let Some(n) = &needle {
+                    if crate::paths::fold(&name).contains(n.as_str()) && matches.len() < 40 && seen.insert(format!("m|{label}|{name}")) {
+                        matches.push(format!("{}: {}", if label.is_empty() { "item" } else { label }, clip(&name)));
+                    }
+                }
+                if shown && seen.insert(format!("t|{label}|{name}")) {
+                    let line = match label {
+                        "texto" => clip(&name),
+                        _ => format!("[{label}] {}", clip(&name)),
+                    };
+                    if label == "botão" || label == "link" {
+                        controls.push(line);
+                    } else {
+                        texts.push(line);
+                    }
+                }
+            }
+            let mut children = Vec::new();
+            let mut next = walker.GetFirstChildElement(&el);
+            while let Ok(child) = next {
+                next = walker.GetNextSiblingElement(&child);
+                children.push(child);
+            }
+            stack.extend(children.into_iter().rev());
+        }
+        texts.extend(controls);
+        if document.is_none() && texts.is_empty() {
+            return Err(WinError::NotFound("não achei texto legível nessa janela".into()));
+        }
+        // Orçamento: o documento ocupa até 60%; o resto é dos demais textos.
+        let doc_budget = if texts.is_empty() { max_chars } else { max_chars * 6 / 10 };
+        let document = document.map(|d| truncate(d, doc_budget));
+        let mut left = max_chars.saturating_sub(document.as_ref().map(|d| d.chars().count()).unwrap_or(0)).max(500);
+        let mut kept = Vec::new();
+        for t in texts {
+            let n = t.chars().count() + 1;
+            if n > left {
+                break;
+            }
+            left -= n;
+            kept.push(t);
+        }
+        Ok(WindowRead { document, texts: kept, matches })
+    }
+}
+
+fn clip(s: &str) -> String {
+    let s: String = s.chars().take(OVERVIEW_MAX_TEXT).collect();
+    s
+}
+
 /// Texto do documento inteiro (TextPattern) ou o valor do campo (ValuePattern).
 unsafe fn document_text(el: &IUIAutomationElement, max_chars: usize) -> Option<String> {
     if let Ok(pattern) = el.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) {

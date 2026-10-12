@@ -740,8 +740,40 @@ pub fn handle(action: &str, params: &Value) -> Result<Value, WinError> {
                 return Ok(recent_messages(&w, messages, params));
             }
             let max = params["max_chars"].as_u64().unwrap_or(6000).clamp(200, 20000) as usize;
-            let text = crate::uia::read_window_text(w.id, max)?;
-            Ok(json!({ "window": w.title, "app": w.app, "text": text }))
+            let query = params["query"].as_str().map(str::trim).filter(|q| !q.is_empty());
+            // Documento principal + o resto da janela (avisos, status, listas) +
+            // o que casa com a busca. Cai na leitura simples se a visão geral falhar.
+            match crate::uia::read_window_overview(w.id, max, query) {
+                Ok(read) => {
+                    let text = read.document.clone().unwrap_or_else(|| read.texts.join("\n"));
+                    let mut out = json!({ "window": w.title, "app": w.app, "text": text });
+                    if read.document.is_some() && !read.texts.is_empty() {
+                        out["other_text"] = json!(read.texts.join("\n"));
+                    }
+                    if query.is_some() {
+                        out["query"] = json!(query);
+                        out["matches"] = json!(read.matches);
+                        if read.matches.is_empty() {
+                            out["note"] = json!("nada visível na janela contém essa busca (pode estar rolado para fora da tela ou em outra janela)");
+                        }
+                    }
+                    Ok(out)
+                }
+                Err(_) => {
+                    let text = crate::uia::read_window_text(w.id, max)?;
+                    Ok(json!({ "window": w.title, "app": w.app, "text": text }))
+                }
+            }
+        }
+        // "Minimiza tudo do monitor 1": uma chamada só, em vez de uma por janela.
+        "window.minimize" if params["monitor"].as_u64().is_some() && params["target"].as_str().is_none() => {
+            let monitor = params["monitor"].as_u64().unwrap_or(1) as usize;
+            let mut done = Vec::new();
+            for w in list().into_iter().filter(|w| w.monitor == monitor && !w.minimized) {
+                set_state(w.id, "minimize")?;
+                done.push(w.title);
+            }
+            Ok(json!({ "monitor": monitor, "minimized": done, "count": done.len(), "done": "window.minimize" }))
         }
         "window.minimize" | "window.maximize" | "window.restore" => {
             let w = find(target)?;
