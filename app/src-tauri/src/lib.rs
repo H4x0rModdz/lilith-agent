@@ -2,6 +2,8 @@ mod config;
 mod profile;
 mod reminders;
 mod update;
+mod voice;
+mod voice_qwen;
 mod dispatcher;
 mod know;
 pub mod elevated;
@@ -94,6 +96,8 @@ fn send_message(text: String, conversation: String, app: AppHandle, state: State
         emit_title(&app, &conversation, &title);
     }
     emit_state(&app, &conversation, "thinking");
+    // Falou por cima: o usuário interrompe a Lilith.
+    voice::stop(&app);
     let conv = conversation.clone();
     let store = state.store.clone();
     let ollama = state.ollama.clone();
@@ -102,6 +106,9 @@ fn send_message(text: String, conversation: String, app: AppHandle, state: State
         let sink = Arc::new(EventSink { app: app.clone(), conversation: conv.clone() });
         let reply = agent.process_with_context(&text, Some(&context), &dispatcher, sink).await;
         store.append(&conv, "lilith", &reply.reply);
+        if profile::Settings::load(&store).voice {
+            voice::speak(&app, &reply.reply);
+        }
         // Aprende com o que o usuário DIGITOU (nunca com conteúdo lido).
         if profile::auto_learn(&store) {
             let (app, store, text) = (app.clone(), store.clone(), text.clone());
@@ -247,6 +254,7 @@ fn get_settings(state: State<'_, AppState>) -> profile::Settings {
 #[tauri::command]
 fn save_settings(settings: profile::Settings, state: State<'_, AppState>) {
     settings.save(&state.store);
+    voice::set_engine(&settings.voice_engine);
 }
 
 #[tauri::command]
@@ -348,9 +356,44 @@ fn js_log(msg: String) {
     tracing::warn!(target: "js", "{}", msg.chars().take(500).collect::<String>());
 }
 
+/// Estado da voz (instalada? instalando?) para as Configurações.
+#[tauri::command]
+fn voice_status() -> voice::Status {
+    voice::status()
+}
+
+/// Baixa e instala o Piper e a voz (≈150 MB). O progresso vai em `lilith://voice-install`.
+#[tauri::command]
+async fn voice_install(app: AppHandle) -> Result<(), String> {
+    voice::install(app).await
+}
+
+/// Baixa e instala a voz Serena (GPU NVIDIA, ≈8 GB). Progresso em `lilith://voice-install`.
+#[tauri::command]
+async fn voice_install_serena(app: AppHandle) -> Result<(), String> {
+    voice_qwen::install(app).await
+}
+
+/// Carrega a Serena na GPU agora (para a primeira fala não esperar).
+#[tauri::command]
+async fn voice_warm(app: AppHandle) {
+    voice_qwen::warm(app).await;
+}
+
+/// Fala uma frase de teste.
+#[tauri::command]
+fn voice_test(app: AppHandle) {
+    voice::speak(&app, "Oi! Agora eu consigo falar com você.");
+}
+
+#[tauri::command]
+fn voice_stop(app: AppHandle) {
+    voice::stop(&app);
+}
+
 /// Alterna entre a forma 2D (orb) e a forma 3D.
 #[tauri::command]
-fn toggle_avatar(app: AppHandle) {
+async fn toggle_avatar(app: AppHandle) {
     windows::toggle_avatar(&app);
 }
 
@@ -413,6 +456,7 @@ fn recent_activity(limit: usize, state: State<'_, AppState>) -> Vec<Value> {
 fn kill_switch(app: &AppHandle, state: &AppState) {
     // Interrompe uma digitação em andamento (ui.type) na próxima letra.
     lilith_win::input::cancel();
+    voice::stop(app);
     let running: Vec<(String, TurnHandle)> = state.running.lock().unwrap().drain().collect();
     let mut stopped = 0;
     for (conversation, task) in running {
@@ -557,6 +601,16 @@ pub fn run() {
                 windows::show_avatar(app.handle());
             }
 
+            // Voz: motor escolhido e, se for a Serena, já carrega na GPU.
+            {
+                let store = app.state::<AppState>().store.clone();
+                let engine = profile::Settings::load(&store).voice_engine;
+                voice::set_engine(&engine);
+                if engine == "serena" && voice_qwen::is_installed() {
+                    tauri::async_runtime::spawn(voice_qwen::warm(app.handle().clone()));
+                }
+            }
+
             // Início com o Windows (só na primeira execução instalada) e
             // busca de atualização a cada abertura.
             {
@@ -664,6 +718,12 @@ pub fn run() {
             lilith_avatar,
             toggle_avatar,
             js_log,
+            voice_status,
+            voice_install,
+            voice_install_serena,
+            voice_warm,
+            voice_test,
+            voice_stop,
             avatar_model,
             list_jobs,
             cancel_job,

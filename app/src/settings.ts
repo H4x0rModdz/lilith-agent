@@ -8,6 +8,17 @@ interface Settings {
   auto_learn: boolean;
   chat_minutes: number;
   auto_update: boolean;
+  voice: boolean;
+  voice_engine: "kokoro" | "serena";
+}
+
+interface VoiceStatus {
+  installed: boolean;
+  installing: boolean;
+  serena_installed: boolean;
+  serena_installing: boolean;
+  serena_loaded: boolean;
+  serena_loading: boolean;
 }
 
 interface Reminder {
@@ -66,6 +77,26 @@ export function mountSettings(view: HTMLElement) {
           <span class="switch-track"><span class="switch-thumb"></span></span>
           <span>Atualizar sozinha ao abrir</span>
         </label>
+        <label class="switch">
+          <input name="voice" type="checkbox" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span>Falar as respostas em voz alta</span>
+        </label>
+        <label class="field">
+          <span>Voz</span>
+          <select name="voice_engine">
+            <option value="kokoro">Padrão (leve, usa a CPU)</option>
+            <option value="serena">Serena (usa a GPU NVIDIA, ≈4 GB de VRAM)</option>
+          </select>
+        </label>
+        <div class="update-row voice-row">
+          <small class="hint voice-status"></small>
+          <span class="voice-actions">
+            <button type="button" class="neon-soft voice-test" hidden>Testar</button>
+            <button type="button" class="neon-soft voice-install" hidden>Instalar a voz padrão (≈150 MB)</button>
+            <button type="button" class="neon-soft voice-install-serena" hidden>Instalar a Serena (≈8 GB)</button>
+          </span>
+        </div>
         <label class="switch">
           <input name="autostart" type="checkbox" />
           <span class="switch-track"><span class="switch-thumb"></span></span>
@@ -264,6 +295,70 @@ export function mountSettings(view: HTMLElement) {
   }
   listen("lilith://reminders", () => loadReminders());
 
+  // Voz: instalação (Piper + voz em português) e teste.
+  const voiceStatus = view.querySelector<HTMLElement>(".voice-status")!;
+  const voiceInstall = view.querySelector<HTMLButtonElement>(".voice-install")!;
+  const voiceTest = view.querySelector<HTMLButtonElement>(".voice-test")!;
+
+  const serenaInstall = view.querySelector<HTMLButtonElement>(".voice-install-serena")!;
+
+  async function loadVoice() {
+    const st = await invoke<VoiceStatus>("voice_status");
+    const serena = field("voice_engine").value === "serena";
+    voiceInstall.hidden = serena || st.installed;
+    voiceInstall.disabled = st.installing;
+    serenaInstall.hidden = !serena || st.serena_installed;
+    serenaInstall.disabled = st.serena_installing;
+    voiceTest.hidden = serena ? !st.serena_installed : !st.installed;
+    if (serena) {
+      voiceStatus.textContent = st.serena_installed
+        ? st.serena_loaded
+          ? "Serena pronta na GPU."
+          : st.serena_loading
+            ? "Carregando a Serena na GPU… (a primeira fala usa a voz padrão)"
+            : "Serena instalada; ela carrega na GPU quando você salvar ou falar."
+        : st.serena_installing
+          ? "Instalando a Serena…"
+          : "Precisa de uma placa NVIDIA. O download é grande (≈8 GB: PyTorch com CUDA + o modelo) e fica só no seu PC.";
+    } else {
+      voiceStatus.textContent = st.installed
+        ? "Voz instalada."
+        : st.installing
+          ? "Instalando a voz…"
+          : "A voz ainda não está instalada. Ela é baixada uma vez (≈150 MB) e fica só no seu PC.";
+    }
+  }
+  field("voice_engine").addEventListener("change", () => void loadVoice());
+  serenaInstall.addEventListener("click", async () => {
+    serenaInstall.disabled = true;
+    voiceStatus.textContent = "Iniciando…";
+    try {
+      await invoke("voice_install_serena");
+    } catch (e) {
+      voiceStatus.textContent = `Não consegui instalar a Serena: ${String(e)}`;
+    }
+    await loadVoice();
+  });
+  listen<{ state: string; detail: string }>("lilith://voice-engine", (e) => {
+    voiceStatus.textContent = e.payload.detail;
+    if (e.payload.state === "ready") void loadVoice();
+  });
+  voiceInstall.addEventListener("click", async () => {
+    voiceInstall.disabled = true;
+    voiceStatus.textContent = "Iniciando o download…";
+    try {
+      await invoke("voice_install");
+    } catch (e) {
+      voiceStatus.textContent = `Não consegui instalar a voz: ${String(e)}`;
+    }
+    await loadVoice();
+  });
+  voiceTest.addEventListener("click", () => void invoke("voice_test"));
+  listen<{ stage: string; percent: number }>("lilith://voice-install", (e) => {
+    const { stage, percent } = e.payload;
+    voiceStatus.textContent = stage.startsWith("erro") || stage === "pronto" ? stage : percent > 0 ? `${stage}… ${percent}%` : `${stage}…`;
+  });
+
   // Versão, início com o Windows e atualização.
   const updateStatus = view.querySelector<HTMLElement>(".update-status")!;
   const updateBtn = view.querySelector<HTMLButtonElement>(".update-btn")!;
@@ -303,6 +398,9 @@ export function mountSettings(view: HTMLElement) {
     field("chat_minutes").value = String(s.chat_minutes);
     field("auto_learn").checked = s.auto_learn;
     field("auto_update").checked = s.auto_update;
+    field("voice").checked = s.voice;
+    field("voice_engine").value = s.voice_engine;
+    await loadVoice();
     const info = await invoke<AppInfo>("app_info");
     version = info.version;
     field("autostart").checked = info.autostart;
@@ -353,6 +451,8 @@ export function mountSettings(view: HTMLElement) {
       chat_minutes: Math.max(1, Math.min(1440, Number(field("chat_minutes").value) || 5)),
       auto_learn: field("auto_learn").checked,
       auto_update: field("auto_update").checked,
+      voice: field("voice").checked,
+      voice_engine: field("voice_engine").value === "serena" ? "serena" : "kokoro",
     };
     field("autostart").checked = await invoke<boolean>("set_autostart", { on: field("autostart").checked });
     await invoke("save_settings", { settings });

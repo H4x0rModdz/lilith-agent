@@ -21,17 +21,31 @@ médio, sem depender de mais modelos grandes).
 4. **Expressões** vêm da emoção que o cérebro já devolve (`neutral`, `happy`,
    `concerned`) e do estado (`thinking`), com transição suave, mais piscar,
    respiração, olhar seguindo o cursor e inclinação da cabeça ao pensar.
-5. **Voz** (fases seguintes): saída com Piper (TTS local, português) e lip-sync pela
-   amplitude do áudio (evento `lilith://mouth`); entrada com whisper.cpp
-   (push-to-talk). Modelos de voz são baixados no primeiro uso para
-   `%APPDATA%\Lilith\voice\`, nunca vão no instalador.
+5. **Voz de saída: Kokoro (82M, Apache-2.0) no sherpa-onnx**, voz feminina em
+   português do Brasil (`pf_dora`). O Piper foi descartado porque todas as vozes
+   pt-BR dele são masculinas. A biblioteca é carregada no processo (a linha de
+   comando do sherpa quebra acentos no Windows); o modelo fica na memória enquanto
+   se usa e sai depois de 5 minutos parado. O volume da fala abre a boca do modelo
+   (`lilith://mouth`). Os arquivos (≈150 MB) são baixados no primeiro uso para
+   `%APPDATA%\Lilith\voice\`, conferidos por SHA-256, e nunca vão no instalador.
+   Voz de entrada (fase 2c): whisper.cpp, push-to-talk.
+6. **Voz opcional "Serena" (GPU NVIDIA): Qwen3-TTS CustomVoice 1.7B** (Apache-2.0).
+   Escolhida de ouvido entre as vozes femininas prontas do modelo (clonar o `mp3`
+   de referência, com o Qwen Base, Kokoro+OpenVoice e outros, soou pior). Roda como
+   processo Python (`voice/qwen_server.py`, protocolo de linhas JSON) gerenciado
+   pelo app, com ambiente instalado sob demanda em `%APPDATA%\Lilith\voice\qwen\`
+   (uv + PyTorch/CUDA + modelo, ≈8 GB). Custo medido numa RTX 5070: ≈3,9 GB de
+   VRAM carregado, geração mais lenta que o tempo real (RTF ≈ 1,4), por isso a
+   fala é gerada em pedaços maiores e, enquanto o modelo carrega, a primeira
+   resposta sai com o Kokoro. Descarrega da GPU depois de 20 minutos parada. O
+   Kokoro segue como padrão e plano B para qualquer PC.
 
 ## Fases
 
 | Fase | Entrega | Estado |
 |---|---|---|
 | 2a | Corpo 3D (cintura para cima), expressões, olhar, piscar | feita |
-| 2b | Voz de saída (Piper) + lip-sync | a fazer |
+| 2b | Voz de saída (Kokoro, feminina pt-BR) + lip-sync | feita |
 | 2c | Voz de entrada (whisper.cpp, push-to-talk) | a fazer |
 | 2d | Gestos (acenar, apontar para a tela), troca de modelo nas Configurações | a fazer |
 
