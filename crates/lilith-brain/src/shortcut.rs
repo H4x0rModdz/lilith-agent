@@ -194,6 +194,23 @@ pub fn parse(text: &str) -> Option<Shortcut> {
         return Some(Shortcut { calls: vec![call("audio.set_mute", json!({ "muted": false }))], reply: "Som de volta.".into() });
     }
 
+    // "Minimiza as janelas do monitor 1": uma chamada só, pelo número do
+    // monitor (o modelo errava ao escolher janela por janela).
+    static MONITOR_ALL: OnceLock<Regex> = OnceLock::new();
+    let monitor_all = re(
+        &MONITOR_ALL,
+        r"^(?:minimiza|minimize|esconde|some com)\s+(?:(?:todas\s+)?(?:as\s+)?janelas|tudo|todas)\s+(?:d[oa]|n[oa])\s+(?:meu\s+|minha\s+)?(?:monitor|tela)\s*(\d)$",
+    );
+    if let Some(c) = monitor_all.captures(&t) {
+        let monitor: u32 = c[1].parse().ok()?;
+        if monitor >= 1 {
+            return Some(Shortcut {
+                calls: vec![call("window.minimize", json!({ "monitor": monitor }))],
+                reply: format!("Pronto! Minimizei as janelas do monitor {monitor}."),
+            });
+        }
+    }
+
     // Minimizar / maximizar / restaurar uma janela.
     static WINDOW: OnceLock<Regex> = OnceLock::new();
     let window = re(
@@ -279,6 +296,12 @@ mod tests {
             Some(("ui.click".into(), json!({ "target": "discord", "element": "histórico" })))
         );
         assert_eq!(one("vai na aba downloads do spotify").unwrap().1["element"], "downloads");
+        assert_eq!(
+            one("minimiza todas as janelas do monitor 1"),
+            Some(("window.minimize".into(), json!({ "monitor": 1 })))
+        );
+        assert_eq!(one("esconde tudo da tela 2!").unwrap().1, json!({ "monitor": 2 }));
+        assert_eq!(one("minimiza o discord").unwrap().1, json!({ "target": "discord" }), "uma janela só continua igual");
         assert_eq!(one("abre o zap"), Some(("app.open".into(), json!({ "app": "whatsapp" }))));
         assert_eq!(one("abre o bloco de notas pra mim").unwrap().1, json!({ "app": "bloco de notas" }));
         // Casos que o modelo resolve melhor:
