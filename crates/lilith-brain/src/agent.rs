@@ -43,11 +43,26 @@ const HISTORY_TURNS: usize = 8;
 
 /// Código de erro do dispatcher para ação que não veio do chat.
 pub const BLOCKED_NOT_FROM_CHAT: &str = "BLOCKED_NOT_FROM_CHAT";
-/// Sem teto de passos (os guardrails cuidam do que é perigoso): ela segue
-/// até terminar. A única parada automática é repetição — a mesma ação com
-/// os mesmos parâmetros esta quantidade de vezes = modelo empacado, que
-/// rodaria para sempre prendendo a GPU. O kill switch para qualquer coisa.
+/// Sem teto de passos para o trabalho legítimo (os guardrails cuidam do que é
+/// perigoso): ela segue até terminar. Parada por repetição: a mesma ação, com
+/// os mesmos parâmetros E o mesmo resultado, esta quantidade de vezes = o
+/// modelo empacou. Repetir a mesma chamada com resultados DIFERENTES é
+/// progresso (ex.: minimizar a "janela ativa" várias vezes, cada uma uma janela
+/// nova) e não conta. O kill switch para qualquer coisa.
 const MAX_SAME_CALL: usize = 3;
+/// Freio de segurança contra um laço descontrolado (resultados que mudam sem
+/// levar a lugar nenhum): bem acima de qualquer pedido real.
+const MAX_TOTAL_CALLS: usize = 150;
+
+/// Assinatura do que a chamada devolveu: igual de novo = nada mudou.
+fn result_signature(response: &Value) -> String {
+    serde_json::json!({
+        "status": response["status"],
+        "result": response["result"],
+        "error": response["error"]["message"],
+    })
+    .to_string()
+}
 
 /// Quantas vezes, no máximo, cobra o plano quando o modelo responde em texto.
 const MAX_NUDGES: usize = 3;
@@ -158,6 +173,8 @@ impl Agent {
         }
         let mut last_call: Option<ToolCall> = None;
         let mut calls: Vec<ToolCall> = Vec::new();
+        // O que cada chamada devolveu (mesmo índice de `calls`).
+        let mut results: Vec<String> = Vec::new();
         let mut last_step_reply = String::new();
         let mut answer_only = false;
         // Quantas vezes já cobrou o resto do plano (no máximo MAX_NUDGES).
@@ -274,17 +291,23 @@ impl Agent {
             if call.action == "app.open" && call.params["new_window"] == true && !asks_for_new_window(text) {
                 call.params["new_window"] = serde_json::Value::Bool(false);
             }
-            // Empacou: a mesma ação, com os mesmos parâmetros, pela N-ésima vez.
-            if calls.iter().filter(|c| **c == call).count() + 1 >= MAX_SAME_CALL {
-                tracing::warn!(step, action = %call.action, "ação repetida — parando");
+            // Empacou: a mesma chamada pela N-ésima vez e TODAS as anteriores
+            // devolveram o mesmo (nada mudou). Resultados diferentes = progresso.
+            let same: Vec<usize> = calls.iter().enumerate().filter(|(_, c)| **c == call).map(|(i, _)| i).collect();
+            let no_progress = same.len() + 1 >= MAX_SAME_CALL
+                && same.iter().all(|&i| results.get(i) == results.get(same[0]));
+            if no_progress || calls.len() >= MAX_TOTAL_CALLS {
+                tracing::warn!(step, action = %call.action, "sem progresso — parando");
+                let why = if no_progress {
+                    format!("repeti {} {} vezes e o resultado foi sempre o mesmo, então nada estava mudando", call.action, same.len())
+                } else {
+                    format!("já fiz {} passos e não consigo ver o fim", calls.len())
+                };
                 return self.finish(
                     text,
                     last_call,
                     calls,
-                    format!(
-                        "Parei: eu estava repetindo a mesma ação ({}) sem sair do lugar. Me diz como quer seguir?",
-                        call.action
-                    ),
+                    format!("Parei: {why}. Me diz como quer seguir?"),
                 );
             }
             tracing::info!(step, action = %call.action, "tool escolhida");
@@ -324,6 +347,7 @@ impl Agent {
             }
             last_step_reply = summarize_step(&call.action, &response);
             append_tool_step(&mut messages, &call, &response);
+            results.push(result_signature(&response));
             calls.push(call.clone());
             last_call = Some(call);
         }
@@ -698,7 +722,32 @@ mod tests {
         let d = MockDispatcher::default();
         let r = a.process("loop", &d, Arc::new(NullSink)).await;
         assert_eq!(d.0.lock().unwrap().len(), MAX_SAME_CALL - 1, "a repetição N não executa");
-        assert!(r.reply.starts_with("Parei: eu estava repetindo"));
+        assert!(r.reply.starts_with("Parei: repeti audio.get_volume"), "{}", r.reply);
+    }
+
+    /// Dispatcher cujo resultado muda a cada chamada (como minimizar a "janela
+    /// ativa" várias vezes: cada vez é uma janela nova).
+    #[derive(Default)]
+    struct ChangingDispatcher(Mutex<usize>);
+
+    #[async_trait]
+    impl Dispatcher for ChangingDispatcher {
+        async fn dispatch(&self, _call: &ToolCall) -> Value {
+            let mut n = self.0.lock().unwrap();
+            *n += 1;
+            json!({ "status": "success", "result": { "window": format!("janela {n}") } })
+        }
+    }
+
+    #[tokio::test]
+    async fn the_same_call_with_new_results_is_progress_not_a_loop() {
+        let mut replies: Vec<_> = (0..8).map(|_| tool("window.minimize")).collect();
+        replies.push(text("Minimizei todas as janelas!"));
+        let a = agent(replies);
+        let d = ChangingDispatcher::default();
+        let r = a.process("minimiza as janelas do monitor 1", &d, Arc::new(NullSink)).await;
+        assert_eq!(*d.0.lock().unwrap(), 8, "as 8 chamadas rodam: cada uma devolveu algo novo");
+        assert_eq!(r.reply, "Minimizei todas as janelas!");
     }
 
     #[test]
