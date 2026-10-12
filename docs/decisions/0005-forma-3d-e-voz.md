@@ -33,7 +33,7 @@ médio, sem depender de mais modelos grandes).
    Escolhida de ouvido entre as vozes femininas prontas do modelo (clonar o `mp3`
    de referência, com o Qwen Base, Kokoro+OpenVoice e outros, soou pior). Roda como
    processo Python (`voice/qwen_server.py`, protocolo de linhas JSON) gerenciado
-   pelo app, com ambiente instalado sob demanda em `%APPDATA%\Lilithoice\qwen\`
+   pelo app, com ambiente instalado sob demanda em `%APPDATA%\Lilith\voice\qwen\`
    (uv + PyTorch/CUDA + modelo, ≈8 GB). Custo medido numa RTX 5070: ≈3,9 GB de
    VRAM carregado, geração mais lenta que o tempo real (RTF ≈ 1,4), por isso a
    fala é gerada em pedaços maiores e, enquanto o modelo carrega, a primeira
