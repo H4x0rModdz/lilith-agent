@@ -109,7 +109,7 @@ AI-native Linux desktop by the same author. See [docs/architecture.md](docs/arch
 ## Roadmap
 
 1. **MVP:** orb, chat, Windows actions, guardrails, agent delegation. *(done)*
-2. **3D form:** VRM avatar (three-vrm) with facial expressions, local voice (whisper.cpp + Piper/Kokoro),
+2. **3D form:** VRM avatar (three-vrm) with facial expressions, local voice (Kokoro to speak, Whisper push-to-talk to listen, both on sherpa-onnx),
    and lip-sync.
 3. **Eyes and hands:** event-driven, low-cost screen perception (UI Automation → OCR → vision model only on
    demand), plus her own pink cursor on an overlay.

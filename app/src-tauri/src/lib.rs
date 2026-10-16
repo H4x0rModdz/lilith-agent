@@ -3,6 +3,7 @@ mod profile;
 mod reminders;
 mod update;
 mod voice;
+mod voice_in;
 mod voice_qwen;
 mod choice;
 mod delegate;
@@ -489,6 +490,7 @@ fn kill_switch(app: &AppHandle, state: &AppState) {
     // Interrompe uma digitação em andamento (ui.type) na próxima letra.
     lilith_win::input::cancel();
     voice::stop(app);
+    voice_in::cancel(app);
     let running: Vec<(String, TurnHandle)> = state.running.lock().unwrap().drain().collect();
     let mut stopped = 0;
     for (conversation, task) in running {
@@ -624,6 +626,9 @@ pub fn run() {
                         if let Some(state) = app.try_state::<AppState>() {
                             kill_switch(app, &state);
                         }
+                    } else {
+                        // Push-to-talk (e o Esc enquanto ouve).
+                        voice_in::on_shortcut(app, shortcut, event.state());
                     }
                 })
                 .build(),
@@ -638,6 +643,8 @@ pub fn run() {
             if let Err(e) = app.global_shortcut().register(panic_key) {
                 tracing::warn!(error = %e, "não registrei o kill switch Ctrl+Alt+Esc");
             }
+            // Voz de entrada: atalho de push-to-talk salvo nas Configurações.
+            voice_in::init(app.handle(), &app.state::<AppState>().store);
             // Primeira execução: sem layout salvo, posiciona orb e painel nos
             // cantos padrão. Depois o window-state restaura onde o usuário deixou.
             let saved_layout = app
@@ -786,6 +793,12 @@ pub fn run() {
             voice_warm,
             voice_test,
             voice_stop,
+            voice_in::voice_in_status,
+            voice_in::voice_in_install,
+            voice_in::voice_in_press,
+            voice_in::voice_in_release,
+            voice_in::voice_in_cancel,
+            voice_in::voice_in_configure,
             avatar_model,
             list_jobs,
             cancel_job,

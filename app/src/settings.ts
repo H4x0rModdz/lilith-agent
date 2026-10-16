@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { hydrateIcons, icon } from "./icons";
+import { mountVoiceInputSettings } from "./voice_input";
 
 interface Settings {
   user_name: string;
@@ -155,6 +156,9 @@ export function mountSettings(view: HTMLElement) {
   hydrateIcons(view);
 
   const form = view.querySelector<HTMLFormElement>(".settings")!;
+  // Voz de entrada (push-to-talk): seção própria, salva na hora.
+  const voiceIn = mountVoiceInputSettings();
+  form.querySelector(".settings-card")!.after(voiceIn.el);
   const saved = view.querySelector<HTMLElement>(".settings-saved")!;
   const factsEl = view.querySelector<HTMLUListElement>(".facts")!;
   const keyIn = view.querySelector<HTMLInputElement>(".fact-key")!;
@@ -405,6 +409,7 @@ export function mountSettings(view: HTMLElement) {
     field("voice").checked = s.voice;
     field("voice_engine").value = s.voice_engine;
     await loadVoice();
+    await voiceIn.load();
     const info = await invoke<AppInfo>("app_info");
     version = info.version;
     field("autostart").checked = info.autostart;

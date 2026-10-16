@@ -172,6 +172,8 @@ export async function mountAvatar(root: HTMLElement) {
   let face: Face = { ...FACES.neutral };
   let target: Face = FACES.neutral;
   let thinking = false;
+  /// Ouvindo o usuário (push-to-talk): inclina a cabeça para o outro lado.
+  let listening = false;
   let emotionTimer: number | undefined;
   /// Boca aberta (0..1), alimentada pela voz (lip-sync).
   let mouth = 0;
@@ -184,6 +186,9 @@ export async function mountAvatar(root: HTMLElement) {
     thinking = e.payload.state === "thinking";
     if (thinking) applyTarget("thinking");
     else if (!emotionTimer) applyTarget("neutral");
+  });
+  void listen<{ state: string }>("lilith://listening", (e) => {
+    listening = e.payload.state === "start";
   });
   void listen<{ emotion?: string }>("lilith://reply", (e) => {
     thinking = false;
@@ -280,7 +285,7 @@ export async function mountAvatar(root: HTMLElement) {
     // Cabeça: segue o cursor e inclina um pouco ao pensar.
     const head = h.getNormalizedBoneNode("head");
     const neck = h.getNormalizedBoneNode("neck");
-    const tiltZ = thinking ? 0.07 : 0;
+    const tiltZ = thinking ? 0.07 : listening ? -0.06 : 0;
     const yaw = lookX * 0.32 + Math.sin(t * 0.45) * 0.03;
     const pitch = flip * (-lookY * 0.16 + (thinking ? -0.05 : 0));
     if (head) {

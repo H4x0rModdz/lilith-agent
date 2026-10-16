@@ -62,8 +62,43 @@ fn voice_dir() -> PathBuf {
     data_dir().join("voice").join("kokoro")
 }
 
-fn lib_dir() -> PathBuf {
+/// Pasta da biblioteca do sherpa-onnx (compartilhada com a voz de entrada).
+pub(crate) fn lib_dir() -> PathBuf {
     voice_dir().join("sherpa").join("lib")
+}
+
+/// A biblioteca do sherpa-onnx (C API + onnxruntime) já está no PC?
+pub(crate) fn engine_lib_installed() -> bool {
+    lib_dir().join("sherpa-onnx-c-api.dll").is_file() && lib_dir().join("onnxruntime.dll").is_file()
+}
+
+/// Baixa e extrai a biblioteca do sherpa-onnx, se faltar. `on` recebe a etapa e
+/// o percentual. Usada pela voz de saída e pela de entrada.
+pub(crate) async fn ensure_engine_lib(tmp: &Path, on: &(dyn Fn(&str, u32) + Send + Sync)) -> Result<(), String> {
+    if engine_lib_installed() {
+        return Ok(());
+    }
+    let archive = tmp.join("sherpa.tar.bz2");
+    download_with(SHERPA_URL, &archive, SHERPA_SHA256, &|pct| on("Baixando o motor de voz", pct)).await?;
+    on("Instalando o motor de voz", 100);
+    extract(&archive, &voice_dir().join("sherpa")).await?;
+    let _ = std::fs::remove_file(&archive);
+    Ok(())
+}
+
+/// Carrega a DLL do sherpa-onnx no processo (as dependências, como o
+/// onnxruntime.dll, são procuradas na mesma pasta).
+pub(crate) fn load_engine_lib() -> Result<libloading::Library, String> {
+    let dll = lib_dir().join("sherpa-onnx-c-api.dll");
+    #[cfg(windows)]
+    let lib = unsafe {
+        use libloading::os::windows::{Library as WinLib, LOAD_WITH_ALTERED_SEARCH_PATH};
+        WinLib::load_with_flags(&dll, LOAD_WITH_ALTERED_SEARCH_PATH).map(libloading::Library::from)
+    }
+    .map_err(|e| format!("não consegui carregar o motor de voz: {e}"))?;
+    #[cfg(not(windows))]
+    let lib = unsafe { libloading::Library::new(&dll) }.map_err(|e| e.to_string())?;
+    Ok(lib)
 }
 
 fn model_dir() -> PathBuf {
@@ -109,6 +144,11 @@ fn sha256_file(path: &Path) -> Result<String, String> {
 
 /// Baixa `url` para `dest` mostrando o progresso e confere o hash.
 async fn download(app: &AppHandle, stage: &str, url: &str, dest: &Path, sha256: &str) -> Result<(), String> {
+    download_with(url, dest, sha256, &|pct| progress(app, stage, pct)).await
+}
+
+/// Baixa `url` para `dest` avisando o percentual em `on_pct` e confere o hash.
+pub(crate) async fn download_with(url: &str, dest: &Path, sha256: &str, on_pct: &(dyn Fn(u32) + Send + Sync)) -> Result<(), String> {
     if let Some(dir) = dest.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -128,7 +168,7 @@ async fn download(app: &AppHandle, stage: &str, url: &str, dest: &Path, sha256: 
         let pct = if total > 0 { (got * 100 / total) as u32 } else { 0 };
         if pct != last_pct {
             last_pct = pct;
-            progress(app, stage, pct);
+            on_pct(pct);
         }
     }
     drop(file);
@@ -330,16 +370,7 @@ fn cstr(path: &Path) -> Result<CString, String> {
 }
 
 fn load_engine() -> Result<Engine, String> {
-    let dll = lib_dir().join("sherpa-onnx-c-api.dll");
-    // As dependências (onnxruntime.dll) são procuradas na mesma pasta.
-    #[cfg(windows)]
-    let lib = unsafe {
-        use libloading::os::windows::{Library as WinLib, LOAD_WITH_ALTERED_SEARCH_PATH};
-        WinLib::load_with_flags(&dll, LOAD_WITH_ALTERED_SEARCH_PATH).map(libloading::Library::from)
-    }
-    .map_err(|e| format!("não consegui carregar o motor de voz: {e}"))?;
-    #[cfg(not(windows))]
-    let lib = unsafe { libloading::Library::new(&dll) }.map_err(|e| e.to_string())?;
+    let lib = load_engine_lib()?;
 
     let m = model_dir();
     let model = cstr(&m.join("model.int8.onnx"))?;
@@ -390,7 +421,7 @@ fn now_secs() -> u64 {
 }
 
 /// Sintetiza `text` (UTF-8) em amostras mono [-1, 1] e a taxa de amostragem.
-fn synthesize(text: &str) -> Result<(Vec<f32>, u32), String> {
+pub(crate) fn synthesize(text: &str) -> Result<(Vec<f32>, u32), String> {
     let text = CString::new(text.replace('\0', " ")).map_err(|e| e.to_string())?;
     let mut guard = ENGINE.lock().map_err(|_| "motor de voz travado".to_string())?;
     if guard.is_none() {

@@ -64,7 +64,7 @@ Toda ação é registrada em `%APPDATA%\Lilith\logs\audit.jsonl`.
 ## Fases
 
 1. **MVP** — orb 2D + chat, brain portado, tools básicas do Windows, guardrails. ← *atual*
-2. **Forma 3D** — VRM (three-vrm), expressões, voz (whisper.cpp + piper/kokoro), lip-sync.
+2. **Forma 3D** — VRM (three-vrm), expressões, voz (Kokoro para falar, Whisper para ouvir, ambos no sherpa-onnx; push-to-talk), lip-sync.
 3. **Olhos e mãos** — percepção em camadas ([decisão 0002](decisions/0002-percepcao-local.md)), overlay e cursor rosa.
 4. **Remoto** — Discord + streaming de tela ([decisão 0003](decisions/0003-acesso-remoto.md)).
 5. **Extras** — ver [`new-features/`](new-features/).

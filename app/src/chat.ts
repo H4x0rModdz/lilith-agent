@@ -6,6 +6,7 @@ import { mountElectric } from "./electric";
 import { call } from "./ipc";
 import { type IconName, actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel, actionVerb } from "./labels";
+import { mountMic } from "./voice_input";
 
 interface Reply {
   conversation: string;
@@ -927,6 +928,21 @@ export async function mountChat(root: HTMLElement) {
       add(conv, "lilith", body ? `${head}:\n${body}` : head);
       notify(conv);
     }
+  });
+
+  // Voz de entrada: microfone no campo de mensagem; o que ela ouviu vai como
+  // mensagem do usuário, pelo mesmo caminho do texto digitado.
+  void mountMic({
+    form,
+    input,
+    before: sendBtn,
+    statusEl: status,
+    send: (text) => send(active, text),
+    note: (text) => note(text, "volume"),
+    card: (li) => {
+      active.log.append(li);
+      active.log.scrollTop = active.log.scrollHeight;
+    },
   });
 
   makeCarousel(quickTrack);
