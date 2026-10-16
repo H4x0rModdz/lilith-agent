@@ -4,7 +4,7 @@ members = ["crates/*", "app/src-tauri"]
 
 [workspace.package]
 edition = "2021"
-version = "0.4.0"
+version = "0.4.1"
 license = "GPL-3.0-only"
 repository = "https://github.com/H4x0rModdz/lilith-agent"
 
@@ -25,5 +25,6 @@ chrono = { version = "0.4", features = ["serde"] }
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+# unwind: o catch_unwind em volta do leitor de PDF precisa funcionar no release.
+panic = "unwind"
 strip = true
