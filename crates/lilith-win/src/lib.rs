@@ -10,6 +10,7 @@ mod handlers;
 mod paths;
 pub mod input;
 pub mod ocr;
+pub mod phone;
 pub mod ui_map;
 pub mod uia;
 pub mod window;
@@ -70,6 +71,13 @@ pub const ACTIONS: &[&str] = &[
     "ui.open_chat",
     "dev.errors",
     "dev.git_status",
+    "phone.status",
+    "phone.notifications",
+    "phone.messages",
+    "phone.calls",
+    "phone.send_sms",
+    "settings.open",
+    "screen.snip",
 ];
 
 pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
@@ -107,6 +115,20 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "web.fetch" => web::fetch(params).await,
         "dev.errors" => handlers::blocking(move || dev::read_errors(&params)).await,
         "dev.git_status" => dev::git_status(&params).await,
+        "settings.open" => native::settings_open(params).await,
+        "screen.snip" => native::screen_snip(params).await,
+        a if a.starts_with("phone.") => {
+            let a = a.to_string();
+            handlers::blocking(move || match a.as_str() {
+                "phone.status" => phone::status(&params),
+                "phone.notifications" => phone::notifications(&params),
+                "phone.messages" => phone::messages(&params),
+                "phone.calls" => phone::calls(&params),
+                "phone.send_sms" => phone::send_sms(&params),
+                other => Err(WinError::NotFound(format!("ação '{other}'"))),
+            })
+            .await
+        }
         "ui.find" | "ui.click" | "ui.type" | "ui.open_chat" => {
             let a = action.to_string();
             handlers::blocking(move || ui_action(&a, &params)).await

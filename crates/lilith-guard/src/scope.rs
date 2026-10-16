@@ -60,6 +60,8 @@ const SAFE_SCOPES: &[&str] = &[
     // Ajudante de dev: erros de build (só o que o parser reconhece, de janelas
     // de desenvolvimento) e git SÓ LEITURA (comandos fixos no código).
     "dev.read",
+    // Estado do celular no Vincular ao Celular (conectado, bateria, sinal).
+    "phone.status",
 ];
 
 const DANGEROUS_SCOPES: &[&str] = &[
@@ -93,6 +95,11 @@ const DANGEROUS_SCOPES: &[&str] = &[
     // Fechar um app/janela pode perder trabalho não salvo — e um modelo
     // pequeno já confundiu "joga o WhatsApp pro lado" com fechar.
     "app.terminate",
+    // Notificações, SMS e chamadas do celular: conversas e códigos de
+    // verificação (2FA) passam por ali — como ler a tela, pergunta.
+    "phone.read",
+    // Mandar SMS fala em nome do usuário.
+    "phone.send",
 ];
 
 /// Scope exigido por cada ação. Ação sem mapeamento vira `unknown` (negada) —
@@ -149,6 +156,12 @@ pub fn scope_for(action: &str) -> &'static str {
         "dev.errors" | "dev.git_status" => "dev.read",
         // Pedir a um agente de código para corrigir os erros = delegar.
         "dev.fix" => "agent.delegate",
+        // Celular (Vincular ao Celular): estado é livre; ler conteúdo e enviar perguntam.
+        "phone.status" => "phone.status",
+        "phone.notifications" | "phone.messages" | "phone.calls" => "phone.read",
+        "phone.send_sms" => "phone.send",
+        // Páginas das Configurações e recorte de tela: só abrem um app nativo.
+        "settings.open" | "screen.snip" => "app.launch",
         _ => "unknown",
     }
 }
@@ -173,6 +186,10 @@ mod tests {
         assert_eq!(classify(scope_for("dev.errors")), Verdict::Safe);
         assert_eq!(classify(scope_for("dev.git_status")), Verdict::Safe);
         assert_eq!(classify(scope_for("dev.fix")), Verdict::Dangerous, "corrigir = delegar: pede aprovação");
+        assert_eq!(classify(scope_for("phone.status")), Verdict::Safe);
+        assert_eq!(classify(scope_for("phone.messages")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("phone.send_sms")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("settings.open")), Verdict::Safe);
     }
 
     #[test]
@@ -253,6 +270,13 @@ mod tests {
             "dev.errors",
             "dev.git_status",
             "dev.fix",
+            "phone.status",
+            "phone.notifications",
+            "phone.messages",
+            "phone.calls",
+            "phone.send_sms",
+            "settings.open",
+            "screen.snip",
         ] {
             let scope = scope_for(action);
             assert_ne!(scope, "unknown", "{action} sem scope");

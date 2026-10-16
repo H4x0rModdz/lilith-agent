@@ -198,7 +198,7 @@ pub fn hint(i: &Interpretation) -> String {
             String::new()
         } else {
             // O texto já está pronto e na voz do usuário: o modelo principal não reescreve.
-            format!(" Mensagem a enviar (use EXATAMENTE este texto em ui.type, sem mudar nada): «{message}».")
+            format!(" Mensagem a enviar (use EXATAMENTE este texto no `text` de ui.type ou phone.send_sms, sem mudar nada): «{message}».")
         };
         format!(
             "Interpretação do pedido: {}. Plano completo, em ordem: {}. Faça TODAS as etapas, \

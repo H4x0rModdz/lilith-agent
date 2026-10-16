@@ -45,6 +45,13 @@ const ACTION_LABELS: Record<string, string> = {
   "dev.errors": "Lendo os erros do build",
   "dev.git_status": "Olhando o git",
   "dev.fix": "Pedindo a correção a um agente",
+  "phone.status": "Olhando o celular",
+  "phone.notifications": "Lendo as notificações do celular",
+  "phone.messages": "Lendo as mensagens do celular",
+  "phone.calls": "Vendo as chamadas do celular",
+  "phone.send_sms": "Mandando SMS",
+  "settings.open": "Abrindo as Configurações",
+  "screen.snip": "Abrindo o recorte de tela",
   kill_switch: "Kill switch",
 };
 
@@ -81,6 +88,8 @@ const ACTION_VERBS: Record<string, string> = {
   "ui.open_chat": "abrir uma conversa",
   "memory.remember": "guardar algo na memória",
   "memory.forget": "apagar algo da memória",
+  "phone.send_sms": "mandar um SMS",
+  "settings.open": "abrir as Configurações",
 };
 
 export function actionVerb(action: string): string {

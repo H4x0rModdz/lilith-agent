@@ -84,6 +84,15 @@ const SEEDS: &[(&str, &[&str])] = &[
     ("lê esse link pra mim: https://example.com/artigo", &["web.fetch"]),
     ("baixa esse pdf https://example.com/guia.pdf", &["download.file"]),
     ("baixa o instalador do 7zip", &["web.search", "download.file"]),
+    // celular e Configurações do Windows
+    ("quanto de bateria tem meu celular agora?", &["phone.status"]),
+    ("chegou alguma notificação no telefone?", &["phone.notifications"]),
+    ("vê se tem sms novo no celular", &["phone.messages"]),
+    ("alguém me ligou no celular?", &["phone.calls"]),
+    ("manda um sms pro user x falando que tô saindo", &["phone.send_sms"]),
+    ("abre as configurações de wi-fi", &["settings.open"]),
+    ("quero mudar o brilho da tela nas configurações", &["settings.open"]),
+    ("tira um print de uma parte da tela", &["screen.snip"]),
     // chats
     ("manda um oi pro user x no telegram", &["ui.open_chat", "ui.type"]),
     ("diz pro user y no discord que eu já chego", &["ui.open_chat", "ui.type"]),

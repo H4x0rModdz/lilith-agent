@@ -99,6 +99,11 @@ pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<S
         return vec!["memory.remember".to_string()];
     }
 
+    // Celular (SMS, notificações, chamadas) e páginas das Configurações.
+    if let Some(fixed) = crate::native::refine(&t, &plan) {
+        return fixed;
+    }
+
     // Continuação de um pedido de chat ("e do user z?") herda o caminho.
     let chat_followup = (t.starts_with("e ") || t.starts_with("agora ") || has(&t, &["o mesmo", "também", "tambem"]))
         && recent.iter().any(|(_, r)| r.contains("ui.open_chat") || r.contains("ui.type"));

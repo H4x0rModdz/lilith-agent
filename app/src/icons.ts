@@ -20,6 +20,7 @@ import {
   SendHorizontal,
   Settings,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   Square,
   Trash2,
@@ -54,6 +55,7 @@ const ICONS = {
   send: SendHorizontal,
   settings: Settings,
   shield: ShieldCheck,
+  phone: Smartphone,
   sparkles: Sparkles,
   stop: Square,
   volume: Volume2,
@@ -105,6 +107,10 @@ export function actionIcon(action: string): IconName {
       return "power";
     case "agent":
       return "bot";
+    case "phone":
+      return "phone";
+    case "settings":
+      return "settings";
     case "cursor":
     case "ui":
       return "pointer";

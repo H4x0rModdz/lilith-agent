@@ -7,6 +7,7 @@ pub mod desktop;
 pub mod download;
 pub mod files;
 pub mod media;
+pub mod native;
 pub mod power;
 pub mod screen;
 pub mod system;

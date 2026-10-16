@@ -261,6 +261,11 @@ pub fn parse(text: &str) -> Option<Shortcut> {
         return Some(discord("discord.voice", json!({ key: if target.is_empty() { "ask" } else { target } })));
     }
 
+    // ── celular, Configurações e recorte de tela (ver `native`) ───────────
+    if let Some(sc) = crate::native::parse(&t) {
+        return Some(sc);
+    }
+
     // ── mídia: decidido por código ────────────────────────────────────────
     static MEDIA_PAUSE: OnceLock<Regex> = OnceLock::new();
     static MEDIA_PLAY: OnceLock<Regex> = OnceLock::new();
@@ -606,7 +611,7 @@ pub fn render(action: &str, result: &serde_json::Value) -> Option<String> {
             }
         }
         a if a.starts_with("dev.") => crate::dev::render(a, result),
-        _ => None,
+        other => crate::native::render(other, result),
     }
 }
 

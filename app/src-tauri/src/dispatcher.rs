@@ -77,6 +77,10 @@ const TAINT_SOURCES: &[&str] = &[
     // Mensagens do compilador e assuntos de commit são texto de terceiros.
     "dev.errors",
     "dev.git_status",
+    // Notificações, SMS e chamadas do celular: texto de terceiros.
+    "phone.notifications",
+    "phone.messages",
+    "phone.calls",
 ];
 
 /// O que continua livre num turno contaminado: só observar, sem efeito e
@@ -99,6 +103,10 @@ const OBSERVE_ONLY: &[&str] = &[
     "agent.jobs",
     "dev.errors",
     "dev.git_status",
+    "phone.status",
+    "phone.notifications",
+    "phone.messages",
+    "phone.calls",
 ];
 
 /// Resultado do portão de contaminação.
@@ -256,6 +264,7 @@ impl Dispatcher for GuardedDispatcher {
                 self.screen_action(action, &call.params).await
             }
             "discord.voice" => self.discord_voice(&call.params).await,
+            "phone.send_sms" => self.phone_send_sms(&call.params).await,
             "ui.click" => self.ui_click(&call.params).await,
             "ui.type" => self.ui_type(&call.params).await,
             "ui.open_chat" => self.ui_open_chat(&call.params).await,
@@ -754,6 +763,40 @@ impl GuardedDispatcher {
         Ok(out)
     }
 
+    /// SMS pelo Vincular ao Celular. Contato ambíguo (ou sem contato): o
+    /// lilith-win não envia nada e devolve as opções; o app PERGUNTA no chat
+    /// qual é e manda para o escolhido (nome inteiro, sem adivinhar).
+    async fn phone_send_sms(&self, params: &Value) -> Result<Value, lilith_win::WinError> {
+        let first = lilith_win::dispatch("phone.send_sms", params.clone()).await?;
+        if first["ambiguous"] != true {
+            return Ok(first);
+        }
+        let options: Vec<String> = first["options"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        if options.is_empty() {
+            return Err(lilith_win::WinError::NotFound("não achei o contato no celular".into()));
+        }
+        let title = match params["contact"].as_str().map(str::trim).filter(|c| !c.is_empty()) {
+            Some(c) => format!("Qual \"{c}\" deve receber o SMS?"),
+            None => "Para quem mando o SMS?".to_string(),
+        };
+        match self.choices.ask(&self.app, &self.conversation, &title, options).await {
+            Some(choice) => {
+                let mut again = params.clone();
+                again["contact"] = json!(choice);
+                again["exact"] = json!(true);
+                let r = lilith_win::dispatch("phone.send_sms", again).await?;
+                if r["ambiguous"] == true {
+                    return Err(lilith_win::WinError::Failed(format!("ainda não consegui achar só '{choice}' no celular")));
+                }
+                Ok(r)
+            }
+            None => Ok(json!({ "sent": false, "cancelled": true })),
+        }
+    }
+
     /// Emite o pedido para a UI e espera a resposta (30 s → negado).
     async fn ask(&self, call: &ToolCall, scope: &'static str, tainted: bool) -> Answer {
         let (id, rx) = self.approvals.open();
@@ -787,6 +830,9 @@ fn action_timeout(action: &str) -> std::time::Duration {
         "system.checkup" => 90,
         // Lê janelas/disco e pode esperar cartão de escolha + aprovação.
         "dev.errors" | "dev.fix" | "dev.git_status" => 300,
+        "phone.send_sms" => 180, // pode esperar a escolha do contato
+        // Abrir o Vincular ao Celular e esperar ele falar com o celular.
+        "phone.status" | "phone.notifications" | "phone.messages" | "phone.calls" => 60,
         "download.file" | "file.find" | "web.fetch" | "web.search" => 120,
         "ui.type" | "ui.open_chat" => 90,
         _ => 45,

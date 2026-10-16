@@ -589,6 +589,10 @@ pub fn all_tools() -> Vec<Tool> {
             schema: obj(json!({ "url": { "type": "string" } }), &["url"]),
         },
     ]
+    .into_iter()
+    // Celular e apps nativos do Windows (ver `native`).
+    .chain(crate::native::tools())
+    .collect()
 }
 
 /// Formato do array `tools` do `/api/chat` do Ollama (compatível com OpenAI).
