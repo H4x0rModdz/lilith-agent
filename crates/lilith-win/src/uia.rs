@@ -103,9 +103,9 @@ pub fn read_window_overview(id: isize, max_chars: usize, query: Option<&str>) ->
         let mut controls: Vec<String> = Vec::new();
         let mut matches: Vec<String> = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        let mut stack = vec![root];
+        let mut stack = vec![(root, String::new())];
         let mut visited = 0usize;
-        while let Some(el) = stack.pop() {
+        while let Some((el, owner)) = stack.pop() {
             visited += 1;
             if visited > OVERVIEW_MAX_NODES {
                 break;
@@ -129,6 +129,31 @@ pub fn read_window_overview(id: isize, max_chars: usize, query: Option<&str>) ->
             }
             let name = el.CurrentName().map(|n| n.to_string()).unwrap_or_default();
             let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+            // A dica de um ícone ("Esta versão tem uma vulnerabilidade…") diz o
+            // que o item que o contém é: a busca também olha a dica e relata o dono.
+            if let Some(n) = &needle {
+                if let Ok(help) = el.CurrentHelpText() {
+                    let help = help.to_string();
+                    if !help.is_empty()
+                        && crate::paths::fold(&help).contains(n.as_str())
+                        && matches.len() < 40
+                        && seen.insert(format!("h|{owner}|{help}"))
+                    {
+                        let who = if owner.is_empty() { String::new() } else { format!(" (em: {})", clip(&owner)) };
+                        matches.push(format!("dica{who}: {}", clip(&help)));
+                    }
+                }
+            }
+            // Dono para os filhos: o item de lista/árvore nomeado mais próximo.
+            let child_owner = if (control == UIA_ListItemControlTypeId
+                || control == UIA_DataItemControlTypeId
+                || control == UIA_TreeItemControlTypeId)
+                && !name.is_empty()
+            {
+                name.clone()
+            } else {
+                owner.clone()
+            };
             if !name.is_empty() {
                 let (label, shown) = if control == UIA_TextControlTypeId {
                     ("texto", true)
@@ -174,7 +199,7 @@ pub fn read_window_overview(id: isize, max_chars: usize, query: Option<&str>) ->
                 next = walker.GetNextSiblingElement(&child);
                 children.push(child);
             }
-            stack.extend(children.into_iter().rev());
+            stack.extend(children.into_iter().rev().map(|c| (c, child_owner.clone())));
         }
         texts.extend(controls);
         if document.is_none() && texts.is_empty() {
@@ -436,40 +461,191 @@ pub fn click(id: isize, query: &str, index: usize) -> Result<(UiElement, ClickVi
     }
 }
 
+/// Abre o menu de contexto (o do botão direito) de um elemento, por
+/// acessibilidade — sem mexer no mouse. Ex.: escolher o dispositivo de entrada
+/// pelo menu do botão de microfone do Discord.
+pub fn context_menu(id: isize, query: &str, index: usize) -> Result<UiElement, WinError> {
+    use windows::core::Interface;
+    use windows::Win32::UI::Accessibility::IUIAutomationElement3;
+    let Some((_, info, el)) = search(id, query)?.into_iter().nth(index) else {
+        return Err(WinError::NotFound(format!("nada chamado '{query}' nessa janela")));
+    };
+    unsafe {
+        let el3: IUIAutomationElement3 = el
+            .cast()
+            .map_err(|_| WinError::Unavailable("esse app não abre menu por acessibilidade".into()))?;
+        el3.ShowContextMenu()
+            .map_err(|e| WinError::Failed(format!("não abriu o menu de '{}': {e}", info.name)))?;
+    }
+    Ok(info)
+}
+
 /// Acha o `index`-ésimo melhor elemento e o aciona por acessibilidade
 /// (Invoke, Select, Toggle, Expand ou a ação padrão) — sem mexer no mouse.
 pub fn activate(id: isize, query: &str, index: usize) -> Result<UiElement, WinError> {
     let Some((_, info, el)) = search(id, query)?.into_iter().nth(index) else {
         return Err(WinError::NotFound(format!("nada chamado '{query}' nessa janela")));
     };
+    if invoke_element(&el) {
+        return Ok(info);
+    }
+    Err(WinError::Failed(format!("'{}' não aceita clique por acessibilidade", info.name)))
+}
+
+/// Um elemento já achado (com o seu nó de acessibilidade), para quem precisa
+/// escolher por posição/estado antes de clicar.
+pub struct Found {
+    pub info: UiElement,
+    node: IUIAutomationElement,
+}
+
+impl Found {
+    /// Aciona por acessibilidade; se o app não aceitar, clique real no centro.
+    pub fn click(&self) -> Result<ClickVia, WinError> {
+        if invoke_element(&self.node) {
+            return Ok(ClickVia::Accessibility);
+        }
+        let (x, y) = self.info.rect.center();
+        crate::input::click_at(x, y)?;
+        Ok(ClickVia::Mouse)
+    }
+
+    /// Estado de "ligado/marcado" do elemento, por qualquer via que o app use:
+    /// padrão de alternância, estado de acessibilidade (marcado/pressionado) ou
+    /// propriedades aria (`checked`/`pressed`). `None` se o app não diz.
+    pub fn is_on(&self) -> Option<bool> {
+        self.state_report().0
+    }
+
+    /// (estado, descrição crua) — a descrição ajuda a diagnosticar apps novos.
+    pub fn state_report(&self) -> (Option<bool>, String) {
+        use windows::Win32::UI::Accessibility::{ToggleState_On, UIA_AriaPropertiesPropertyId};
+        unsafe {
+            let mut raw = Vec::new();
+            let mut verdict: Option<bool> = None;
+            if let Ok(p) = self.node.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId) {
+                if let Ok(t) = p.CurrentToggleState() {
+                    raw.push(format!("toggle={}", t.0));
+                    verdict = Some(t == ToggleState_On);
+                }
+            }
+            if let Ok(p) = self.node.GetCurrentPatternAs::<IUIAutomationLegacyIAccessiblePattern>(UIA_LegacyIAccessiblePatternId) {
+                if let Ok(st) = p.CurrentState() {
+                    raw.push(format!("legacy=0x{st:x}"));
+                    const CHECKED: u32 = 0x10;
+                    const PRESSED: u32 = 0x8;
+                    if verdict.is_none() && st & (CHECKED | PRESSED) != 0 {
+                        verdict = Some(true);
+                    }
+                }
+            }
+            if let Ok(v) = self.node.GetCurrentPropertyValue(UIA_AriaPropertiesPropertyId) {
+                let aria = v.to_string();
+                if !aria.is_empty() {
+                    raw.push(format!("aria={aria}"));
+                    let a = aria.to_lowercase();
+                    if a.contains("checked=true") || a.contains("pressed=true") {
+                        verdict = Some(true);
+                    } else if verdict.is_none() && (a.contains("checked=false") || a.contains("pressed=false")) {
+                        verdict = Some(false);
+                    }
+                }
+            }
+            (verdict, raw.join(" "))
+        }
+    }
+
+    /// Abre o menu de contexto (botão direito) deste elemento, por acessibilidade.
+    pub fn context_menu(&self) -> Result<(), WinError> {
+        use windows::core::Interface;
+        use windows::Win32::UI::Accessibility::IUIAutomationElement3;
+        unsafe {
+            let el3: IUIAutomationElement3 = self
+                .node
+                .cast()
+                .map_err(|_| WinError::Unavailable("esse app não abre menu por acessibilidade".into()))?;
+            el3.ShowContextMenu()
+                .map_err(|e| WinError::Failed(format!("não abriu o menu de '{}': {e}", self.info.name)))
+        }
+    }
+}
+
+/// Todos os itens visíveis cujo nome casa com `query` (melhores primeiro).
+pub fn find(id: isize, query: &str) -> Result<Vec<Found>, WinError> {
+    Ok(search(id, query)?.into_iter().map(|(_, info, node)| Found { info, node }).collect())
+}
+
+/// Itens clicáveis visíveis (botões, itens de menu, opções…), na ordem da tela.
+pub fn clickables(id: isize) -> Result<Vec<Found>, WinError> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+        let root = uia.ElementFromHandle(HWND(id as *mut _)).map_err(|_| {
+            WinError::Unavailable("não consegui acessar essa janela (app de administrador?)".into())
+        })?;
+        let walker = uia.ControlViewWalker()?;
+        let mut out = Vec::new();
+        let mut stack = vec![(root, String::new())];
+        let mut visited = 0usize;
+        while let Some((el, context)) = stack.pop() {
+            visited += 1;
+            if visited > FIND_MAX_NODES {
+                break;
+            }
+            let name = el.CurrentName().map(|b| b.to_string()).unwrap_or_default();
+            let (kind, clickable) = kind_of(el.CurrentControlType().unwrap_or_default());
+            if clickable && !name.trim().is_empty() {
+                let offscreen = el.CurrentIsOffscreen().map(|b| b.as_bool()).unwrap_or(false);
+                let r = el.CurrentBoundingRectangle().unwrap_or_default();
+                let rect = Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top };
+                if !offscreen && rect.w > 0 && rect.h > 0 {
+                    let info = UiElement { name: short(&name, MAX_NAME), kind: kind.into(), context: short(&context, 40), rect, clickable };
+                    out.push(Found { info, node: el.clone() });
+                }
+            }
+            let child_context = if name.trim().is_empty() { context } else { name };
+            let mut children = Vec::new();
+            let mut next = walker.GetFirstChildElement(&el);
+            while let Ok(child) = next {
+                next = walker.GetNextSiblingElement(&child);
+                children.push(child);
+            }
+            stack.extend(children.into_iter().rev().map(|c| (c, child_context.clone())));
+        }
+        Ok(out)
+    }
+}
+
+/// Invoke, Select, Toggle, Expand ou a ação padrão — o primeiro que o app aceitar.
+fn invoke_element(el: &IUIAutomationElement) -> bool {
     unsafe {
         if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
             if p.Invoke().is_ok() {
-                return Ok(info);
+                return true;
             }
         }
         if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId) {
             if p.Select().is_ok() {
-                return Ok(info);
+                return true;
             }
         }
         if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId) {
             if p.Toggle().is_ok() {
-                return Ok(info);
+                return true;
             }
         }
         if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId) {
             if p.Expand().is_ok() {
-                return Ok(info);
+                return true;
             }
         }
         if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationLegacyIAccessiblePattern>(UIA_LegacyIAccessiblePatternId) {
             if p.DoDefaultAction().is_ok() {
-                return Ok(info);
+                return true;
             }
         }
     }
-    Err(WinError::Failed(format!("'{}' não aceita clique por acessibilidade", info.name)))
+    false
 }
 
 /// Onde está o campo de mensagem, usando a memória de interface: se já

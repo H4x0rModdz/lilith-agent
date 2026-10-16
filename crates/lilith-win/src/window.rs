@@ -743,11 +743,30 @@ pub fn handle(action: &str, params: &Value) -> Result<Value, WinError> {
             let query = params["query"].as_str().map(str::trim).filter(|q| !q.is_empty());
             // Documento principal + o resto da janela (avisos, status, listas) +
             // o que casa com a busca. Cai na leitura simples se a visão geral falhar.
-            match crate::uia::read_window_overview(w.id, max, query) {
+            let overview = crate::uia::read_window_overview(w.id, max, query).map(|mut read| {
+                // Janelas que ainda carregam (a lista do NuGet, uma página): com uma
+                // busca, espera o conteúdo assentar — lê de novo até duas leituras
+                // seguidas virem iguais (no máximo ~5 s).
+                if query.is_some() {
+                    for _ in 0..5 {
+                        std::thread::sleep(std::time::Duration::from_millis(900));
+                        let Ok(again) = crate::uia::read_window_overview(w.id, max, query) else { break };
+                        let settled = again.matches == read.matches && again.texts.len() == read.texts.len();
+                        read = again;
+                        if settled {
+                            break;
+                        }
+                    }
+                }
+                read
+            });
+            match overview {
                 Ok(read) => {
                     let text = read.document.clone().unwrap_or_else(|| read.texts.join("\n"));
                     let mut out = json!({ "window": w.title, "app": w.app, "text": text });
-                    if read.document.is_some() && !read.texts.is_empty() {
+                    // Com busca que achou algo, o resto do texto só atrapalha o modelo.
+                    let focused = query.is_some() && !read.matches.is_empty();
+                    if read.document.is_some() && !read.texts.is_empty() && !focused {
                         out["other_text"] = json!(read.texts.join("\n"));
                     }
                     if query.is_some() {
@@ -759,10 +778,19 @@ pub fn handle(action: &str, params: &Value) -> Result<Value, WinError> {
                     }
                     Ok(out)
                 }
-                Err(_) => {
-                    let text = crate::uia::read_window_text(w.id, max)?;
-                    Ok(json!({ "window": w.title, "app": w.app, "text": text }))
-                }
+                Err(_) => match crate::uia::read_window_text(w.id, max) {
+                    Ok(text) => Ok(json!({ "window": w.title, "app": w.app, "text": text })),
+                    // Nada legível por acessibilidade (jogo, imagem, app que não
+                    // expõe texto): lê pela imagem, com o OCR do Windows.
+                    Err(_) if !w.minimized => {
+                        let lines = crate::ocr::recognize(&crate::ocr::capture_window(w.id, w.frame)?)?;
+                        let mut out = crate::handlers::screen::shape(&w.title, &lines, query, max);
+                        out["window"] = json!(w.title);
+                        out["app"] = json!(w.app);
+                        Ok(out)
+                    }
+                    Err(e) => Err(e),
+                },
             }
         }
         // "Minimiza tudo do monitor 1": uma chamada só, em vez de uma por janela.

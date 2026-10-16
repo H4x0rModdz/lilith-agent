@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT, VIRTUAL_KEY, VK_CONTROL, VK_DOWN, VK_RETURN, VK_SHIFT, VK_TAB,
+    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT, VIRTUAL_KEY, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE, VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP, VK_RETURN, VK_SHIFT, VK_TAB,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -253,6 +253,22 @@ pub fn press_ctrl_key(shift: bool, key_name: &str) -> Result<(), WinError> {
     }
     seq.push(key(VK_CONTROL, 0, KEYEVENTF_KEYUP));
     send(&seq)
+}
+
+/// Tecla de mídia do teclado (tocar/pausar, próxima, anterior, parar).
+pub fn press_media(action: &str) -> Result<(), WinError> {
+    let vk = match action {
+        "next" => VK_MEDIA_NEXT_TRACK,
+        "previous" => VK_MEDIA_PREV_TRACK,
+        "stop" => VK_MEDIA_STOP,
+        _ => VK_MEDIA_PLAY_PAUSE,
+    };
+    press_key(vk)
+}
+
+/// Esc: fecha menus e janelinhas abertas.
+pub fn press_escape() -> Result<(), WinError> {
+    press_key(VK_ESCAPE)
 }
 
 pub fn press_down() -> Result<(), WinError> {
