@@ -67,7 +67,7 @@ pub fn tools() -> Vec<Tool> {
         Tool {
             action: "screen.snip",
             description: "Abre o recorte de tela do Windows (o mesmo do Win+Shift+S): o usuário escolhe a área e \
-                          o recorte vai para a área de transferência. Use para 'tira um print', 'recorta a tela'.",
+                          o recorte vai para a área de transferência. Use para 'print de uma parte da tela', 'recorta a tela' \n                          ('tira um print' sem parte = `screen.capture`).",
             schema: obj(json!({}), &[]),
         },
     ]
@@ -148,7 +148,7 @@ pub(crate) fn parse(t: &str) -> Option<Shortcut> {
     // ── recorte de tela ──────────────────────────────────────────────────
     let snip = re(
         &SNIP,
-        r"^(?:(?:tira|tirar|faz|fazer|fa[cç]a)\s+(?:um\s+|uma\s+)?(?:print|printscreen|print\s+screen|screenshot|captura(?:\s+de\s+tela)?|recorte(?:\s+de\s+tela)?)(?:\s+da\s+(?:minha\s+)?tela)?|(?:abre\s+(?:o\s+|a\s+)?)?(?:recorte\s+de\s+tela|ferramenta\s+de\s+(?:captura|recorte))|recorta\s+(?:a\s+)?tela)$",
+        r"^(?:(?:tira|tirar|faz|fazer|fa[cç]a)\s+(?:um\s+|uma\s+)?(?:recorte(?:\s+de\s+tela)?|(?:print|printscreen|screenshot|captura(?:\s+de\s+tela)?)\s+de\s+(?:uma\s+)?(?:parte|[aá]rea|peda[cç]o))(?:\s+da\s+(?:minha\s+)?tela)?|(?:abre\s+(?:o\s+|a\s+)?)?(?:recorte\s+de\s+tela|ferramenta\s+de\s+(?:captura|recorte))|recorta\s+(?:a\s+)?tela)$",
     );
     if snip.is_match(t) {
         return Some(one("screen.snip", json!({}), "Pronto, é só selecionar a área."));
@@ -321,8 +321,9 @@ mod tests {
         assert_eq!(one("abre a configuração do modo escuro").unwrap().1, json!({ "page": "modo escuro" }));
         assert_eq!(one("abre o wi-fi").unwrap().1, json!({ "page": "wi-fi" }));
         assert_eq!(one("abre o bloco de notas").unwrap().0, "app.open", "programa continua igual");
-        assert_eq!(one("tira um print").unwrap().0, "screen.snip");
-        assert_eq!(one("faz uma captura de tela").unwrap().0, "screen.snip");
+        assert_eq!(one("tira um print").unwrap().0, "screen.capture", "print inteiro não é recorte");
+        assert_eq!(one("tira um print de uma parte da tela").unwrap().0, "screen.snip");
+        assert_eq!(one("faz uma captura de uma área").unwrap().0, "screen.snip");
         assert_eq!(one("abre a ferramenta de captura").unwrap().0, "screen.snip");
         assert_eq!(one("recorta a tela").unwrap().0, "screen.snip");
     }

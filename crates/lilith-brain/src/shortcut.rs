@@ -738,7 +738,7 @@ mod tests {
         assert_eq!(one("faz uma captura de tela do monitor 2").unwrap().1, json!({ "monitor": 2 }));
         assert_eq!(one("tira um print do discord").unwrap().1, json!({ "target": "discord" }));
         assert_eq!(one("tira um print da janela do google").unwrap().1, json!({ "target": "google" }));
-        assert_eq!(one("tira um print de uma parte da tela"), None, "recorte com seleção vai para a ferramenta de recorte");
+        assert_eq!(one("tira um print de uma parte da tela").unwrap().0, "screen.snip", "recorte com seleção");
         let r = json!({ "source": "monitor 1", "path": "C:\\x\\a.png", "copied": true });
         assert!(render("screen.capture", &r).unwrap().contains("copiei para a área de transferência"));
     }
