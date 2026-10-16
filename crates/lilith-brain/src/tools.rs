@@ -187,6 +187,93 @@ pub fn all_tools() -> Vec<Tool> {
             schema: obj(json!({ "muted": { "type": "boolean" } }), &["muted"]),
         },
         Tool {
+            action: "audio.app_volume",
+            description: "Volume ou mudo de UM aplicativo (ex.: 'abaixa o spotify pra 20', 'muta o discord'). \
+                          `app`: nome do programa; `level` 0–100 e/ou `muted`.",
+            schema: obj(
+                json!({ "app": { "type": "string" }, "level": { "type": "integer", "minimum": 0, "maximum": 100 }, "muted": { "type": "boolean" } }),
+                &["app"],
+            ),
+        },
+        Tool {
+            action: "discord.voice",
+            description: "Controles de voz do DISCORD: `mic` (mute/unmute/toggle) silencia ou ativa o \
+                          microfone; `audio` (deafen/undeafen/toggle) desativa ou ativa o áudio (ensurdecer); \
+                          `input_device`/`output_device` escolhe o dispositivo pelo nome (ou 'list' para \
+                          listar). Sem parâmetros, diz se o microfone/áudio estão desligados.",
+            schema: obj(
+                json!({
+                    "mic": { "type": "string", "enum": ["mute", "unmute", "toggle"] },
+                    "audio": { "type": "string", "enum": ["deafen", "undeafen", "toggle"] },
+                    "input_device": { "type": "string" },
+                    "output_device": { "type": "string" }
+                }),
+                &[],
+            ),
+        },
+        Tool {
+            action: "discord.status",
+            description: "Muda o status do DISCORD: online (disponível), idle (ausente), dnd (não perturbe) \
+                          ou invisible (invisível).",
+            schema: obj(
+                json!({ "status": { "type": "string", "enum": ["online", "idle", "dnd", "invisible"] } }),
+                &["status"],
+            ),
+        },
+        Tool {
+            action: "discord.account",
+            description: "Troca a conta do DISCORD por outra já logada (`account`: parte do nome; 'list' \
+                          lista as contas).",
+            schema: obj(json!({ "account": { "type": "string" } }), &["account"]),
+        },
+        Tool {
+            action: "discord.pending",
+            description: "Lista os pedidos de amizade pendentes do DISCORD (recebidos e enviados).",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "discord.friend",
+            description: "Amizades no DISCORD: `op` accept (aceitar pedido), decline (recusar) ou add \
+                          (enviar pedido de amizade); `name`: nome de usuário da pessoa.",
+            schema: obj(
+                json!({ "op": { "type": "string", "enum": ["accept", "decline", "add"] }, "name": { "type": "string" } }),
+                &["op", "name"],
+            ),
+        },
+        Tool {
+            action: "media.control",
+            description: "Controla a música/vídeo tocando no PC (Spotify, navegador…). `action`: play_pause, \
+                          play, pause, next, previous ou stop.",
+            schema: obj(
+                json!({ "action": { "type": "string", "enum": ["play_pause", "play", "pause", "next", "previous", "stop"] } }),
+                &["action"],
+            ),
+        },
+        Tool {
+            action: "media.now_playing",
+            description: "Diz o que está tocando agora (música, artista, app, se está pausado).",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "system.status",
+            description: "Diagnóstico do PC agora: CPU, memória, discos, placa de vídeo, bateria, internet e os \
+                          programas que mais pesam, com os pontos de atenção já calculados em `findings`. Use \
+                          para 'por que o PC tá lento', 'como está o computador', 'o que tá pesando'. Responda \
+                          com base em `findings` e `summary`.",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "screen.read",
+            description: "Lê o texto que aparece NA TELA por imagem (OCR): de um monitor (`monitor`: 1, 2…) ou \
+                          de uma janela (`target`). Use para 'o que tem na minha tela', 'lê o monitor 2', ou \
+                          quando window.read não achar texto (jogo, imagem, PDF escaneado). `query` filtra \
+                          linhas por palavra-chave.",
+            schema: obj(
+                json!({ "monitor": { "type": "integer", "minimum": 1 }, "target": { "type": "string" }, "query": { "type": "string" } }),
+                &[],
+            ),
+        },
+        Tool {
             action: "clipboard.set",
             description: "Copia um texto para a área de transferência.",
             schema: obj(json!({ "text": { "type": "string" } }), &["text"]),
@@ -240,7 +327,7 @@ pub fn all_tools() -> Vec<Tool> {
                           para navegar: 'lê o chat da <pessoa> no discord' = ui.click(target='discord', \
                           element='<pessoa>') e depois window.read; 'abre o servidor <nome>' = \
                           ui.click(target='discord', element='<nome>'). Se o programa não estiver \
-                          aberto, abra antes com app.open. `index` escolhe entre itens de mesmo nome.",
+                          aberto, abra antes com app.open. `index` escolhe entre itens de mesmo nome. A resposta traz \n                          `changed`: se for false, o clique não mudou nada na janela (pode ser lento) — \n                          leia a janela (window.read) antes de dizer que abriu, e espere/tente de novo.",
             schema: obj(
                 json!({
                     "target": { "type": "string", "description": "Programa (ex.: 'discord')" },
@@ -408,7 +495,7 @@ pub fn all_tools() -> Vec<Tool> {
         // ── agentes de código ───────────────────────────────────────────
         Tool {
             action: "agent.delegate",
-            description: "Delega uma tarefa de programação, terminal ou configuração a um agente de código                           que roda em segundo plano (ex.: 'claude' = Claude Code, 'codex' = Codex).                           Escreva em `task` um prompt completo e autossuficiente, como se fosse para um                           dev que não viu a conversa. `folder` é a pasta do projeto. Retorna o id do job;                           o usuário acompanha pelo painel da Lilith.",
+            description: "Delega uma tarefa de programação, terminal ou configuração a um agente de código                           que roda em segundo plano (ex.: 'claude' = Claude Code, 'codex' = Codex).                           Escreva em `task` um prompt completo e autossuficiente, como se fosse para um                           dev que não viu a conversa. `folder` é a pasta do projeto (OBRIGATÓRIA para consertar um projeto: ache com file.find, ex.: o .sln). Para vulnerabilidade de pacote, ponha em `task` o que foi lido: pacote, versão, projetos afetados e a solução. O app já acrescenta as regras de segurança (o agente não mexe em git) e o procedimento de correção. Retorna o id do job;                           o usuário acompanha pelo painel da Lilith.",
             schema: obj(
                 json!({
                     "agent": { "type": "string", "description": "Nome do agente: 'claude' ou 'codex'" },

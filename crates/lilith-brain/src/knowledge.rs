@@ -107,6 +107,7 @@ const SEEDS: &[(&str, &[&str])] = &[
     ("lembra que amanhã tenho dentista, me avisa quando eu abrir o chat", &["reminder.add"]),
     ("esquece o que eu disse do meu endereço", &["memory.forget"]),
     ("pede pro codex consertar os testes do projeto", &["agent.delegate"]),
+    ("corrige a vulnerabilidade desse pacote no projeto", &["file.find", "agent.delegate"]),
     ("já acabou aquela tarefa do claude?", &["agent.jobs"]),
     // conversa (não usa ferramenta)
     ("e aí, tudo certo?", &[]),

@@ -211,6 +211,134 @@ pub fn parse(text: &str) -> Option<Shortcut> {
         }
     }
 
+    // ── Discord: decidido por código ──────────────────────────────────────
+    static D_MIC: OnceLock<Regex> = OnceLock::new();
+    static D_AUDIO: OnceLock<Regex> = OnceLock::new();
+    static D_STATUS: OnceLock<Regex> = OnceLock::new();
+    static D_PENDING: OnceLock<Regex> = OnceLock::new();
+    static D_FRIEND: OnceLock<Regex> = OnceLock::new();
+    static D_ADD: OnceLock<Regex> = OnceLock::new();
+    static D_ACCOUNT: OnceLock<Regex> = OnceLock::new();
+    static D_DEVICE: OnceLock<Regex> = OnceLock::new();
+    const IN_DISCORD: &str = r"(?:\s+(?:no|do|pelo)\s+discord)?";
+    let discord = |action: &str, params: serde_json::Value| Shortcut { calls: vec![call(action, params)], reply: "Pronto!".into() };
+    if let Some(c) = re(&D_MIC, &format!(r"^(muta|silencia|desativa|desliga|fecha|desmuta|ativa|liga|abre)\s+(?:o\s+|meu\s+)?(?:microfone|mic){IN_DISCORD}$")).captures(&t) {
+        let on = matches!(&c[1], "desmuta" | "ativa" | "liga" | "abre");
+        return Some(discord("discord.voice", json!({ "mic": if on { "unmute" } else { "mute" } })));
+    }
+    if let Some(c) = re(&D_AUDIO, r"^(silencia|desativa|desliga|muta|ensurdece|ativa|liga|desmuta|volta|desensurdece)\s+(?:o\s+|meu\s+)?(?:[aá]udio|som|fone)\s+(?:no|do)\s+discord$").captures(&t) {
+        let on = matches!(&c[1], "ativa" | "liga" | "desmuta" | "volta" | "desensurdece");
+        return Some(discord("discord.voice", json!({ "audio": if on { "undeafen" } else { "deafen" } })));
+    }
+    if let Some(c) = re(&D_STATUS, &format!(r"^(?:no\s+discord\s+)?(?:fica|me\s+(?:deixa|coloca|p[oõ]e)|coloca|deixa|p[oõ]e|muda\s+(?:o\s+|meu\s+)?status\s+(?:pra|para))\s+(?:o\s+status\s+)?(?:como\s+|em\s+)?(online|dispon[ií]vel|ausente|invis[ií]vel|n[aã]o\s+perturbe|ocupado){IN_DISCORD}$")).captures(&t) {
+        let status = match fold(&c[1]).as_str() {
+            "ausente" => "idle",
+            "invisivel" => "invisible",
+            s if s.starts_with("nao") || s == "ocupado" => "dnd",
+            _ => "online",
+        };
+        return Some(discord("discord.status", json!({ "status": status })));
+    }
+    if re(&D_PENDING, &format!(r"^(?:quais\s+(?:s[aã]o\s+)?(?:os\s+)?|mostra\s+(?:os\s+)?|tem\s+|lista\s+(?:os\s+)?)?(?:pedidos?\s+(?:de\s+amizade\s+)?pendentes?|pedidos?\s+de\s+amizade|amizades?\s+pendentes?){IN_DISCORD}$")).is_match(&t) {
+        return Some(discord("discord.pending", json!({})));
+    }
+    if let Some(c) = re(&D_FRIEND, &format!(r"^(aceita|recusa|ignora|rejeita)\s+(?:o\s+)?(?:pedido\s+(?:de\s+amizade\s+)?(?:d[oa]\s+)?)?(.+?){IN_DISCORD}$")).captures(&t) {
+        let op = if &c[1] == "aceita" { "accept" } else { "decline" };
+        return Some(discord("discord.friend", json!({ "op": op, "name": c[2].trim() })));
+    }
+    if let Some(c) = re(&D_ADD, r"^(?:adiciona\s+(?:o\s+|a\s+)?(.+?)\s+(?:no|ao)\s+discord|manda\s+(?:um\s+)?pedido\s+de\s+amizade\s+pr[oa]\s+(.+?)(?:\s+no\s+discord)?)$").captures(&t) {
+        let name = c.get(1).or(c.get(2)).map(|m| m.as_str().trim()).unwrap_or("");
+        return Some(discord("discord.friend", json!({ "op": "add", "name": name })));
+    }
+    if let Some(c) = re(&D_ACCOUNT, r"^(?:muda|troca|alterna)\s+(?:a\s+|de\s+)?conta\s+(?:do\s+discord\s+)?(?:pro|pra|para)\s+(?:a\s+)?(.+?)(?:\s+no\s+discord)?$").captures(&t) {
+        return Some(discord("discord.account", json!({ "account": c[1].trim() })));
+    }
+    if let Some(c) = re(&D_DEVICE, r"^(?:muda|troca|coloca|p[oõ]e|escolhe)\s+(?:o\s+|a\s+)?(?:dispositivo\s+de\s+)?(microfone|entrada|sa[ií]da|fone|alto-falante|som)\s+(?:d[oe]\s+[aá]udio\s+)?(?:(?:do|no)\s+discord)(?:\s+(?:pro|pra|para|no|na)\s+(?:o\s+|a\s+)?(.+?))?$|^(?:muda|troca|coloca|p[oõ]e)\s+(?:o\s+|a\s+)?(microfone|entrada|sa[ií]da|fone|alto-falante|som)\s+(?:pro|pra|para|no|na)\s+(?:o\s+|a\s+)?(.+?)\s+no\s+discord$").captures(&t) {
+        let kind = c.get(1).or(c.get(3)).map(|m| m.as_str()).unwrap_or("");
+        let target = c.get(2).or(c.get(4)).map(|m| m.as_str().trim()).unwrap_or("");
+        let key = if matches!(fold(kind).as_str(), "microfone" | "entrada") { "input_device" } else { "output_device" };
+        // Sem dizer qual: o app mostra a lista para escolher.
+        return Some(discord("discord.voice", json!({ key: if target.is_empty() { "ask" } else { target } })));
+    }
+
+    // ── mídia: decidido por código ────────────────────────────────────────
+    static MEDIA_PAUSE: OnceLock<Regex> = OnceLock::new();
+    static MEDIA_PLAY: OnceLock<Regex> = OnceLock::new();
+    static MEDIA_NEXT: OnceLock<Regex> = OnceLock::new();
+    static MEDIA_PREV: OnceLock<Regex> = OnceLock::new();
+    static MEDIA_STOP: OnceLock<Regex> = OnceLock::new();
+    static NOW_PLAYING: OnceLock<Regex> = OnceLock::new();
+    const WHAT: &str = r"(?:\s+(?:a|o|essa|esta))?(?:\s+(?:m[uú]sica|v[ií]deo|som|faixa|playlist|spotify))?";
+    let media = |action: &str| Shortcut {
+        calls: vec![call("media.control", json!({ "action": action }))],
+        reply: "Pronto!".into(),
+    };
+    if re(&MEDIA_PAUSE, &format!(r"^(?:pausa|pause){WHAT}$")).is_match(&t) {
+        return Some(media("pause"));
+    }
+    if re(&MEDIA_PLAY, &format!(r"^(?:despausa|d[aá]\s+play|play|continua|retoma|volta\s+a\s+tocar|toca){WHAT}$")).is_match(&t) {
+        return Some(media("play"));
+    }
+    if re(&MEDIA_NEXT, r"^(?:pr[oó]xima(?:\s+(?:m[uú]sica|faixa))?|(?:pula|passa|avan[cç]a)(?:\s+(?:a|essa|esta))?(?:\s+(?:m[uú]sica|faixa))?|next)$").is_match(&t) {
+        return Some(media("next"));
+    }
+    if re(&MEDIA_PREV, r"^(?:(?:m[uú]sica|faixa)\s+anterior|volta\s+(?:a|uma|pra)\s+(?:m[uú]sica|faixa)(?:\s+anterior)?|previous)$").is_match(&t) {
+        return Some(media("previous"));
+    }
+    if re(&MEDIA_STOP, r"^para\s+(?:a\s+|o\s+)?(?:m[uú]sica|v[ií]deo)$").is_match(&t) {
+        return Some(media("stop"));
+    }
+    if re(
+        &NOW_PLAYING,
+        r"^(?:(?:o\s+)?que\s+(?:m[uú]sica\s+)?(?:t[aá]|est[aá])\s+tocando|que\s+m[uú]sica\s+[eé]\s+essa|qual\s+(?:[eé]\s+)?(?:a\s+)?m[uú]sica(?:\s+(?:t[aá]|est[aá])\s+tocando)?)$",
+    )
+    .is_match(&t)
+    {
+        return Some(Shortcut { calls: vec![call("media.now_playing", json!({}))], reply: "Pronto!".into() });
+    }
+
+    // ── status do PC: decidido por código ─────────────────────────────────
+    static PC_STATUS: OnceLock<Regex> = OnceLock::new();
+    let pc = r"(?:o\s+|meu\s+)?(?:pc|computador|note|notebook)";
+    if re(
+        &PC_STATUS,
+        &format!(
+            r"^(?:(?:por\s*que|pq|porque)\s+{pc}\s+(?:t[aá]|est[aá])\s+(?:t[aã]o\s+)?(?:lento|travando|pesado|esquentando|quente)|como\s+(?:t[aá]|est[aá])\s+{pc}|(?:o\s+)?que\s+(?:t[aá]|est[aá])\s+(?:pesando|travando|consumindo)(?:\s+(?:o|no|meu)\s+(?:pc|computador))?|diagn[oó]stico(?:\s+do\s+(?:pc|computador))?|status\s+do\s+(?:pc|computador))$"
+        ),
+    )
+    .is_match(&t)
+    {
+        return Some(Shortcut { calls: vec![call("system.status", json!({}))], reply: "Pronto!".into() });
+    }
+
+    // ── volume de um app: decidido por código ─────────────────────────────
+    static APP_VOLUME: OnceLock<Regex> = OnceLock::new();
+    static APP_MUTE: OnceLock<Regex> = OnceLock::new();
+    if let Some(c) = re(
+        &APP_VOLUME,
+        r"^(?:(?:coloca|p[oõ]e|deixa|muda|abaixa|baixa|diminui|aumenta|sobe)\s+)?(?:o\s+volume\s+d[oa]\s+|o\s+)([\p{L}0-9][\p{L}0-9 ]*?)\s+(?:pra|para|em|a)\s+(\d{1,3})\s*(?:%|por\s*cento)?$",
+    )
+    .captures(&t)
+    {
+        let app = c[1].trim().to_string();
+        let level: u32 = c[2].parse().ok()?;
+        if level <= 100 && !matches!(app.as_str(), "volume" | "som" | "pc" | "computador") {
+            return Some(Shortcut {
+                calls: vec![call("audio.app_volume", json!({ "app": alias(&app), "level": level }))],
+                reply: "Pronto!".into(),
+            });
+        }
+    }
+    if let Some(c) = re(&APP_MUTE, r"^(muta|silencia|desmuta)\s+o\s+([\p{L}0-9][\p{L}0-9 ]*)$").captures(&t) {
+        let app = c[2].trim().to_string();
+        if !matches!(app.as_str(), "pc" | "computador" | "som" | "áudio" | "audio" | "volume") {
+            return Some(Shortcut {
+                calls: vec![call("audio.app_volume", json!({ "app": alias(&app), "muted": &c[1] != "desmuta" }))],
+                reply: "Pronto!".into(),
+            });
+        }
+    }
+
     // Minimizar / maximizar / restaurar uma janela.
     static WINDOW: OnceLock<Regex> = OnceLock::new();
     let window = re(
@@ -243,6 +371,128 @@ pub fn parse(text: &str) -> Option<Shortcut> {
         return Some(Shortcut { calls: vec![call("app.open", json!({ "app": app }))], reply: "Abri!".into() });
     }
     None
+}
+
+/// Minúsculas, sem acento e espaços normalizados (para comparar rótulos).
+fn fold(s: &str) -> String {
+    let plain: String = s
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'á' | 'à' | 'â' | 'ã' => 'a',
+            'é' | 'ê' => 'e',
+            'í' => 'i',
+            'ó' | 'ô' | 'õ' => 'o',
+            'ú' => 'u',
+            'ç' => 'c',
+            other => other,
+        })
+        .collect();
+    plain.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Resposta montada pelo código a partir do resultado (sem modelo).
+pub fn render(action: &str, result: &serde_json::Value) -> Option<String> {
+    let text = |k: &str| result[k].as_str().unwrap_or("").trim().to_string();
+    let track = || {
+        let (title, artist, app) = (text("title"), text("artist"), text("app"));
+        if title.is_empty() {
+            return String::new();
+        }
+        let by = if artist.is_empty() { String::new() } else { format!(" — {artist}") };
+        let on = if app.is_empty() { String::new() } else { format!(" (no {app})") };
+        format!("{title}{by}{on}")
+    };
+    match action {
+        "discord.voice" => {
+            let mut parts = Vec::new();
+            if let Some(m) = result["mic_muted"].as_bool() {
+                parts.push(if m { "microfone mutado" } else { "microfone ligado" }.to_string());
+            }
+            if let Some(a) = result["audio_off"].as_bool() {
+                parts.push(if a { "áudio desativado" } else { "áudio ligado" }.to_string());
+            }
+            for (k, label) in [("input_device", "entrada"), ("output_device", "saída")] {
+                if result[k]["cancelled"] == true {
+                    parts.push(format!("{label} sem mudança (você não escolheu)"));
+                } else if let Some(sel) = result[k]["selected"].as_str() {
+                    parts.push(format!("{label}: {sel}"));
+                } else if let Some(list) = result[k]["devices"].as_array() {
+                    let names: Vec<&str> = list.iter().filter_map(|v| v.as_str()).collect();
+                    parts.push(format!("dispositivos de {label}: {}", names.join(", ")));
+                }
+            }
+            if result["failed"] == true {
+                let what = if result["mic_muted"].is_boolean() { "o microfone" } else { "o áudio" };
+                return Some(format!("Tentei mudar {what} do Discord, mas ele não mudou de estado. Agora: {}.", parts.join("; ")));
+            }
+            if parts.is_empty() {
+                return Some("Pronto!".into());
+            }
+            let mut s = parts.join("; ");
+            s[..1].make_ascii_uppercase();
+            Some(format!("No Discord: {s}."))
+        }
+        "discord.status" => Some(format!("Pronto, seu status no Discord agora é {}.", text("status").to_lowercase())),
+        "discord.account" => Some(match result["accounts"].as_array() {
+            Some(list) => format!("Contas no Discord: {}.", list.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", ")),
+            None => format!("Troquei para a conta {} no Discord.", text("account")),
+        }),
+        "discord.pending" => {
+            let list = |k: &str| result[k].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+            let (got, sent) = (list("received"), list("sent"));
+            Some(match (got.is_empty(), sent.is_empty()) {
+                (true, true) => "Nenhum pedido de amizade pendente no Discord.".into(),
+                (false, true) => format!("Pedidos de amizade recebidos: {got}."),
+                (true, false) => format!("Nenhum pedido recebido; você enviou para: {sent}."),
+                (false, false) => format!("Recebidos: {got}. Enviados por você: {sent}."),
+            })
+        }
+        "discord.friend" => Some(match text("op").as_str() {
+            "accept" => format!("Aceitei o pedido de {}.", text("name")),
+            "decline" => format!("Recusei o pedido de {}.", text("name")),
+            _ if result["confirmed"] == true => format!("Pedido de amizade enviado para {}.", text("name")),
+            _ => format!("Mandei o pedido para {}, mas não vi a confirmação do Discord — confere lá.", text("name")),
+        }),
+        "media.now_playing" => Some(if track().is_empty() {
+            "Nada tocando agora.".into()
+        } else if result["playing"] == true {
+            format!("Tocando agora: {}.", track())
+        } else {
+            format!("Está pausado: {}.", track())
+        }),
+        "media.control" => Some(match result["done"].as_str().unwrap_or("") {
+            "pause" => "Pausei.".into(),
+            "stop" => "Parei a música.".into(),
+            "next" | "previous" if !track().is_empty() => format!("Pronto! Agora: {}.", track()),
+            "play" | "play_pause" if !track().is_empty() => format!("Tocando: {}.", track()),
+            _ => "Pronto!".into(),
+        }),
+        "audio.app_volume" => {
+            let apps = result["apps"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+            Some(match (result["muted"].as_bool(), result["level"].as_u64()) {
+                (Some(true), _) => format!("Mutei o {apps}."),
+                (Some(false), Some(l)) => format!("Som do {apps} de volta, em {l}%."),
+                (Some(false), None) => format!("Som do {apps} de volta."),
+                (None, Some(l)) => format!("Volume do {apps} em {l}%."),
+                _ => "Pronto!".into(),
+            })
+        }
+        "system.status" => {
+            let findings: Vec<String> =
+                result["findings"].as_array().map(|f| f.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
+            let s = &result["snapshot"];
+            if findings.is_empty() {
+                Some(format!(
+                    "Tudo tranquilo no PC: CPU em {}%, memória {} de {} GB, nada pesando fora do normal.",
+                    s["cpu"], s["memory_used_gb"], s["memory_total_gb"]
+                ))
+            } else {
+                Some(format!("Olhei o PC e achei isto:\n- {}", findings.join("\n- ")))
+            }
+        }
+        _ => None,
+    }
 }
 
 /// "xpto quer dizer abrir o spotify" → ("xpto", "abrir o spotify"). Só
@@ -317,6 +567,74 @@ mod tests {
         ] {
             assert_eq!(one(t), None, "{t}");
         }
+    }
+
+    #[test]
+    fn discord_controls_are_decided_by_code() {
+        assert_eq!(one("muta meu microfone no discord"), Some(("discord.voice".into(), json!({ "mic": "mute" }))));
+        assert_eq!(one("desmuta o mic").unwrap().1, json!({ "mic": "unmute" }));
+        assert_eq!(one("desativa o áudio no discord").unwrap().1, json!({ "audio": "deafen" }));
+        assert_eq!(one("fica invisível no discord").unwrap().1, json!({ "status": "invisible" }));
+        assert_eq!(one("me deixa ausente no discord").unwrap().1, json!({ "status": "idle" }));
+        assert_eq!(one("coloca não perturbe no discord").unwrap().1, json!({ "status": "dnd" }));
+        assert_eq!(one("quais são os pedidos de amizade pendentes?").unwrap().0, "discord.pending");
+        assert_eq!(one("aceita o pedido do user x").unwrap().1, json!({ "op": "accept", "name": "user x" }));
+        assert_eq!(one("recusa o pedido de amizade da user y no discord").unwrap().1, json!({ "op": "decline", "name": "user y" }));
+        assert_eq!(one("adiciona o user z no discord").unwrap().1, json!({ "op": "add", "name": "user z" }));
+        assert_eq!(one("troca a conta do discord pra conta b").unwrap().1, json!({ "account": "conta b" }));
+        assert_eq!(one("troca o microfone do discord pro jbl").unwrap().1, json!({ "input_device": "jbl" }));
+        assert_eq!(one("muda a saída do discord pra nvidia").unwrap().1, json!({ "output_device": "nvidia" }));
+        assert_eq!(one("troca o microfone do discord").unwrap().1, json!({ "input_device": "ask" }), "sem dizer qual: pergunta");
+        assert_eq!(one("muda a saída de áudio do discord").unwrap().1, json!({ "output_device": "ask" }));
+        assert_eq!(one("troca o microfone pro jbl no discord").unwrap().1, json!({ "input_device": "jbl" }));
+        assert_eq!(one("muta o pc").unwrap().0, "audio.set_mute", "mudo geral continua igual");
+    }
+
+    #[test]
+    fn discord_replies_are_rendered() {
+        assert_eq!(render("discord.voice", &json!({ "mic_muted": true })).unwrap(), "No Discord: Microfone mutado.");
+        assert_eq!(render("discord.status", &json!({ "status": "Invisível" })).unwrap(), "Pronto, seu status no Discord agora é invisível.");
+        assert_eq!(render("discord.pending", &json!({ "received": [], "sent": [] })).unwrap(), "Nenhum pedido de amizade pendente no Discord.");
+        assert_eq!(render("discord.friend", &json!({ "op": "accept", "name": "user x" })).unwrap(), "Aceitei o pedido de user x.");
+        let devs = json!({ "input_device": { "devices": ["A", "B"] } });
+        assert_eq!(render("discord.voice", &devs).unwrap(), "No Discord: Dispositivos de entrada: A, B.");
+    }
+
+    #[test]
+    fn media_status_and_app_volume_are_decided_by_code() {
+        assert_eq!(one("pausa a música"), Some(("media.control".into(), json!({ "action": "pause" }))));
+        assert_eq!(one("dá play").unwrap().1, json!({ "action": "play" }));
+        assert_eq!(one("próxima música").unwrap().1, json!({ "action": "next" }));
+        assert_eq!(one("pula essa faixa").unwrap().1, json!({ "action": "next" }));
+        assert_eq!(one("música anterior").unwrap().1, json!({ "action": "previous" }));
+        assert_eq!(one("o que tá tocando?").unwrap().0, "media.now_playing");
+        assert_eq!(one("que música é essa").unwrap().0, "media.now_playing");
+        assert_eq!(one("por que o pc tá tão lento?").unwrap().0, "system.status");
+        assert_eq!(one("como está meu computador").unwrap().0, "system.status");
+        assert_eq!(one("o que tá pesando no pc").unwrap().0, "system.status");
+        assert_eq!(
+            one("abaixa o volume do spotify pra 20"),
+            Some(("audio.app_volume".into(), json!({ "app": "spotify", "level": 20 })))
+        );
+        assert_eq!(one("muta o discord").unwrap().1, json!({ "app": "discord", "muted": true }));
+        assert_eq!(one("muta o pc").unwrap().0, "audio.set_mute", "mudo geral continua igual");
+        assert_eq!(one("volta pra aba anterior"), None, "aba do navegador não é música");
+    }
+
+    #[test]
+    fn replies_are_rendered_from_results() {
+        let playing = json!({ "title": "Song", "artist": "Band", "app": "Spotify", "playing": true });
+        assert_eq!(render("media.now_playing", &playing).unwrap(), "Tocando agora: Song — Band (no Spotify).");
+        assert_eq!(render("media.now_playing", &json!({ "playing": false })).unwrap(), "Nada tocando agora.");
+        let mut next = playing.clone();
+        next["done"] = json!("next");
+        assert_eq!(render("media.control", &next).unwrap(), "Pronto! Agora: Song — Band (no Spotify).");
+        assert_eq!(render("audio.app_volume", &json!({ "apps": ["Spotify"], "level": 20 })).unwrap(), "Volume do Spotify em 20%.");
+        let ok = json!({ "findings": [], "snapshot": { "cpu": 7.3, "memory_used_gb": 23.5, "memory_total_gb": 31.1 } });
+        assert!(render("system.status", &ok).unwrap().starts_with("Tudo tranquilo no PC: CPU em 7.3%"));
+        let bad = json!({ "findings": ["Disco C: quase cheio"], "snapshot": {} });
+        assert_eq!(render("system.status", &bad).unwrap(), "Olhei o PC e achei isto:\n- Disco C: quase cheio");
+        assert_eq!(render("app.open", &json!({})), None);
     }
 
     #[test]

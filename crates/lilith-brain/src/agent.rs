@@ -347,6 +347,22 @@ impl Agent {
             }
             last_step_reply = summarize_step(&call.action, &response);
             append_tool_step(&mut messages, &call, &response);
+            // Leitura com busca que achou itens: a resposta está neles. O modelo
+            // pequeno tende a se perder no resto; esta nota não carrega texto lido
+            // (só instrução), então não abre brecha de prompt injection.
+            if call.action == "window.read"
+                && response["status"] == "success"
+                && response["result"]["matches"].as_array().is_some_and(|m| !m.is_empty())
+            {
+                messages.push(serde_json::json!({
+                    "role": "system",
+                    "content": "A leitura trouxe `matches`: são os itens que respondem à busca do usuário. \
+                                Responda AGORA listando esses itens exatamente como aparecem (nome, versão, \
+                                gravidade, em que projeto/lugar estão, e o que \"(em: …)\" indica sobre o item \
+                                dono). Explique em uma frase o que significam. Não diga que faltou informação \
+                                nem peça outro clique se a resposta já está nos `matches`.",
+                }));
+            }
             results.push(result_signature(&response));
             calls.push(call.clone());
             last_call = Some(call);
@@ -360,6 +376,7 @@ impl Agent {
         let names: Vec<String> = sc.calls.iter().map(|c| c.action.clone()).collect();
         dispatcher.authorize_from_chat(&names);
         let mut done: Vec<ToolCall> = Vec::new();
+        let mut last_result = serde_json::Value::Null;
         for call in &sc.calls {
             let response = dispatcher.dispatch(call).await;
             if response["status"] != "success" {
@@ -372,10 +389,13 @@ impl Agent {
                 let last = done.last().cloned();
                 return Some(self.finish(text, last, done, format!("Não consegui: {why}")));
             }
+            last_result = response["result"].clone();
             done.push(call.clone());
         }
         let last = done.last().cloned();
-        Some(self.finish(text, last, done, sc.reply))
+        // Resposta montada pelo código a partir do resultado (música, status…).
+        let reply = last.as_ref().and_then(|c| shortcut::render(&c.action, &last_result)).unwrap_or(sc.reply);
+        Some(self.finish(text, last, done, reply))
     }
 
     fn finish(&self, user_text: &str, call: Option<ToolCall>, actions: Vec<ToolCall>, reply: String) -> Reply {
@@ -402,7 +422,7 @@ fn asks_for_new_window(user_text: &str) -> bool {
         .any(|w| t.contains(w))
 }
 
-const READ_ACTIONS: &[&str] = &["window.read", "file.read", "web.fetch"];
+const READ_ACTIONS: &[&str] = &["window.read", "screen.read", "file.read", "web.fetch"];
 
 /// "No Bloco de notas está escrito: …" a partir do resultado de uma leitura.
 fn read_summary(action: &str, result: &Value) -> Option<String> {
