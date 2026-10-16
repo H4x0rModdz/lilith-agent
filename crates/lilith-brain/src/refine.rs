@@ -64,6 +64,12 @@ pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<S
     let mut plan = plan;
     let is = |plan: &[String], a: &str| plan.iter().any(|p| p == a);
 
+    // Criar/ativar modo, salvar/restaurar layout, lembrete repetido: uma
+    // ferramenta só (criar um modo NUNCA executa os passos dele agora).
+    if let Some(fixed) = crate::routines::refine(&t) {
+        return fixed;
+    }
+
     // "Lembra que…" é guardar um fato, mesmo que cite o Discord, uma pessoa ou
     // "me lembre quando eu abrir o chat": nunca é mandar mensagem.
     // "Repara a vulnerabilidade": achar a pasta da solução e delegar a correção a um

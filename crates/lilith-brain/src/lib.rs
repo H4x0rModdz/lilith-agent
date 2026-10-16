@@ -15,6 +15,7 @@ pub mod memory;
 pub mod native;
 pub mod ollama;
 pub mod refine;
+pub mod routines;
 pub mod shortcut;
 pub mod tools;
 

@@ -21,7 +21,7 @@ fn re(cell: &'static OnceLock<Regex>, pattern: &str) -> &'static Regex {
 }
 
 /// Minúsculas, sem pontuação final nem educação ("por favor", "pra mim"…).
-fn normalize(text: &str) -> String {
+pub(crate) fn normalize(text: &str) -> String {
     let mut t = text.trim().to_lowercase();
     t = t.split_whitespace().collect::<Vec<_>>().join(" ");
     loop {
@@ -155,6 +155,10 @@ fn call(action: &str, params: serde_json::Value) -> ToolCall {
 }
 
 pub fn parse(text: &str) -> Option<Shortcut> {
+    // Rotinas (modos, layouts, lembretes repetidos): frases mais longas.
+    if let Some(sc) = crate::routines::parse(text) {
+        return Some(sc);
+    }
     let t = normalize(text);
     if t.is_empty() || t.chars().count() > 60 {
         return None;
@@ -611,6 +615,7 @@ pub fn render(action: &str, result: &serde_json::Value) -> Option<String> {
             }
         }
         a if a.starts_with("dev.") => crate::dev::render(a, result),
+        a if a.starts_with("mode.") || a.starts_with("layout.") || a == "reminder.add" => crate::routines::render(a, result),
         other => crate::native::render(other, result),
     }
 }

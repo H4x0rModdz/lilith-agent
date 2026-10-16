@@ -118,7 +118,7 @@ fn round1(x: f64) -> f64 {
     (x * 10.0).round() / 10.0
 }
 
-fn battery() -> Option<Battery> {
+pub(crate) fn battery() -> Option<Battery> {
     use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
     let mut s = SYSTEM_POWER_STATUS::default();
     unsafe { GetSystemPowerStatus(&mut s).ok()? };

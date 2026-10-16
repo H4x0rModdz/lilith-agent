@@ -259,6 +259,8 @@ impl Dispatcher for GuardedDispatcher {
             "cursor.point" => self.screen_action(action, &call.params).await,
             "self.diagnose" => Ok(crate::diagnostics::run(&self.app).await),
             a if a.starts_with("memory.") || a == "reminder.add" => Ok(self.memory_action(a, &call.params)),
+            // Modos e layouts (ver `routines`): cada passo volta a passar por aqui.
+            a if crate::routines::ROUTINE_ACTIONS.contains(&a) => self.routine_action(a, &call.params).await,
             a if APP_ACTIONS.contains(&a) => self.agent_action(action, &call.params),
             a if a.starts_with("window.") && !matches!(a, "window.list" | "window.read") => {
                 self.screen_action(action, &call.params).await
@@ -345,6 +347,15 @@ pub const APP_ACTIONS: &[&str] = &[
     "reminder.add",
     "memory.forget",
     "dev.fix",
+    // Rotinas (crate::routines::ROUTINE_ACTIONS).
+    "mode.run",
+    "mode.save",
+    "mode.list",
+    "mode.delete",
+    "layout.save",
+    "layout.restore",
+    "layout.list",
+    "layout.delete",
 ];
 
 /// Win32 bloqueante fora do runtime async.
@@ -384,18 +395,10 @@ impl GuardedDispatcher {
                 json!({ "remembered": ok, "key": s("key") })
             }
             "reminder.add" => {
-                let due = crate::reminders::parse_date(&s("date"), chrono::Local::now().date_naive());
-                let at = crate::reminders::parse_time(&s("time")).unwrap_or_else(|| "00:00".into());
-                let id = due.and_then(|d| self.store.add_reminder(&d.format("%Y-%m-%d").to_string(), &at, &s("text")));
+                // Data, horário e repetição ("todo dia", "toda segunda") decididos pelo código.
+                let out = crate::reminders::add_from_params(&self.store, params, chrono::Local::now().naive_local());
                 let _ = self.app.emit("lilith://reminders", ());
-                match (id, due) {
-                    (Some(_), Some(d)) => json!({
-                        "reminder": true,
-                        "date": d.format("%d/%m/%Y").to_string(),
-                        "time": if at == "00:00" { Value::Null } else { json!(at) },
-                    }),
-                    _ => json!({ "reminder": false, "error": "data inválida; use AAAA-MM-DD ou dia/mês" }),
-                }
+                out
             }
             _ => {
                 let ok = self.store.forget(&s("key"));
@@ -835,6 +838,11 @@ fn action_timeout(action: &str) -> std::time::Duration {
         "phone.status" | "phone.notifications" | "phone.messages" | "phone.calls" => 60,
         "download.file" | "file.find" | "web.fetch" | "web.search" => 120,
         "ui.type" | "ui.open_chat" => 90,
+        // Um modo roda vários passos (cada um com o próprio limite) e pode
+        // esperar aprovações; restaurar layout abre apps e espera as janelas.
+        "mode.run" | "layout.restore" => 900,
+        // Esperam a confirmação no cartão do chat.
+        "mode.save" | "mode.delete" | "layout.save" | "layout.delete" => 150,
         _ => 45,
     };
     std::time::Duration::from_secs(secs)

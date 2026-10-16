@@ -1,6 +1,9 @@
+mod alerts;
 mod config;
+mod habits;
 mod profile;
 mod reminders;
+mod routines;
 mod update;
 mod voice;
 mod voice_in;
@@ -192,8 +195,19 @@ fn due_reminders(state: State<'_, AppState>) -> Vec<lilith_memory::Reminder> {
 }
 
 #[tauri::command]
-fn list_reminders(state: State<'_, AppState>) -> Vec<lilith_memory::Reminder> {
-    state.store.reminders()
+fn list_reminders(state: State<'_, AppState>) -> Vec<Value> {
+    // Com o rótulo da repetição ("todo dia", "toda segunda") já em português.
+    state
+        .store
+        .reminders()
+        .into_iter()
+        .map(|r| {
+            let label = reminders::label_for_rule(&r.repeat);
+            let mut v = json!(r);
+            v["repeat_label"] = json!(label);
+            v
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -704,10 +718,16 @@ pub fn run() {
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     loop {
                         let now = chrono::Local::now();
-                        let due = handle.state::<AppState>().store.take_to_notify(
+                        let store = handle.state::<AppState>().store.clone();
+                        let mut due = store.take_to_notify(
                             &now.format("%Y-%m-%d").to_string(),
                             &now.format("%H:%M").to_string(),
                         );
+                        // Repetidos ("todo dia às 9h"): avisa e já agenda a próxima vez.
+                        due.extend(reminders::fire_recurring(&store, now.naive_local()));
+                        if due.iter().any(|r| !r.repeat.is_empty()) {
+                            let _ = handle.emit("lilith://reminders", ());
+                        }
                         for r in &due {
                             let _ = handle.notification().builder().title("Lilith").body(&r.text).show();
                         }
@@ -718,6 +738,10 @@ pub fn run() {
                     }
                 });
             }
+
+            // Avisos proativos (downloads, disco, bateria, CPU) e o registro
+            // dos programas abertos para sugerir modos.
+            alerts::start(app.handle().clone());
 
             // Ícone na área de notificação: clique esquerdo abre o painel,
             // direito mostra o menu.
@@ -808,6 +832,17 @@ pub fn run() {
             recent_activity,
             list_rules,
             revoke_rule,
+            routines::list_modes,
+            routines::preview_mode,
+            routines::save_mode_lines,
+            routines::remove_mode,
+            routines::run_mode,
+            routines::list_layouts,
+            routines::save_layout_now,
+            routines::restore_layout,
+            routines::remove_layout,
+            alerts::get_alert_settings,
+            alerts::save_alert_settings,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a Lilith");

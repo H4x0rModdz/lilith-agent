@@ -24,7 +24,7 @@ fn obj(props: Value, required: &[&str]) -> Value {
 /// `lilith-guard::scope_for` e de handler em `lilith-win::dispatch` — o teste
 /// `catalog_is_wired` no app garante isso.
 pub fn all_tools() -> Vec<Tool> {
-    vec![
+    let mut tools = vec![
         // ── apps ────────────────────────────────────────────────────────
         Tool {
             action: "app.open",
@@ -507,10 +507,17 @@ pub fn all_tools() -> Vec<Tool> {
             description: "Cria um LEMBRETE com data: a Lilith avisa no chat quando ele abrir naquele dia (ou \
                           depois). Use para 'me lembra dia 12/10 de…', 'lembra que amanhã eu preciso…'. \
                           `date`: se o usuário disse uma data numérica (dia/mês, formato BRASILEIRO: 12/10 = 12 de OUTUBRO), \n                          passe exatamente como ele disse (ex.: '12/10'); senão AAAA-MM-DD calculado da data de hoje. \n                          `time`: horário (HH:MM, 24h) quando o usuário disser ('às 15h' = '15:00'); sem \
-                          horário, avisa assim que o dia começa. `text`: o que lembrar.",
+                          horário, avisa assim que o dia começa. `text`: o que lembrar. \
+                          `repeat`: SÓ se o usuário pedir repetição, com as palavras dele ('todo dia', \
+                          'de segunda a sexta', 'toda segunda e quarta', 'todo dia 5'); aí `date` pode ficar vazio.",
             schema: obj(
-                json!({ "date": { "type": "string" }, "time": { "type": "string" }, "text": { "type": "string" } }),
-                &["date", "text"],
+                json!({
+                    "date": { "type": "string" },
+                    "time": { "type": "string" },
+                    "text": { "type": "string" },
+                    "repeat": { "type": "string", "description": "Repetição como o usuário disse (opcional)" }
+                }),
+                &["text"],
             ),
         },
         Tool {
@@ -588,11 +595,12 @@ pub fn all_tools() -> Vec<Tool> {
             description: "Lê o texto de uma página web (para resumir ou extrair informação).",
             schema: obj(json!({ "url": { "type": "string" } }), &["url"]),
         },
-    ]
-    .into_iter()
+    ];
+    // Modos e layouts de janelas (ver `routines`).
+    tools.extend(crate::routines::tools());
     // Celular e apps nativos do Windows (ver `native`).
-    .chain(crate::native::tools())
-    .collect()
+    tools.extend(crate::native::tools());
+    tools
 }
 
 /// Formato do array `tools` do `/api/chat` do Ollama (compatível com OpenAI).

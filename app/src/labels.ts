@@ -52,6 +52,15 @@ const ACTION_LABELS: Record<string, string> = {
   "phone.send_sms": "Mandando SMS",
   "settings.open": "Abrindo as Configurações",
   "screen.snip": "Abrindo o recorte de tela",
+  "mode.run": "Rodando o modo",
+  "mode.save": "Salvando o modo",
+  "mode.list": "Olhando os modos",
+  "mode.delete": "Apagando o modo",
+  "layout.save": "Salvando o layout",
+  "layout.restore": "Restaurando o layout",
+  "layout.list": "Olhando os layouts",
+  "layout.delete": "Apagando o layout",
+  "reminder.add": "Criando o lembrete",
   kill_switch: "Kill switch",
 };
 

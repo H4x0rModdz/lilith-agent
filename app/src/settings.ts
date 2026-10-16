@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { hydrateIcons, icon } from "./icons";
 import { mountVoiceInputSettings } from "./voice_input";
+import { mountRoutines } from "./routines";
 
 interface Settings {
   user_name: string;
@@ -28,6 +29,8 @@ interface Reminder {
   due: string;
   at: string;
   text: string;
+  /// "todo dia", "toda segunda"… (vazio = uma vez só).
+  repeat_label?: string;
 }
 
 interface AppInfo {
@@ -134,7 +137,7 @@ export function mountSettings(view: HTMLElement) {
 
       <section class="settings-card">
         <h3><span data-icon="sparkles" data-size="16"></span>Lembretes</h3>
-        <small class="hint">Peça no chat: “me lembra dia 12/10 de abrir o discord”. Ela avisa quando o chat abrir naquele dia.</small>
+        <small class="hint">Peça no chat: “me lembra dia 12/10 de abrir o discord” ou, para repetir, “me lembra todo dia às 9h de tomar remédio” (também: de segunda a sexta, toda segunda, todo dia 5).</small>
         <ul class="facts reminders-list"></ul>
       </section>
 
@@ -165,6 +168,8 @@ export function mountSettings(view: HTMLElement) {
   // Voz de entrada (push-to-talk): seção própria, salva na hora.
   const voiceIn = mountVoiceInputSettings();
   form.querySelector(".settings-card")!.after(voiceIn.el);
+  // Modos, layouts de janelas e avisos (seções próprias, no fim).
+  const routines = mountRoutines(form);
   const saved = view.querySelector<HTMLElement>(".settings-saved")!;
   const factsEl = view.querySelector<HTMLUListElement>(".facts")!;
   const keyIn = view.querySelector<HTMLInputElement>(".fact-key")!;
@@ -293,7 +298,10 @@ export function mountSettings(view: HTMLElement) {
         li.className = "fact";
         li.innerHTML = `<div class="fact-text"><strong></strong><span></span></div>`;
         const [y, m, d] = r.due.split("-");
-        li.querySelector("strong")!.textContent = r.at === "00:00" ? `${d}/${m}/${y}` : `${d}/${m}/${y} ${r.at}`;
+        const time = r.at === "00:00" ? "" : ` às ${r.at}`;
+        li.querySelector("strong")!.textContent = r.repeat_label
+          ? `${r.repeat_label}${time} · próxima: ${d}/${m}`
+          : `${d}/${m}/${y}${r.at === "00:00" ? "" : ` ${r.at}`}`;
         li.querySelector(".fact-text span")!.textContent = r.text;
         const del = document.createElement("button");
         del.type = "button";
@@ -426,6 +434,7 @@ export function mountSettings(view: HTMLElement) {
     renderPrompts();
     await loadFacts();
     await loadTerms();
+    await routines.load();
   }
 
   async function loadFacts() {

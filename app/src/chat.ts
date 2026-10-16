@@ -134,6 +134,9 @@ export async function mountChat(root: HTMLElement) {
   window.addEventListener("focus", () => void showDueReminders());
   listen("lilith://reminders-due", () => void showDueReminders());
   void showDueReminders();
+  // Avisos proativos (download terminou, disco, bateria, CPU) e resultados
+  // de rotinas rodadas pelo painel.
+  listen<{ text: string; icon?: IconName }>("lilith://notice", (e) => note(e.payload.text, e.payload.icon ?? "sparkles"));
   let active!: Conversation;
   let counter = 0;
 

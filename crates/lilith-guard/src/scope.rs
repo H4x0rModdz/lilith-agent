@@ -62,6 +62,12 @@ const SAFE_SCOPES: &[&str] = &[
     "dev.read",
     // Estado do celular no Vincular ao Celular (conectado, bateria, sinal).
     "phone.status",
+    // Rotinas do usuário: rodar um modo é seguro porque CADA passo passa de
+    // novo pelo guard; criar/apagar modo ou layout mostra prévia e pede
+    // confirmação no próprio app.
+    "routine.run",
+    "routine.read",
+    "routine.write",
 ];
 
 const DANGEROUS_SCOPES: &[&str] = &[
@@ -162,6 +168,13 @@ pub fn scope_for(action: &str) -> &'static str {
         "phone.send_sms" => "phone.send",
         // Páginas das Configurações e recorte de tela: só abrem um app nativo.
         "settings.open" | "screen.snip" => "app.launch",
+        // Modos: os passos passam um a um pelo guard ao rodar.
+        "mode.run" => "routine.run",
+        "mode.list" | "layout.list" => "routine.read",
+        "mode.save" | "mode.delete" | "layout.save" | "layout.delete" => "routine.write",
+        // Restaurar um layout move janelas; abrir os apps que faltam passa
+        // pelo guard como app.open.
+        "layout.restore" => "window.control",
         _ => "unknown",
     }
 }
@@ -277,6 +290,14 @@ mod tests {
             "phone.send_sms",
             "settings.open",
             "screen.snip",
+            "mode.run",
+            "mode.save",
+            "mode.list",
+            "mode.delete",
+            "layout.save",
+            "layout.restore",
+            "layout.list",
+            "layout.delete",
         ] {
             let scope = scope_for(action);
             assert_ne!(scope, "unknown", "{action} sem scope");
