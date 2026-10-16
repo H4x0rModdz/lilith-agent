@@ -773,6 +773,70 @@ export async function mountChat(root: HTMLElement) {
     }
   });
 
+  // Cartão de escolha: quando falta um detalhe (qual dispositivo, qual
+  // conta…), ela mostra as opções numa lista. Dá para escolher aqui ou
+  // responder escrevendo o nome (ou "a segunda").
+  interface Choice {
+    id: number;
+    conversation: string;
+    title: string;
+    options: string[];
+  }
+  listen<Choice>("lilith://choice", (e) => {
+    const conv = byId(e.payload.conversation) ?? active;
+    activate(conv);
+    renderChoice(conv, e.payload);
+  });
+  listen<{ id: number; value: string | null }>("lilith://choice-resolved", (e) => {
+    const card = logs.querySelector<HTMLElement>(`[data-choice="${e.payload.id}"]`);
+    if (card && !card.dataset.settled) settleChoice(card, e.payload.value);
+  });
+
+  function renderChoice(conv: Conversation, req: Choice) {
+    const li = document.createElement("li");
+    li.className = "msg choice";
+    li.dataset.choice = String(req.id);
+    li.innerHTML = `
+      <p class="choice-title"><span data-icon="sparkles" data-size="16"></span><span class="choice-text"></span></p>
+      <select class="choice-select"></select>
+      <p class="choice-hint">Ou responda escrevendo o nome (ou "a segunda").</p>
+      <div class="approval-buttons">
+        <button data-act="cancel">Cancelar</button>
+        <button data-act="pick" class="primary neon">Escolher</button>
+      </div>`;
+    hydrateIcons(li);
+    li.querySelector(".choice-text")!.textContent = req.title;
+    const select = li.querySelector<HTMLSelectElement>(".choice-select")!;
+    req.options.forEach((o, i) => {
+      const opt = document.createElement("option");
+      opt.value = o;
+      opt.textContent = `${i + 1}. ${o}`;
+      select.append(opt);
+    });
+    li.querySelector('[data-act="pick"]')!.addEventListener("click", () => {
+      void invoke("answer_choice", { id: req.id, value: select.value });
+      settleChoice(li, select.value);
+    });
+    li.querySelector('[data-act="cancel"]')!.addEventListener("click", () => {
+      void invoke("answer_choice", { id: req.id, value: null });
+      settleChoice(li, null);
+    });
+    conv.log.append(li);
+    conv.log.scrollTop = conv.log.scrollHeight;
+    select.focus();
+  }
+
+  function settleChoice(card: HTMLElement, value: string | null) {
+    card.dataset.settled = "1";
+    card.querySelector(".approval-buttons")?.remove();
+    card.querySelector(".choice-select")?.remove();
+    card.querySelector(".choice-hint")?.remove();
+    const p = document.createElement("p");
+    p.className = "approval-result";
+    p.textContent = value ? `Escolhido: ${value}` : "Cancelado.";
+    card.append(p);
+  }
+
   listen<Approval>("lilith://approval", (e) => {
     const conv = byId(e.payload.conversation) ?? active;
     activate(conv);
