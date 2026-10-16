@@ -4,6 +4,8 @@ mod reminders;
 mod update;
 mod voice;
 mod voice_qwen;
+mod choice;
+mod delegate;
 mod dispatcher;
 mod know;
 pub mod elevated;
@@ -35,6 +37,7 @@ struct AppState {
     audit: Arc<AuditLog>,
     audit_path: PathBuf,
     approvals: Arc<Approvals>,
+    choices: Arc<choice::Choices>,
     jobs: Arc<Jobs>,
     /// Turno em andamento de cada conversa — o kill switch aborta todos.
     running: Mutex<HashMap<String, TurnHandle>>,
@@ -81,10 +84,18 @@ fn send_message(text: String, conversation: String, app: AppHandle, state: State
         policy: state.policy.clone(),
         audit: state.audit.clone(),
         approvals: state.approvals.clone(),
+        choices: state.choices.clone(),
         tainted: Default::default(),
         chat_intent: Default::default(),
         opened_chats: Default::default(),
     };
+    // Resposta escrita a um cartão de escolha que está esperando ("a segunda",
+    // "nvidia"): resolve a escolha e não começa um pedido novo.
+    if let Some((id, chosen)) = state.choices.answer_by_text(&conversation, &text) {
+        state.store.append(&conversation, "user", &text);
+        let _ = app.emit("lilith://choice-resolved", json!({ "id": id, "value": chosen }));
+        return;
+    }
     let agent = state.agent_for(&conversation);
     // Definição explícita dita no chat ("X quer dizer Y") vira gíria dela.
     if let Some((term, meaning)) = lilith_brain::shortcut::parse_definition(&text) {
@@ -210,6 +221,12 @@ async fn check_update(install: bool, app: AppHandle) -> Result<Option<update::Up
         update::install(&app).await?;
     }
     Ok(info)
+}
+
+/// Resposta ao cartão de escolha (`value` nulo = cancelou).
+#[tauri::command]
+fn answer_choice(id: u64, value: Option<String>, state: State<'_, AppState>) -> bool {
+    state.choices.answer(id, value)
 }
 
 #[tauri::command]
@@ -544,6 +561,7 @@ pub fn run() {
         audit: Arc::new(AuditLog::new(&audit_path)),
         audit_path,
         approvals: Arc::new(Approvals::default()),
+        choices: Arc::new(choice::Choices::default()),
         jobs,
         running: Mutex::new(HashMap::new()),
     };
@@ -718,6 +736,7 @@ pub fn run() {
             lilith_avatar,
             toggle_avatar,
             js_log,
+            answer_choice,
             voice_status,
             voice_install,
             voice_install_serena,

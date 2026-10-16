@@ -16,11 +16,12 @@ reqwest.workspace = true
 scraper = "0.27.0"
 serde.workspace = true
 serde_json.workspace = true
+sysinfo = { version = "0.39.6", default-features = false, features = ["system", "disk"] }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 trash = "5.2.9"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Shutdown", "Win32_System_Power", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_Security", "Win32_UI_Accessibility", "Win32_System_Variant", "Win32_System_Ole"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Shutdown", "Win32_System_Power", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_Security", "Win32_UI_Accessibility", "Win32_System_Variant", "Win32_System_Ole", "Win32_Storage_Xps", "Foundation", "Foundation_Collections", "Globalization", "Graphics_Imaging", "Media_Ocr", "Security_Cryptography", "Storage_Streams", "Media_Control", "Networking_Connectivity", "Win32_System_ProcessStatus"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

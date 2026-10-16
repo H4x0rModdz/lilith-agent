@@ -3,10 +3,12 @@
 //! aplicado pelo app antes de chamar [`dispatch`].
 
 pub mod browsers;
+pub mod discord;
 mod error;
 mod handlers;
 mod paths;
 pub mod input;
+pub mod ocr;
 pub mod ui_map;
 pub mod uia;
 pub mod window;
@@ -37,6 +39,16 @@ pub const ACTIONS: &[&str] = &[
     "audio.set_mute",
     "clipboard.set",
     "clipboard.get",
+    "screen.read",
+    "system.status",
+    "media.control",
+    "media.now_playing",
+    "audio.app_volume",
+    "discord.voice",
+    "discord.status",
+    "discord.account",
+    "discord.pending",
+    "discord.friend",
     "system.power",
     "web.search",
     "web.fetch",
@@ -79,11 +91,28 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "clipboard.set" => clipboard::set(params).await,
         "clipboard.get" => clipboard::get().await,
         "system.power" => power::run(params).await,
+        "screen.read" => screen::read(params).await,
+        "system.status" => system::status(params).await,
+        "media.control" => media::control(params).await,
+        "media.now_playing" => media::now_playing(params).await,
+        "audio.app_volume" => media::app_volume(params).await,
         "web.search" => web::search(params).await,
         "web.fetch" => web::fetch(params).await,
         "ui.find" | "ui.click" | "ui.type" | "ui.open_chat" => {
             let a = action.to_string();
             handlers::blocking(move || ui_action(&a, &params)).await
+        }
+        a if a.starts_with("discord.") => {
+            let a = a.to_string();
+            handlers::blocking(move || match a.as_str() {
+                "discord.voice" => discord::voice(&params),
+                "discord.status" => discord::status(&params),
+                "discord.account" => discord::account(&params),
+                "discord.pending" => discord::pending(&params),
+                "discord.friend" => discord::friend(&params),
+                other => Err(WinError::NotFound(format!("ação '{other}'"))),
+            })
+            .await
         }
         a if a.starts_with("window.") => {
             let a = a.to_string();

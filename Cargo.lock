@@ -2288,7 +2288,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-agents"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2299,7 +2299,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-brain"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -2314,7 +2314,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-companion"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2348,7 +2348,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-guard"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "serde",
@@ -2358,7 +2358,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-memory"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rusqlite",
  "serde",
@@ -2369,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "lilith-win"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "arboard",
  "chrono",
@@ -2380,6 +2380,7 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
+ "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -2607,6 +2608,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ntapi"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
+dependencies = [
+ "winapi",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2779,6 +2789,16 @@ dependencies = [
  "block2",
  "libc",
  "objc2",
+ "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-io-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
+dependencies = [
+ "libc",
  "objc2-core-foundation",
 ]
 
@@ -4273,6 +4293,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.7",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.39.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2071df9448915b71c4fe6d25deaf1c22f12bd234f01540b77312bb8e41361e6"
+dependencies = [
+ "libc",
+ "memchr",
+ "ntapi",
+ "objc2-core-foundation",
+ "objc2-io-kit",
+ "windows",
 ]
 
 [[package]]

@@ -51,6 +51,13 @@ fn is_reminder_request(t: &str) -> bool {
     asks_me && (has_date || when_opening) || (is_remember_request(t) && has_date && has(t, &["me lembr", "me avis", "lembrete"]))
 }
 
+/// Pedido para ler o que aparece na tela/monitor (não uma janela específica).
+fn is_screen_request(t: &str) -> bool {
+    let screen = has(t, &["na tela", "na minha tela", "no monitor", "do monitor", "o monitor", "minha tela", "a tela"]);
+    let read = has(t, &["o que tem", "o que tá", "o que está", "o que aparece", "lê ", "le ", "ler ", "leia", "o que diz", "o que está escrito", "o que tá escrito"]);
+    screen && read && !has(t, &["janela", "bloco de notas", "chat", "conversa", "arquivo"])
+}
+
 /// Aplica as regras ao plano do intérprete para o pedido `text`.
 pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<String> {
     let t = text.to_lowercase();
@@ -59,6 +66,26 @@ pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<S
 
     // "Lembra que…" é guardar um fato, mesmo que cite o Discord, uma pessoa ou
     // "me lembre quando eu abrir o chat": nunca é mandar mensagem.
+    // "Repara a vulnerabilidade": achar a pasta da solução e delegar a correção a um
+    // agente de código (que roda o dotnet de verdade e valida com build/testes).
+    let repair_verb = has(&t, &["repara", "reparar", "corrige", "corrigir", "conserta", "consertar", "resolve", "resolver", "arruma", "arrumar"]);
+    let about_vulnerability = has(&t, &["vulnerab"])
+        || (has(&t, &[" isso", " ela", " elas", " esse", " essa", "também"])
+            && recent.iter().any(|(u, r)| format!("{u} {r}").to_lowercase().contains("vulnerab")));
+    if repair_verb && about_vulnerability {
+        let steps = ["file.find".to_string(), "agent.delegate".to_string()];
+        if has(&t, &["mostra", "mostrar", "quais"]) {
+            plan.extend(steps);
+            return plan;
+        }
+        return steps.to_vec();
+    }
+
+    // "O que tem na minha tela?", "lê o monitor 2": OCR da tela (código decide).
+    if is_screen_request(&t) {
+        return vec!["screen.read".to_string()];
+    }
+
     if is_reminder_request(&t) {
         return vec!["reminder.add".to_string()];
     }
@@ -119,6 +146,19 @@ pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<S
     // Listar uma pasta não clica em nada.
     if is(&plan, "file.list") && !has(&t, &["clica", "aperta", "click"]) {
         plan.retain(|p| p != "ui.click");
+    }
+
+    // "Me mostra quais são" depois de um clique: o que o clique abriu precisa ser
+    // LIDO depois dele (uma leitura antes do clique não conta). Sem isso, o agente
+    // dava o plano por cumprido logo após o clique e respondia "agora vou ler…".
+    if has(&t, &["mostra", "mostrar", "quais", "me diz", "me fala", "lista", "listar", " ler ", " lê ", "o que diz", "o que tem"]) {
+        let last_click = plan.iter().rposition(|p| p == "ui.click");
+        let last_read = plan.iter().rposition(|p| p == "window.read");
+        if let Some(c) = last_click {
+            if last_read.is_none_or(|r| r < c) {
+                plan.push("window.read".to_string());
+            }
+        }
     }
 
     // Site não é programa: "abre o github" é navegador.
@@ -267,6 +307,42 @@ mod tests {
         assert_eq!(plan("me lembra amanhã de ligar pro dentista", p(&[])), p(&["reminder.add"]));
         // "lembra quando…" continua sendo busca na memória.
         assert_eq!(plan("lembra quando eu falei do monitor?", p(&["memory.search"])), p(&["memory.search"]));
+    }
+
+    #[test]
+    fn show_me_after_a_click_needs_a_read_after_the_click() {
+        let ask = "o visual studio diz que a solução tem pacotes vulneráveis. Consegue me mostrar quais são? vai precisar clicar em gerenciar pacotes";
+        assert_eq!(
+            plan(ask, p(&["window.read", "ui.click"])),
+            p(&["window.read", "ui.click", "window.read"]),
+            "a leitura antes do clique não conta"
+        );
+        // Já tem leitura depois do clique: não duplica.
+        assert_eq!(plan(ask, p(&["ui.click", "window.read"])), p(&["ui.click", "window.read"]));
+        // Clicar sem pedir para ver nada: não acrescenta leitura.
+        assert_eq!(plan("clica em histórico no discord", p(&["ui.click"])), p(&["ui.click"]));
+    }
+
+    #[test]
+    fn repairing_a_vulnerability_finds_the_folder_then_delegates() {
+        let want = p(&["file.find", "agent.delegate"]);
+        assert_eq!(plan("repara a vulnerabilidade também", p(&["ui.click"])), want);
+        assert_eq!(plan("corrige a vulnerabilidade do pacote", p(&[])), want);
+        // "isso" só vale com contexto de vulnerabilidade na conversa recente.
+        let recent = vec![("mostra as vulnerabilidades".to_string(), "O pacote X está vulnerável".to_string())];
+        assert_eq!(super::plan("conserta isso", p(&[]), &recent), want);
+        assert_eq!(plan("conserta isso", p(&[])), p(&[]), "sem contexto não vira reparo");
+        assert_eq!(
+            plan("me mostra quais são e corrige a vulnerabilidade", p(&["window.read"])),
+            p(&["window.read", "file.find", "agent.delegate"])
+        );
+    }
+
+    #[test]
+    fn screen_requests_go_to_ocr() {
+        assert_eq!(plan("o que tem na minha tela?", p(&["window.read"])), p(&["screen.read"]));
+        assert_eq!(plan("lê o monitor 2 pra mim", p(&[])), p(&["screen.read"]));
+        assert_eq!(plan("lê o que tá escrito na janela do bloco de notas", p(&["window.read"])), p(&["window.read"]));
     }
 
     #[test]

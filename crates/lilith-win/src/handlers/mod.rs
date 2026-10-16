@@ -4,7 +4,10 @@ pub mod clipboard;
 pub mod desktop;
 pub mod download;
 pub mod files;
+pub mod media;
 pub mod power;
+pub mod screen;
+pub mod system;
 pub mod web;
 
 use crate::WinError;

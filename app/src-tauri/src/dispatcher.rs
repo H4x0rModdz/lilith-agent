@@ -63,14 +63,28 @@ impl Approvals {
 /// Ações que trazem conteúdo de fora (texto que o usuário não escreveu) para
 /// o contexto do modelo. Depois de uma delas, o turno fica "contaminado".
 /// memory.search entra: conversas antigas podem citar texto lido de fora.
-const TAINT_SOURCES: &[&str] =
-    &["window.read", "file.read", "web.fetch", "web.search", "clipboard.get", "agent.jobs", "memory.search"];
+const TAINT_SOURCES: &[&str] = &[
+    "window.read",
+    "screen.read",
+    "media.now_playing",
+    "discord.pending",
+    "file.read",
+    "web.fetch",
+    "web.search",
+    "clipboard.get",
+    "agent.jobs",
+    "memory.search",
+];
 
 /// O que continua livre num turno contaminado: só observar, sem efeito e
 /// sem canal de saída. (web.fetch fica de fora: uma URL escolhida por texto
 /// injetado é um jeito de mandar dados para fora.)
 const OBSERVE_ONLY: &[&str] = &[
     "memory.search",
+    "screen.read",
+    "media.now_playing",
+    "system.status",
+    "discord.pending",
     "ui.find",
     "window.list",
     "window.read",
@@ -145,6 +159,8 @@ pub struct GuardedDispatcher {
     pub policy: Arc<Policy>,
     pub audit: Arc<AuditLog>,
     pub approvals: Arc<Approvals>,
+    /// Pedidos de escolha (dispositivo, conta…) mostrados no chat.
+    pub choices: Arc<crate::choice::Choices>,
     pub tainted: AtomicBool,
     /// Conversas já abertas neste pedido (app, nome): não refaz os passos.
     pub opened_chats: Mutex<Vec<(String, String)>>,
@@ -224,13 +240,14 @@ impl Dispatcher for GuardedDispatcher {
             },
         };
 
-        let result = match action {
+        let work = async { match action {
             "cursor.point" => self.screen_action(action, &call.params).await,
             a if a.starts_with("memory.") || a == "reminder.add" => Ok(self.memory_action(a, &call.params)),
             a if APP_ACTIONS.contains(&a) => self.agent_action(action, &call.params),
             a if a.starts_with("window.") && !matches!(a, "window.list" | "window.read") => {
                 self.screen_action(action, &call.params).await
             }
+            "discord.voice" => self.discord_voice(&call.params).await,
             "ui.click" => self.ui_click(&call.params).await,
             "ui.type" => self.ui_type(&call.params).await,
             "ui.open_chat" => self.ui_open_chat(&call.params).await,
@@ -253,6 +270,15 @@ impl Dispatcher for GuardedDispatcher {
                 lilith_win::dispatch(action, params).await
             }
             _ => lilith_win::dispatch(action, call.params.clone()).await,
+        } };
+        // Nenhuma ação pode prender a Lilith: passou do limite, vira erro e o
+        // turno segue (o modelo conta o que houve).
+        let result = match tokio::time::timeout(action_timeout(action), work).await {
+            Ok(r) => r,
+            Err(_) => {
+                tracing::warn!(action, "ação passou do limite de tempo");
+                Err(lilith_win::WinError::Failed(format!("{action} demorou demais e foi interrompida")))
+            }
         };
         let read_external = TAINT_SOURCES.contains(&action) && result.is_ok();
         if read_external {
@@ -407,10 +433,46 @@ impl GuardedDispatcher {
         screen.click().await;
         // Acessibilidade primeiro; se o app a ignora (WhatsApp, Discord…),
         // clique real do mouse, que volta ao lugar logo em seguida.
-        let (clicked, via) = blocking(move || uia::click(id, &element, index)).await?;
+        // Foto da janela antes: título (o Visual Studio muda o título ao abrir uma
+        // aba nova) e quantas janelas existem. Serve para saber se o clique valeu.
+        let snapshot = |id: isize| {
+            blocking(move || {
+                let title = window::find(&format!("id:{id}")).map(|w| w.title).unwrap_or_default();
+                Ok((title, window::list().len()))
+            })
+        };
+        let before = snapshot(id).await?;
+        let (e2, i2) = (element.clone(), index);
+        let (clicked, mut via) = blocking(move || uia::click(id, &e2, i2)).await?;
         // Dá tempo do programa trocar de tela antes de uma leitura em seguida.
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        Ok(json!({ "window": w.title, "clicked": clicked, "via": via }))
+        let mut changed = true;
+        // Alguns apps respondem "ok" ao clique por acessibilidade e não fazem nada
+        // (links do Visual Studio). Em link, confere se algo mudou e, se não,
+        // repete com um clique real do mouse (que volta ao lugar).
+        if clicked.kind == "link" && via == lilith_win::uia::ClickVia::Accessibility {
+            let wait_change = |before: (String, usize)| async move {
+                for _ in 0..10 {
+                    if snapshot(id).await.map(|now| now != before).unwrap_or(true) {
+                        return true;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                }
+                false
+            };
+            changed = wait_change(before.clone()).await;
+            if !changed {
+                let (x, y) = clicked.rect.center();
+                blocking(move || lilith_win::input::click_at(x, y)).await?;
+                via = lilith_win::uia::ClickVia::Mouse;
+                changed = wait_change(before).await;
+            }
+        }
+        let mut out = json!({ "window": w.title, "clicked": clicked, "via": via, "changed": changed });
+        if !changed {
+            out["note"] = json!("cliquei, mas nada mudou no título/janelas; pode ter carregado devagar — confira lendo a janela antes de dizer que abriu");
+        }
+        Ok(out)
     }
 
     /// Abre uma conversa pela busca do app: o cursor aponta a janela
@@ -531,6 +593,10 @@ impl GuardedDispatcher {
                         skipped.push(w.title);
                         continue;
                     }
+                    // Uma por uma, como a Lilith faz tudo: o cursor dela vai até o
+                    // botão de minimizar da janela, "clica", e a janela minimiza.
+                    screen.fly_to(caption_button(w.frame, action)).await;
+                    screen.click().await;
                     let id = w.id;
                     blocking(move || window::set_state(id, "minimize")).await?;
                     done.push(w.title);
@@ -599,16 +665,24 @@ impl GuardedDispatcher {
             return Ok(json!({ "jobs": jobs }));
         }
         let agent = params["agent"].as_str().unwrap_or("").trim().to_lowercase();
-        let task = params["task"].as_str().unwrap_or("");
-        let folder = params["folder"]
-            .as_str()
-            .filter(|f| !f.trim().is_empty())
+        let raw_task = params["task"].as_str().unwrap_or("");
+        let given_folder = params["folder"].as_str().filter(|f| !f.trim().is_empty());
+        // Reparar um projeto exige saber QUAL: não cai na pasta do usuário.
+        if given_folder.is_none() && crate::delegate::is_project_repair(raw_task) {
+            return Err(WinError::InvalidParams(
+                "informe `folder` com a pasta da solução/projeto (ache com file.find, ex.: o .sln)".into(),
+            ));
+        }
+        // Regras de segurança (sem mexer em git, só editar arquivos) e, para
+        // vulnerabilidade de NuGet, o procedimento de correção.
+        let task = crate::delegate::compose_task(raw_task);
+        let folder = given_folder
             .map(lilith_win::resolve_path)
             .or_else(dirs::home_dir)
             .ok_or_else(|| WinError::Unavailable("pasta do usuário".into()))?;
         let job = self
             .jobs
-            .start(&agent, task, folder, Some(self.conversation.clone()))
+            .start(&agent, &task, folder, Some(self.conversation.clone()))
             .map_err(WinError::InvalidParams)?;
         crate::windows::show_panel(&self.app);
         Ok(json!({
@@ -617,6 +691,57 @@ impl GuardedDispatcher {
             "folder": job.folder,
             "note": "rodando em segundo plano; o usuário acompanha pelo painel",
         }))
+    }
+
+    /// Controles de voz do Discord. Dispositivo sem nome (ou com um nome que não
+    /// existe): o app lista os dispositivos e PERGUNTA no chat qual usar.
+    async fn discord_voice(&self, params: &Value) -> Result<Value, lilith_win::WinError> {
+        use lilith_win::WinError;
+        let mut out = json!({});
+        // Microfone/áudio (e só o estado, sem nada pedido) vão direto.
+        let mut direct = json!({});
+        for key in ["mic", "audio"] {
+            if !params[key].is_null() {
+                direct[key] = params[key].clone();
+            }
+        }
+        let wants_device = ["input_device", "output_device"].iter().any(|k| params[*k].is_string());
+        if direct.as_object().is_some_and(|o| !o.is_empty()) || !wants_device {
+            out = lilith_win::dispatch("discord.voice", direct).await?;
+        }
+        for (key, label) in [("input_device", "entrada"), ("output_device", "saída")] {
+            let Some(value) = params[key].as_str() else { continue };
+            let value = value.trim();
+            let ask = value.is_empty() || matches!(value.to_lowercase().as_str(), "ask" | "perguntar" | "escolher");
+            if !ask && value.to_lowercase() != "list" {
+                match lilith_win::dispatch("discord.voice", json!({ key: value })).await {
+                    Ok(r) => {
+                        out[key] = r[key].clone();
+                        continue;
+                    }
+                    Err(WinError::NotFound(_)) => {} // nome que não existe: pergunta
+                    Err(e) => return Err(e),
+                }
+            }
+            let listed = lilith_win::dispatch("discord.voice", json!({ key: "list" })).await?;
+            let options: Vec<String> = listed[key]["devices"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
+            if value.to_lowercase() == "list" {
+                out[key] = listed[key].clone();
+                continue;
+            }
+            let title = format!("Qual dispositivo de {label} o Discord deve usar?");
+            match self.choices.ask(&self.app, &self.conversation, &title, options).await {
+                Some(choice) => {
+                    let r = lilith_win::dispatch("discord.voice", json!({ key: choice })).await?;
+                    out[key] = r[key].clone();
+                }
+                None => out[key] = json!({ "cancelled": true }),
+            }
+        }
+        Ok(out)
     }
 
     /// Emite o pedido para a UI e espera a resposta (30 s → negado).
@@ -642,6 +767,18 @@ impl GuardedDispatcher {
             }
         }
     }
+}
+
+/// Tempo máximo de cada ação. As que esperam o usuário (escolha) ou digitam
+/// devagar têm mais folga; downloads e buscas no disco também.
+fn action_timeout(action: &str) -> std::time::Duration {
+    let secs = match action {
+        "discord.voice" => 180, // pode esperar a escolha do dispositivo
+        "download.file" | "file.find" | "web.fetch" | "web.search" => 120,
+        "ui.type" | "ui.open_chat" => 90,
+        _ => 45,
+    };
+    std::time::Duration::from_secs(secs)
 }
 
 fn error_envelope(action: &str, code: &str, message: &str, started: Instant) -> Value {
