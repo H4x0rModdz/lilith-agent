@@ -51,6 +51,10 @@ const SAFE_SCOPES: &[&str] = &[
     "ui.interact",
     // Ler o status das tarefas delegadas.
     "agent.read",
+    // Tocar/pausar/pular música e ver o que toca.
+    "media.control",
+    // Medir o PC (CPU, memória, discos, processos): só leitura.
+    "system.read",
 ];
 
 const DANGEROUS_SCOPES: &[&str] = &[
@@ -116,7 +120,18 @@ pub fn scope_for(action: &str) -> &'static str {
         "download.file" => "filesystem.write.downloads",
         "file.delete" => "filesystem.delete",
         "desktop.set_wallpaper" => "desktop.modify",
-        "audio.set_volume" | "audio.get_volume" | "audio.set_mute" => "audio.control",
+        "audio.set_volume" | "audio.get_volume" | "audio.set_mute" | "audio.app_volume" => "audio.control",
+        // Microfone, áudio, dispositivos, status e conta do Discord: o que o
+        // usuário faria clicando, e reversível. Ler pedidos pendentes também.
+        "discord.voice" | "discord.status" | "discord.account" | "discord.pending" => "ui.interact",
+        // Aceitar/recusar/enviar pedido de amizade age em nome do usuário: pergunta.
+        "discord.friend" => "ui.press",
+        // Tocar/pausar/pular e ler o que toca: reversível e inofensivo.
+        "media.control" | "media.now_playing" => "media.control",
+        // Medir CPU/memória/discos: só leitura, nada pessoal.
+        "system.status" => "system.read",
+        // OCR da tela pode entregar senhas e conversas, como window.read.
+        "screen.read" => "screen.read",
         "clipboard.set" => "clipboard.write",
         "clipboard.get" => "clipboard.read",
         "web.search" | "web.fetch" => "web.access",
@@ -203,6 +218,16 @@ mod tests {
             "ui.click_effect",
             "ui.type",
             "ui.open_chat",
+            "audio.app_volume",
+            "discord.voice",
+            "discord.status",
+            "discord.account",
+            "discord.pending",
+            "discord.friend",
+            "media.control",
+            "media.now_playing",
+            "system.status",
+            "screen.read",
             "memory.search",
             "memory.remember",
             "reminder.add",
