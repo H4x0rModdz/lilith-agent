@@ -263,6 +263,32 @@ pub fn all_tools() -> Vec<Tool> {
             schema: obj(json!({}), &[]),
         },
         Tool {
+            action: "screen.capture",
+            description: "Tira um print e salva em Imagens\\Capturas de Tela (e copia para a área de \
+                          transferência): sem parâmetros = todos os monitores; `monitor` = só aquele monitor; \
+                          `target` = só aquela janela/app ('tira um print do discord').",
+            schema: obj(
+                json!({ "monitor": { "type": "integer", "minimum": 1 }, "target": { "type": "string" } }),
+                &[],
+            ),
+        },
+        Tool {
+            action: "system.checkup",
+            description: "Checkup COMPLETO do PC (~15 s): Windows (atualizações, reinício pendente), processador, \
+                          memória (velocidade, pentes), drivers de vídeo, saúde dos discos, programas na \
+                          inicialização, energia/bateria, antivírus, estabilidade (desligamentos, telas azuis, \
+                          erros de hardware/disco) e internet. Já vem com `findings` decididos por regras. Use \
+                          para 'diagnóstico completo', 'checkup do pc', 'por que o pc tá lento/travando'.",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "self.diagnose",
+            description: "Autodiagnóstico da própria Lilith: checa o cérebro (Ollama e modelo), a voz, a forma \
+                          3D, a atualização, a memória e as ações que falharam nas últimas 24 h. Use para \
+                          'você tá funcionando direito?', 'faz um checkup de você', 'por que você não respondeu'.",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
             action: "screen.read",
             description: "Lê o texto que aparece NA TELA por imagem (OCR): de um monitor (`monitor`: 1, 2…) ou \
                           de uma janela (`target`). Use para 'o que tem na minha tela', 'lê o monitor 2', ou \

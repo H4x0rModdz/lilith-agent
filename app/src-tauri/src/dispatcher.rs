@@ -242,6 +242,7 @@ impl Dispatcher for GuardedDispatcher {
 
         let work = async { match action {
             "cursor.point" => self.screen_action(action, &call.params).await,
+            "self.diagnose" => Ok(crate::diagnostics::run(&self.app).await),
             a if a.starts_with("memory.") || a == "reminder.add" => Ok(self.memory_action(a, &call.params)),
             a if APP_ACTIONS.contains(&a) => self.agent_action(action, &call.params),
             a if a.starts_with("window.") && !matches!(a, "window.list" | "window.read") => {
@@ -319,6 +320,7 @@ fn is_tab_close(params: &Value) -> bool {
 
 /// Ações que o próprio app executa (não o `lilith-win`).
 pub const APP_ACTIONS: &[&str] = &[
+    "self.diagnose",
     "agent.delegate",
     "agent.jobs",
     "cursor.point",
@@ -774,6 +776,7 @@ impl GuardedDispatcher {
 fn action_timeout(action: &str) -> std::time::Duration {
     let secs = match action {
         "discord.voice" => 180, // pode esperar a escolha do dispositivo
+        "system.checkup" => 90,
         "download.file" | "file.find" | "web.fetch" | "web.search" => 120,
         "ui.type" | "ui.open_chat" => 90,
         _ => 45,

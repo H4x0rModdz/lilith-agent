@@ -8,6 +8,8 @@ repository.workspace = true
 
 [dependencies]
 arboard = "3.6.1"
+png = "0.17"
+base64 = "0.22"
 chrono.workspace = true
 dirs.workspace = true
 futures-util.workspace = true

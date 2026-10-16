@@ -1,4 +1,6 @@
 pub mod apps;
+pub mod capture;
+pub mod checkup;
 pub mod audio;
 pub mod clipboard;
 pub mod desktop;

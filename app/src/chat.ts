@@ -117,6 +117,8 @@ export async function mountChat(root: HTMLElement) {
   const open = new Map<string, Conversation>();
   // Menu da orb (botão direito → Nova conversa).
   listen("lilith://new-chat", () => void openTab());
+  // Notas do sistema (ex.: "Atualizei para a versão X").
+  listen<string>("lilith://notice", (e) => note(e.payload, "sparkles"));
 
   // Lembretes com data: aparecem quando o chat abre (ou volta ao foco) a
   // partir do dia combinado, uma vez só.
@@ -392,6 +394,20 @@ export async function mountChat(root: HTMLElement) {
     { name: "tasks", arg: "", help: "tarefas delegadas a agentes", run: () => void invoke("show_panel_tab", { tab: "jobs" }) },
     { name: "permissions", arg: "", help: "permissões salvas (“Sempre”)", run: () => void invoke("show_panel_tab", { tab: "rules" }) },
     { name: "settings", arg: "", help: "configurações e o que ela sabe sobre você", run: () => void invoke("show_panel_tab", { tab: "settings" }) },
+    {
+      name: "diagnose",
+      arg: "",
+      help: "checkup da Lilith (cérebro, voz, 3D, atualização, falhas recentes)",
+      run: async () => {
+        note("Fazendo um checkup em mim…", "sparkles");
+        type Check = { name: string; level: "ok" | "warn" | "problem"; detail: string; fix: string };
+        const r = await invoke<{ overall: string; checks: Check[]; logs: string }>("run_diagnostics");
+        const tag = (l: string) => (l === "ok" ? "OK" : l === "warn" ? "Atenção" : "Problema");
+        const lines = r.checks.map((c) => `${tag(c.level)} · ${c.name}: ${c.detail}${c.fix ? ` → ${c.fix}` : ""}`);
+        lines.push(`Logs: ${r.logs}`);
+        note(lines.join("\n"), r.overall === "ok" ? "check" : "warn");
+      },
+    },
     {
       name: "help",
       arg: "",

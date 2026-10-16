@@ -6,6 +6,7 @@ mod voice;
 mod voice_qwen;
 mod choice;
 mod delegate;
+mod diagnostics;
 mod dispatcher;
 mod know;
 pub mod elevated;
@@ -227,6 +228,20 @@ async fn check_update(install: bool, app: AppHandle) -> Result<Option<update::Up
 #[tauri::command]
 fn answer_choice(id: u64, value: Option<String>, state: State<'_, AppState>) -> bool {
     state.choices.answer(id, value)
+}
+
+/// Autodiagnóstico (Ollama, voz, 3D, atualização, banco, ações que falharam).
+#[tauri::command]
+async fn run_diagnostics(app: AppHandle) -> Value {
+    diagnostics::run(&app).await
+}
+
+/// Abre a pasta de logs no Explorer.
+#[tauri::command]
+fn open_logs_folder() {
+    let dir = config::data_dir().join("logs");
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::process::Command::new("explorer").arg(dir).spawn();
 }
 
 #[tauri::command]
@@ -520,12 +535,35 @@ fn open_memory(data: &std::path::Path) -> lilith_memory::Memory {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Mantém o gravador do log em arquivo vivo enquanto o app roda.
+static LOG_GUARD: std::sync::OnceLock<tracing_appender::non_blocking::WorkerGuard> = std::sync::OnceLock::new();
+
+/// Log no terminal e em arquivo (`%APPDATA%\Lilith\logs\lilith.AAAA-MM-DD.log`,
+/// um por dia, últimos 7): erros de atualização, Ollama, voz e ações não somem.
+fn init_logging() {
+    use tracing_subscriber::prelude::*;
+    let filter = || tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    let file = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("lilith")
+        .filename_suffix("log")
+        .max_log_files(7)
+        .build(config::data_dir().join("logs"));
+    let registry = tracing_subscriber::registry().with(tracing_subscriber::fmt::layer().with_filter(filter()));
+    match file {
+        Ok(appender) => {
+            let (writer, guard) = tracing_appender::non_blocking(appender);
+            let _ = LOG_GUARD.set(guard);
+            registry
+                .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer).with_filter(filter()))
+                .init();
+        }
+        Err(_) => registry.init(),
+    }
+}
+
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    init_logging();
 
     let cfg = config::Config::load();
     let data = config::data_dir();
@@ -628,6 +666,9 @@ pub fn run() {
                     tauri::async_runtime::spawn(voice_qwen::warm(app.handle().clone()));
                 }
             }
+
+            // Atualizou desde a última vez? Conta para o usuário.
+            update::announce_if_updated(app.handle(), &app.state::<AppState>().store);
 
             // Início com o Windows (só na primeira execução instalada) e
             // busca de atualização a cada abertura.
@@ -736,6 +777,8 @@ pub fn run() {
             lilith_avatar,
             toggle_avatar,
             js_log,
+            run_diagnostics,
+            open_logs_folder,
             answer_choice,
             voice_status,
             voice_install,

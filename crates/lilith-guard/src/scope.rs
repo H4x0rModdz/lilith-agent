@@ -55,6 +55,8 @@ const SAFE_SCOPES: &[&str] = &[
     "media.control",
     // Medir o PC (CPU, memória, discos, processos): só leitura.
     "system.read",
+    // Tirar um print e salvar no próprio PC, como a tecla Print Screen.
+    "screen.capture",
 ];
 
 const DANGEROUS_SCOPES: &[&str] = &[
@@ -129,7 +131,9 @@ pub fn scope_for(action: &str) -> &'static str {
         // Tocar/pausar/pular e ler o que toca: reversível e inofensivo.
         "media.control" | "media.now_playing" => "media.control",
         // Medir CPU/memória/discos: só leitura, nada pessoal.
-        "system.status" => "system.read",
+        "system.status" | "system.checkup" | "self.diagnose" => "system.read",
+        // Print salvo no PC do usuário a pedido dele (o modelo não vê a imagem).
+        "screen.capture" => "screen.capture",
         // OCR da tela pode entregar senhas e conversas, como window.read.
         "screen.read" => "screen.read",
         "clipboard.set" => "clipboard.write",
@@ -227,6 +231,9 @@ mod tests {
             "media.control",
             "media.now_playing",
             "system.status",
+            "self.diagnose",
+            "system.checkup",
+            "screen.capture",
             "screen.read",
             "memory.search",
             "memory.remember",

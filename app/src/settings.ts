@@ -104,7 +104,10 @@ export function mountSettings(view: HTMLElement) {
         </label>
         <div class="update-row">
           <small class="hint update-status"></small>
-          <button type="button" class="neon-soft update-btn">Procurar atualização</button>
+          <span class="voice-actions">
+            <button type="button" class="neon-soft logs-btn">Abrir logs</button>
+            <button type="button" class="neon-soft update-btn">Procurar atualização</button>
+          </span>
         </div>
         <div class="settings-actions">
           <small class="settings-saved" hidden>Salvo ✓</small>
@@ -362,6 +365,7 @@ export function mountSettings(view: HTMLElement) {
   // Versão, início com o Windows e atualização.
   const updateStatus = view.querySelector<HTMLElement>(".update-status")!;
   const updateBtn = view.querySelector<HTMLButtonElement>(".update-btn")!;
+  view.querySelector(".logs-btn")!.addEventListener("click", () => void invoke("open_logs_folder"));
   let version = "";
   const setStatus = (text: string) => (updateStatus.textContent = text);
 

@@ -56,7 +56,7 @@ pub struct Snapshot {
 
 const GB: f64 = 1024.0 * 1024.0 * 1024.0;
 
-fn measure() -> Snapshot {
+pub(crate) fn measure() -> Snapshot {
     let mut sys = System::new();
     sys.refresh_memory();
     sys.refresh_cpu_usage();
@@ -139,7 +139,7 @@ fn internet() -> Option<bool> {
 }
 
 /// Placa NVIDIA (se houver): uso, memória e temperatura pelo `nvidia-smi`.
-async fn gpu() -> Option<Gpu> {
+pub(crate) async fn gpu() -> Option<Gpu> {
     let out = hidden_command("nvidia-smi")
         .args([
             "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
