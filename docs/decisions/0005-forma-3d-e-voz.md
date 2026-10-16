@@ -61,7 +61,7 @@ médio, sem depender de mais modelos grandes).
 | 2a | Corpo 3D (cintura para cima), expressões, olhar, piscar | feita |
 | 2b | Voz de saída (Kokoro, feminina pt-BR) + lip-sync | feita |
 | 2c | Voz de entrada (Whisper no sherpa-onnx, push-to-talk) | feita |
-| 2d | Gestos (acenar, apontar para a tela), troca de modelo nas Configurações | a fazer |
+| 2d | Gestos (acenar, apontar para a tela), troca de modelo nas Configurações | gestos feitos (`app/src/gestures.ts`); troca de modelo a fazer |
 
 ## Riscos
 

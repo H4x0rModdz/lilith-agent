@@ -11,6 +11,7 @@ interface Settings {
   auto_update: boolean;
   voice: boolean;
   voice_engine: "kokoro" | "serena";
+  gestures: boolean;
 }
 
 interface VoiceStatus {
@@ -98,6 +99,11 @@ export function mountSettings(view: HTMLElement) {
             <button type="button" class="neon-soft voice-install-serena" hidden>Instalar a Serena (≈8 GB)</button>
           </span>
         </div>
+        <label class="switch">
+          <input name="gestures" type="checkbox" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span>Gestos na forma 3D (acenar, apontar, sim/não)</span>
+        </label>
         <label class="switch">
           <input name="autostart" type="checkbox" />
           <span class="switch-track"><span class="switch-thumb"></span></span>
@@ -408,6 +414,7 @@ export function mountSettings(view: HTMLElement) {
     field("auto_update").checked = s.auto_update;
     field("voice").checked = s.voice;
     field("voice_engine").value = s.voice_engine;
+    field("gestures").checked = s.gestures !== false;
     await loadVoice();
     await voiceIn.load();
     const info = await invoke<AppInfo>("app_info");
@@ -462,6 +469,7 @@ export function mountSettings(view: HTMLElement) {
       auto_update: field("auto_update").checked,
       voice: field("voice").checked,
       voice_engine: field("voice_engine").value === "serena" ? "serena" : "kokoro",
+      gestures: field("gestures").checked,
     };
     field("autostart").checked = await invoke<boolean>("set_autostart", { on: field("autostart").checked });
     await invoke("save_settings", { settings });

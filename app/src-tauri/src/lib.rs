@@ -286,9 +286,11 @@ fn get_settings(state: State<'_, AppState>) -> profile::Settings {
 }
 
 #[tauri::command]
-fn save_settings(settings: profile::Settings, state: State<'_, AppState>) {
+fn save_settings(settings: profile::Settings, app: AppHandle, state: State<'_, AppState>) {
     settings.save(&state.store);
     voice::set_engine(&settings.voice_engine);
+    // A forma 3D liga/desliga os gestos na hora.
+    let _ = app.emit("lilith://gestures", settings.gestures);
 }
 
 #[tauri::command]
