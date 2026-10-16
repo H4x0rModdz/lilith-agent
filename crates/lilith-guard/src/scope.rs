@@ -57,6 +57,9 @@ const SAFE_SCOPES: &[&str] = &[
     "system.read",
     // Tirar um print e salvar no próprio PC, como a tecla Print Screen.
     "screen.capture",
+    // Ajudante de dev: erros de build (só o que o parser reconhece, de janelas
+    // de desenvolvimento) e git SÓ LEITURA (comandos fixos no código).
+    "dev.read",
 ];
 
 const DANGEROUS_SCOPES: &[&str] = &[
@@ -142,6 +145,10 @@ pub fn scope_for(action: &str) -> &'static str {
         "system.power" => "system.power",
         "agent.delegate" => "agent.delegate",
         "agent.jobs" => "agent.read",
+        // Erros de build e resumo do git: só leitura.
+        "dev.errors" | "dev.git_status" => "dev.read",
+        // Pedir a um agente de código para corrigir os erros = delegar.
+        "dev.fix" => "agent.delegate",
         _ => "unknown",
     }
 }
@@ -163,6 +170,9 @@ mod tests {
         assert_eq!(classify(scope_for("ui.click")), Verdict::Safe);
         assert_eq!(classify(scope_for("ui.click_effect")), Verdict::Dangerous);
         assert_eq!(classify(scope_for("memory.write_unrequested")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("dev.errors")), Verdict::Safe);
+        assert_eq!(classify(scope_for("dev.git_status")), Verdict::Safe);
+        assert_eq!(classify(scope_for("dev.fix")), Verdict::Dangerous, "corrigir = delegar: pede aprovação");
     }
 
     #[test]
@@ -240,6 +250,9 @@ mod tests {
             "reminder.add",
             "memory.forget",
             "memory.write_unrequested",
+            "dev.errors",
+            "dev.git_status",
+            "dev.fix",
         ] {
             let scope = scope_for(action);
             assert_ne!(scope, "unknown", "{action} sem scope");

@@ -3,6 +3,7 @@
 //! aplicado pelo app antes de chamar [`dispatch`].
 
 pub mod browsers;
+pub mod dev;
 pub mod discord;
 mod error;
 mod handlers;
@@ -67,6 +68,8 @@ pub const ACTIONS: &[&str] = &[
     "ui.click",
     "ui.type",
     "ui.open_chat",
+    "dev.errors",
+    "dev.git_status",
 ];
 
 pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
@@ -102,6 +105,8 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "audio.app_volume" => media::app_volume(params).await,
         "web.search" => web::search(params).await,
         "web.fetch" => web::fetch(params).await,
+        "dev.errors" => handlers::blocking(move || dev::read_errors(&params)).await,
+        "dev.git_status" => dev::git_status(&params).await,
         "ui.find" | "ui.click" | "ui.type" | "ui.open_chat" => {
             let a = action.to_string();
             handlers::blocking(move || ui_action(&a, &params)).await

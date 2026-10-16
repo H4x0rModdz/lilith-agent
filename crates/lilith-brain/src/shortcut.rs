@@ -360,6 +360,11 @@ pub fn parse(text: &str) -> Option<Shortcut> {
         return Some(Shortcut { calls: vec![call("system.status", json!({}))], reply: "Pronto!".into() });
     }
 
+    // ── ajudante de dev (erros de build, git): decidido por código ───────
+    if let Some(sc) = crate::dev::shortcut(&t) {
+        return Some(sc);
+    }
+
     // ── volume de um app: decidido por código ─────────────────────────────
     static APP_VOLUME: OnceLock<Regex> = OnceLock::new();
     static APP_MUTE: OnceLock<Regex> = OnceLock::new();
@@ -600,6 +605,7 @@ pub fn render(action: &str, result: &serde_json::Value) -> Option<String> {
                 Some(format!("Olhei o PC e achei isto:\n- {}", findings.join("\n- ")))
             }
         }
+        a if a.starts_with("dev.") => crate::dev::render(a, result),
         _ => None,
     }
 }

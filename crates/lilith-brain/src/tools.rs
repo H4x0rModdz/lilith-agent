@@ -536,6 +536,44 @@ pub fn all_tools() -> Vec<Tool> {
             description: "Lista as tarefas delegadas a agentes de código e o status/resultado de cada uma.",
             schema: obj(json!({}), &[]),
         },
+        // ── ajudante de dev ─────────────────────────────────────────────
+        Tool {
+            action: "dev.errors",
+            description: "Lê os ERROS DE BUILD/compilação que aparecem no Visual Studio (Lista de Erros, Saída), \
+                          no VS Code ou num terminal, já separados (código, arquivo, linha, mensagem). Sem \
+                          `target`, usa a janela de desenvolvimento aberta; `target`: 'terminal', 'devenv' \
+                          (Visual Studio) ou 'code' (VS Code). Use para 'quais erros tem no build', 'por que \
+                          não compila', 'explica esse erro' — explique em linguagem simples com base em \
+                          `errors`. Só vê o que está visível; se vier vazio, diga isso, não invente.",
+            schema: obj(json!({ "target": { "type": "string" } }), &[]),
+        },
+        Tool {
+            action: "dev.git_status",
+            description: "Resumo do GIT de um projeto, SÓ LEITURA: branch, commits à frente/atrás, arquivos \
+                          modificados/novos e os últimos commits. `folder`: pasta do projeto; `project`: nome \
+                          da pasta; sem os dois, usa o projeto aberto no Visual Studio/VS Code/terminal. Nunca \
+                          muda o repositório (commit, push, checkout ficam com o usuário).",
+            schema: obj(
+                json!({ "folder": { "type": "string" }, "project": { "type": "string" } }),
+                &[],
+            ),
+        },
+        Tool {
+            action: "dev.fix",
+            description: "Pede a um agente de código para CORRIGIR os erros de build que aparecem no Visual \
+                          Studio/VS Code/terminal. O app lê os erros, acha a pasta do projeto e monta o pedido \
+                          (o agente não mexe em git e roda o build/testes). `agent`: 'claude' (padrão) ou \
+                          'codex'; `folder` opcional. Pede aprovação. Nunca diga que corrigiu: o agente roda em \
+                          segundo plano e o resultado aparece no painel.",
+            schema: obj(
+                json!({
+                    "agent": { "type": "string" },
+                    "target": { "type": "string" },
+                    "folder": { "type": "string" }
+                }),
+                &[],
+            ),
+        },
         // ── web ─────────────────────────────────────────────────────────
         Tool {
             action: "web.search",

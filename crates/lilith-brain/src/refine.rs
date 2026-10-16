@@ -81,6 +81,12 @@ pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<S
         return steps.to_vec();
     }
 
+    // Erros de build ("explica o erro do build", "arruma o que quebrou no
+    // build") e git só leitura: o ajudante de dev decide (ver `dev::plan`).
+    if let Some(steps) = crate::dev::plan(&t, recent) {
+        return steps;
+    }
+
     // "O que tem na minha tela?", "lê o monitor 2": OCR da tela (código decide).
     if is_screen_request(&t) {
         return vec!["screen.read".to_string()];

@@ -109,6 +109,11 @@ const SEEDS: &[(&str, &[&str])] = &[
     ("pede pro codex consertar os testes do projeto", &["agent.delegate"]),
     ("corrige a vulnerabilidade desse pacote no projeto", &["file.find", "agent.delegate"]),
     ("já acabou aquela tarefa do claude?", &["agent.jobs"]),
+    // ajudante de dev
+    ("tem erro de compilação no projeto?", &["dev.errors"]),
+    ("me explica o erro que deu no build", &["dev.errors"]),
+    ("pede pro claude arrumar o que quebrou no build", &["dev.fix"]),
+    ("o que tem de mudança no git do projeto?", &["dev.git_status"]),
     // conversa (não usa ferramenta)
     ("e aí, tudo certo?", &[]),
     ("me explica o que é uma API", &[]),

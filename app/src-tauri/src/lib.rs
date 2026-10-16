@@ -8,6 +8,7 @@ mod voice_qwen;
 mod choice;
 mod delegate;
 mod diagnostics;
+mod devhelp;
 mod dispatcher;
 mod know;
 pub mod elevated;

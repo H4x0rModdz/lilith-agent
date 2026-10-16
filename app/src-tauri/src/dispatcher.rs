@@ -74,6 +74,9 @@ const TAINT_SOURCES: &[&str] = &[
     "clipboard.get",
     "agent.jobs",
     "memory.search",
+    // Mensagens do compilador e assuntos de commit são texto de terceiros.
+    "dev.errors",
+    "dev.git_status",
 ];
 
 /// O que continua livre num turno contaminado: só observar, sem efeito e
@@ -94,6 +97,8 @@ const OBSERVE_ONLY: &[&str] = &[
     "web.search",
     "audio.get_volume",
     "agent.jobs",
+    "dev.errors",
+    "dev.git_status",
 ];
 
 /// Resultado do portão de contaminação.
@@ -241,6 +246,8 @@ impl Dispatcher for GuardedDispatcher {
         };
 
         let work = async { match action {
+            // Ajudante de dev (erros de build, git só leitura, correção delegada): devhelp.rs.
+            a if a.starts_with("dev.") => self.dev_action(a, &call.params).await,
             "cursor.point" => self.screen_action(action, &call.params).await,
             "self.diagnose" => Ok(crate::diagnostics::run(&self.app).await),
             a if a.starts_with("memory.") || a == "reminder.add" => Ok(self.memory_action(a, &call.params)),
@@ -328,6 +335,7 @@ pub const APP_ACTIONS: &[&str] = &[
     "memory.remember",
     "reminder.add",
     "memory.forget",
+    "dev.fix",
 ];
 
 /// Win32 bloqueante fora do runtime async.
@@ -777,6 +785,8 @@ fn action_timeout(action: &str) -> std::time::Duration {
     let secs = match action {
         "discord.voice" => 180, // pode esperar a escolha do dispositivo
         "system.checkup" => 90,
+        // Lê janelas/disco e pode esperar cartão de escolha + aprovação.
+        "dev.errors" | "dev.fix" | "dev.git_status" => 300,
         "download.file" | "file.find" | "web.fetch" | "web.search" => 120,
         "ui.type" | "ui.open_chat" => 90,
         _ => 45,

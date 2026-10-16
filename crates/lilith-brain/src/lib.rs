@@ -5,6 +5,7 @@
 //! companion. O LLM é sempre local (Ollama).
 
 pub mod agent;
+pub mod dev;
 pub mod emotion;
 pub mod error;
 pub mod interpret;

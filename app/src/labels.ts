@@ -42,6 +42,9 @@ const ACTION_LABELS: Record<string, string> = {
   "window.close": "Fechando a janela",
   "cursor.point": "Apontando",
   "agent.jobs": "Checando as tarefas",
+  "dev.errors": "Lendo os erros do build",
+  "dev.git_status": "Olhando o git",
+  "dev.fix": "Pedindo a correção a um agente",
   kill_switch: "Kill switch",
 };
 
@@ -72,6 +75,7 @@ const ACTION_VERBS: Record<string, string> = {
   "window.restore": "restaurar a janela",
   "window.close": "fechar a janela",
   "agent.delegate": "acionar um agente",
+  "dev.fix": "pedir a um agente para corrigir o build",
   "ui.click": "clicar num item",
   "ui.type": "digitar num app",
   "ui.open_chat": "abrir uma conversa",

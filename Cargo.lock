@@ -2389,6 +2389,7 @@ dependencies = [
  "tokio",
  "tracing",
  "trash",
+ "url",
  "windows",
 ]
 
