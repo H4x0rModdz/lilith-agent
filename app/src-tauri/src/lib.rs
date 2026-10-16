@@ -9,9 +9,11 @@ mod voice;
 mod voice_in;
 mod voice_qwen;
 mod choice;
+mod clipboard_ai;
 mod delegate;
 mod diagnostics;
 mod devhelp;
+mod docs;
 mod dispatcher;
 mod know;
 pub mod elevated;
@@ -709,6 +711,12 @@ pub fn run() {
                 }
             }
 
+            // Documentos: reindexa sozinha o que mudou nas pastas escolhidas.
+            {
+                let store = app.state::<AppState>().store.clone();
+                docs::schedule(app.handle().clone(), store);
+            }
+
             // Lembretes: confere a cada 30 s; na hora, notificação do Windows e
             // aviso no chat (o chat busca os vencidos ao receber o evento).
             {
@@ -843,6 +851,12 @@ pub fn run() {
             routines::remove_layout,
             alerts::get_alert_settings,
             alerts::save_alert_settings,
+            docs::commands::docs_status,
+            docs::commands::docs_add_folder,
+            docs::commands::docs_remove_folder,
+            docs::commands::docs_reindex,
+            docs::commands::docs_pull_model,
+            docs::commands::docs_set_model,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a Lilith");

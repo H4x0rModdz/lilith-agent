@@ -11,6 +11,7 @@ pub mod native;
 pub mod power;
 pub mod screen;
 pub mod system;
+pub mod tidy;
 pub mod web;
 
 use crate::WinError;

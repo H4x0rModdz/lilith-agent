@@ -7,6 +7,7 @@ import { call } from "./ipc";
 import { type IconName, actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel, actionVerb } from "./labels";
 import { mountMic } from "./voice_input";
+import { type Preview, renderPreview } from "./preview";
 
 interface Reply {
   conversation: string;
@@ -23,6 +24,8 @@ interface Approval {
   scope: string;
   params: Record<string, unknown>;
   tainted: boolean;
+  /// Plano calculado pelo código (organizar pasta, limpar duplicados…).
+  preview?: Preview;
 }
 
 interface Summary {
@@ -893,6 +896,15 @@ export async function mountChat(root: HTMLElement) {
     }
     li.querySelector(".approval-action")!.textContent = actionLabel(req.action);
     li.querySelector(".approval-params")!.textContent = formatParams(req.params);
+    // Com prévia, o cartão mostra o que vai acontecer arquivo por arquivo em
+    // vez dos parâmetros crus; e não oferece "Sempre": cada vez é revisada.
+    if (req.preview) {
+      li.querySelector(".approval-params")!.replaceWith(renderPreview(req.preview));
+      li.querySelector(".approval-action")!.textContent = req.preview.title;
+      if (!req.preview.allow_always) li.querySelector('[data-answer="always"]')?.remove();
+      if (req.preview.confirm) li.querySelector('[data-answer="once"]')!.textContent = req.preview.confirm;
+      li.querySelector('[data-answer="deny"]')!.textContent = "Cancelar";
+    }
     li.querySelector(".approval-scope")!.textContent =
       `permissão: ${req.scope}${req.channel !== "local" ? ` · via ${req.channel}` : ""}`;
     li.querySelectorAll<HTMLButtonElement>("[data-answer]").forEach((btn) =>

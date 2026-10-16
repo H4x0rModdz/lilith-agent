@@ -82,6 +82,14 @@ pub async fn read(params: Value) -> Result<Value, WinError> {
     if meta.is_dir() {
         return Err(WinError::InvalidParams(format!("'{}' é uma pasta; use file.list", path.display())));
     }
+    // PDF e Word: o texto vem extraído (para "resume esse documento").
+    if crate::docs::needs_extraction(&path) && crate::docs::has_document_signature(&path) {
+        let p = path.clone();
+        let text = blocking(move || crate::docs::extract_text(&p)).await?;
+        let truncated = text.chars().count() > max;
+        let content: String = text.chars().take(max).collect();
+        return Ok(json!({ "path": path, "text": content, "truncated": truncated }));
+    }
     if meta.len() > MAX_BYTES {
         return Err(WinError::InvalidParams(format!("arquivo grande demais ({} bytes)", meta.len())));
     }

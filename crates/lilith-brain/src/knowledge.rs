@@ -69,6 +69,13 @@ const SEEDS: &[(&str, &[&str])] = &[
     ("lista o que tem em Documentos", &["file.list"]),
     ("onde está o arquivo planilha.xlsx?", &["file.find"]),
     ("roda o setup.exe que tá em downloads", &["file.run"]),
+    ("dá uma arrumada nos arquivos soltos da área de trabalho", &["file.organize"]),
+    ("volta os arquivos pro lugar de antes da organização", &["file.organize_undo"]),
+    ("será que tenho fotos repetidas nas imagens?", &["file.duplicates"]),
+    ("limpa as cópias repetidas dos downloads", &["file.dedupe"]),
+    ("o que mais pesa na minha pasta de vídeos?", &["file.big"]),
+    ("acha nos meus documentos aquele orçamento da reforma", &["docs.search"]),
+    ("me explica o texto que eu copiei", &["clipboard.transform"]),
     // navegador e web
     ("abre o instagram", &["browser.open"]),
     ("vai pro site do reddit", &["browser.open"]),

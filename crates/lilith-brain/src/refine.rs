@@ -61,6 +61,10 @@ fn is_screen_request(t: &str) -> bool {
 /// Aplica as regras ao plano do intérprete para o pedido `text`.
 pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<String> {
     let t = text.to_lowercase();
+    // Arquivos, documentos e o que foi copiado: regras próprias (refine_files).
+    if let Some(files) = crate::refine_files::plan(&t, recent) {
+        return files;
+    }
     let mut plan = plan;
     let is = |plan: &[String], a: &str| plan.iter().any(|p| p == a);
 

@@ -1863,3 +1863,57 @@ body[data-window="avatar"] {
   border-color: rgba(255, 150, 165, 0.8);
   box-shadow: 0 0 8px rgba(255, 110, 130, 0.6);
 }
+
+/* Prévia de ações com muitos arquivos (organizar, limpar duplicados). */
+.preview {
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.preview-summary {
+  margin: 0;
+  font-weight: 500;
+}
+.preview-group {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12.5px;
+}
+.preview-group summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.preview-group ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+.preview-more {
+  list-style: none;
+  margin-left: -16px;
+  color: var(--text-faint);
+}
+.preview-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+/* Configurações → Documentos. */
+.docs-progress {
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.docs-progress > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--pink), var(--pink-deep));
+  transition: width 0.3s ease;
+}

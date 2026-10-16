@@ -5,11 +5,14 @@
 pub mod browsers;
 pub mod dev;
 pub mod discord;
+pub mod docs;
 mod error;
 mod handlers;
 mod paths;
 pub mod input;
 pub mod layout;
+pub mod organize;
+pub mod scan;
 pub mod ocr;
 pub mod phone;
 pub mod vitals;
@@ -18,7 +21,8 @@ pub mod uia;
 pub mod window;
 
 pub use error::WinError;
-pub use paths::{is_personal_read, resolve as resolve_path};
+pub use handlers::tidy::{prepare, Prepared, PLANNED_ACTIONS};
+pub use paths::{is_personal_read, looks_sensitive, resolve as resolve_path};
 use serde_json::Value;
 
 /// Ações que este crate sabe executar.
@@ -36,6 +40,11 @@ pub const ACTIONS: &[&str] = &[
     "file.move",
     "file.copy",
     "file.delete",
+    "file.organize",
+    "file.organize_undo",
+    "file.duplicates",
+    "file.dedupe",
+    "file.big",
     "download.file",
     "desktop.set_wallpaper",
     "audio.set_volume",
@@ -98,6 +107,11 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "file.move" => files::move_(params).await,
         "file.copy" => files::copy(params).await,
         "file.delete" => files::delete(params).await,
+        "file.organize" => tidy::organize(params).await,
+        "file.organize_undo" => tidy::organize_undo(params).await,
+        "file.duplicates" => tidy::duplicates(params).await,
+        "file.dedupe" => tidy::dedupe(params).await,
+        "file.big" => tidy::big(params).await,
         "download.file" => download::file(params).await,
         "desktop.set_wallpaper" => desktop::set_wallpaper(params).await,
         "audio.set_volume" => audio::set_volume(params).await,

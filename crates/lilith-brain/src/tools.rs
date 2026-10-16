@@ -122,7 +122,8 @@ pub fn all_tools() -> Vec<Tool> {
         },
         Tool {
             action: "file.read",
-            description: "Lê o conteúdo de um ARQUIVO de texto no disco (txt, md, json, csv, código…). \
+            description: "Lê o conteúdo de um ARQUIVO de texto no disco (txt, md, json, csv, código… e o \
+                          texto de PDF e Word). Use também para resumir um documento. \
                           Use quando o usuário citar um arquivo pelo nome ou caminho. Para o que está \
                           aberto na tela num programa, use window.read.",
             schema: obj(json!({ "path": { "type": "string" } }), &["path"]),
@@ -152,6 +153,60 @@ pub fn all_tools() -> Vec<Tool> {
             action: "file.delete",
             description: "Manda um arquivo/pasta para a Lixeira.",
             schema: obj(json!({ "path": { "type": "string" } }), &["path"]),
+        },
+        Tool {
+            action: "file.organize",
+            description: "ORGANIZA uma pasta (padrão: Downloads): cada arquivo solto vai para uma subpasta pelo \
+                          tipo (Imagens, Documentos, Instaladores, Compactados, Vídeos, Áudio, Outros). O app \
+                          calcula o plano e mostra a prévia para o usuário aprovar; downloads incompletos e \
+                          arquivos abertos ficam. `folder`: nome da pasta ('Downloads', 'Área de Trabalho').",
+            schema: obj(json!({ "folder": { "type": "string" } }), &[]),
+        },
+        Tool {
+            action: "file.organize_undo",
+            description: "Desfaz a última organização de pasta (file.organize): os arquivos voltam para onde estavam.",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "file.duplicates",
+            description: "Acha arquivos DUPLICADOS (conteúdo idêntico) numa pasta e subpastas e quanto espaço dá \
+                          para liberar. Só lista. `folder` (padrão: Downloads; 'home' = pasta do usuário inteira).",
+            schema: obj(
+                json!({ "folder": { "type": "string" }, "min_size_kb": { "type": "integer" } }),
+                &[],
+            ),
+        },
+        Tool {
+            action: "file.dedupe",
+            description: "Manda para a Lixeira as cópias DUPLICADAS de uma pasta, mantendo uma de cada (o app \
+                          escolhe qual fica e mostra a prévia). Para apagar UMA cópia específica, use file.delete.",
+            schema: obj(json!({ "folder": { "type": "string" } }), &[]),
+        },
+        Tool {
+            action: "file.big",
+            description: "Lista os MAIORES arquivos de uma pasta e subpastas, com tamanhos (padrão: pasta do \
+                          usuário). Use para 'o que tá ocupando espaço', 'arquivos mais pesados'.",
+            schema: obj(
+                json!({ "folder": { "type": "string" }, "limit": { "type": "integer", "minimum": 1, "maximum": 50 } }),
+                &[],
+            ),
+        },
+        Tool {
+            action: "docs.search",
+            description: "Procura nos DOCUMENTOS do usuário (txt, md, pdf, docx das pastas indexadas) pelo \
+                          assunto/sentido: devolve os documentos mais parecidos, com um trecho de cada. Use \
+                          para 'qual documento fala de X', 'acha nos meus documentos…'. Para resumir um \
+                          deles, leia com file.read.",
+            schema: obj(
+                json!({ "query": { "type": "string" }, "limit": { "type": "integer", "minimum": 1, "maximum": 10 } }),
+                &["query"],
+            ),
+        },
+        Tool {
+            action: "docs.index",
+            description: "Indexa os documentos (txt, md, pdf, docx) de uma pasta para a busca nos documentos; \
+                          roda em segundo plano. Sem `folder`, atualiza as pastas já escolhidas.",
+            schema: obj(json!({ "folder": { "type": "string" } }), &[]),
         },
         Tool {
             action: "download.file",
@@ -308,6 +363,21 @@ pub fn all_tools() -> Vec<Tool> {
             action: "clipboard.get",
             description: "Lê o texto da área de transferência.",
             schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "clipboard.transform",
+            description: "Traduz, resume, corrige ou explica o texto que o usuário COPIOU (Ctrl+C): lê a área de \
+                          transferência, transforma e, com `copy_back`, copia o resultado de volta. `op`: \
+                          translate, summarize, fix ou explain; `lang`: idioma de destino da tradução ('auto' = \
+                          inglês↔português); `copy_back`: só se o usuário pedir para copiar/colar de volta.",
+            schema: obj(
+                json!({
+                    "op": { "type": "string", "enum": ["translate", "summarize", "fix", "explain"] },
+                    "lang": { "type": "string" },
+                    "copy_back": { "type": "boolean" }
+                }),
+                &["op"],
+            ),
         },
         Tool {
             action: "system.power",

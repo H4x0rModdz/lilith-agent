@@ -164,6 +164,11 @@ pub fn parse(text: &str) -> Option<Shortcut> {
         return None;
     }
 
+    // Arquivos, documentos e o que foi copiado (ver `shortcut_files`).
+    if let Some(sc) = crate::shortcut_files::parse(&t) {
+        return Some(sc);
+    }
+
     // Volume com número: "volume 30", "coloca o volume em 25%", "set the volume to 40".
     static VOLUME: OnceLock<Regex> = OnceLock::new();
     let volume = re(
@@ -616,7 +621,7 @@ pub fn render(action: &str, result: &serde_json::Value) -> Option<String> {
         }
         a if a.starts_with("dev.") => crate::dev::render(a, result),
         a if a.starts_with("mode.") || a.starts_with("layout.") || a == "reminder.add" => crate::routines::render(a, result),
-        other => crate::native::render(other, result),
+        other => crate::native::render(other, result).or_else(|| crate::shortcut_files::render(other, result)),
     }
 }
 

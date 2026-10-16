@@ -9,6 +9,9 @@
 //! - **configurações** (`settings`): comportamento escolhido no painel.
 
 use rusqlite::{params, Connection, OptionalExtension};
+
+mod docs;
+pub use docs::{cosine, DocFile, DocHit, DocStats};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
@@ -217,6 +220,8 @@ impl Memory {
         let _ = conn.execute("ALTER TABLE reminders ADD COLUMN at TEXT NOT NULL DEFAULT '00:00'", []);
         let _ = conn.execute("ALTER TABLE reminders ADD COLUMN notified INTEGER NOT NULL DEFAULT 0", []);
         routines::migrate(&conn);
+        // Índice dos documentos (busca nos documentos).
+        docs::init(&conn);
         Ok(Self { conn: Mutex::new(conn) })
     }
 

@@ -137,6 +137,14 @@ pub fn scope_for(action: &str) -> &'static str {
         "file.move" | "file.copy" => "filesystem.write",
         "download.file" => "filesystem.write.downloads",
         "file.delete" => "filesystem.delete",
+        // Varrer pastas (duplicados, maiores arquivos) e o índice de
+        // documentos: só leitura. Indexar pasta fora das pessoais é escalado
+        // pelo app para leitura protegida.
+        "file.duplicates" | "file.big" | "docs.index" | "docs.search" => "filesystem.read",
+        // Organizar (e desfazer) move arquivos do usuário: pede, com a prévia.
+        "file.organize" | "file.organize_undo" => "filesystem.write",
+        // Mandar as cópias duplicadas para a Lixeira: pede, com a prévia.
+        "file.dedupe" => "filesystem.delete",
         "desktop.set_wallpaper" => "desktop.modify",
         "audio.set_volume" | "audio.get_volume" | "audio.set_mute" | "audio.app_volume" => "audio.control",
         // Microfone, áudio, dispositivos, status e conta do Discord: o que o
@@ -154,6 +162,8 @@ pub fn scope_for(action: &str) -> &'static str {
         "screen.read" => "screen.read",
         "clipboard.set" => "clipboard.write",
         "clipboard.get" => "clipboard.read",
+        // Traduzir/resumir/corrigir o que foi copiado lê o clipboard.
+        "clipboard.transform" => "clipboard.read",
         "web.search" | "web.fetch" => "web.access",
         "system.power" => "system.power",
         "agent.delegate" => "agent.delegate",
@@ -203,6 +213,12 @@ mod tests {
         assert_eq!(classify(scope_for("phone.messages")), Verdict::Dangerous);
         assert_eq!(classify(scope_for("phone.send_sms")), Verdict::Dangerous);
         assert_eq!(classify(scope_for("settings.open")), Verdict::Safe);
+        assert_eq!(classify(scope_for("file.organize")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("file.organize_undo")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("file.dedupe")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("clipboard.transform")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("file.duplicates")), Verdict::Safe);
+        assert_eq!(classify(scope_for("docs.search")), Verdict::Safe);
     }
 
     #[test]
@@ -236,6 +252,14 @@ mod tests {
             "file.move",
             "file.copy",
             "file.delete",
+            "file.organize",
+            "file.organize_undo",
+            "file.duplicates",
+            "file.dedupe",
+            "file.big",
+            "docs.index",
+            "docs.search",
+            "clipboard.transform",
             "download.file",
             "desktop.set_wallpaper",
             "audio.set_volume",

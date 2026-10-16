@@ -11,6 +11,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
 
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(30);
+/// Com prévia (lista de arquivos para conferir), mais tempo para ler.
+const PREVIEW_APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -31,6 +33,10 @@ struct ApprovalRequest {
     /// O pedido surgiu depois de ler conteúdo externo neste turno (possível
     /// prompt injection): a UI avisa e não oferece "Sempre".
     tainted: bool,
+    /// Prévia calculada pelo código (organizar uma pasta, limpar duplicados…):
+    /// o que vai acontecer, para o cartão mostrar antes de aprovar.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview: Option<Value>,
 }
 
 /// Pedidos de aprovação aguardando resposta do usuário.
@@ -81,6 +87,9 @@ const TAINT_SOURCES: &[&str] = &[
     "phone.notifications",
     "phone.messages",
     "phone.calls",
+    // Trechos de documentos e o texto copiado (já transformado pelo modelo).
+    "docs.search",
+    "clipboard.transform",
 ];
 
 /// O que continua livre num turno contaminado: só observar, sem efeito e
@@ -107,6 +116,9 @@ const OBSERVE_ONLY: &[&str] = &[
     "phone.notifications",
     "phone.messages",
     "phone.calls",
+    "docs.search",
+    "file.duplicates",
+    "file.big",
 ];
 
 /// Resultado do portão de contaminação.
@@ -208,6 +220,12 @@ impl Dispatcher for GuardedDispatcher {
             // direto quando o usuário pediu isso NESTA mensagem do chat
             // ("lembra que…"); se a ideia foi do modelo, pergunta.
             "memory.remember" | "memory.forget" | "reminder.add" if !self.chat_asked_for(action) => "memory.write_unrequested",
+            // Indexar documentos fora das pastas pessoais: leitura protegida.
+            "docs.index"
+                if call.params["folder"].as_str().is_some_and(|f| !f.trim().is_empty() && !lilith_win::is_personal_read(f)) =>
+            {
+                "file.read_protected"
+            }
             other => other,
         };
         // Defesa contra prompt injection: depois de ler conteúdo externo,
@@ -230,13 +248,49 @@ impl Dispatcher for GuardedDispatcher {
             let _ = self.app.emit("lilith://blocked", json!({ "conversation": self.conversation, "action": action }));
             return error_envelope(action, lilith_brain::agent::BLOCKED_NOT_FROM_CHAT, BLOCKED_REASON, started);
         }
-        let scope = match gate.decision {
+        // Organizar, desfazer e limpar duplicados: o plano é calculado AQUI, pelo
+        // código, antes de pedir — é ele que aparece na prévia e exatamente ele
+        // que roda (qualquer plano vindo do modelo é descartado).
+        let mut call = call.clone();
+        let mut preview = None;
+        // Mover/apagar arquivos em lote: a prévia aparece SEMPRE, mesmo com uma
+        // regra "permitir sempre" para o scope.
+        let mut must_review = false;
+        if lilith_win::PLANNED_ACTIONS.contains(&action) && !matches!(gate.decision, Decision::Deny { .. }) {
+            match tokio::time::timeout(action_timeout(action), lilith_win::prepare(action, &call.params)).await {
+                Ok(Ok(Some(lilith_win::Prepared::Ready { params, preview: p }))) => {
+                    call.params = params;
+                    preview = Some(p);
+                    must_review = true;
+                }
+                // Nada a fazer (pasta já arrumada, sem duplicados): responde sem perguntar.
+                Ok(Ok(Some(lilith_win::Prepared::Nothing(result)))) => {
+                    return json!({
+                        "action": action,
+                        "status": "success",
+                        "result": result,
+                        "duration_ms": started.elapsed().as_millis() as u64,
+                    });
+                }
+                Ok(Ok(None)) => {}
+                Ok(Err(e)) => return error_envelope(action, e.code(), &e.to_string(), started),
+                Err(_) => return error_envelope(action, "EXECUTION_FAILED", "a varredura demorou demais", started),
+            }
+        }
+        if action == "clipboard.transform" {
+            preview = Some(crate::clipboard_ai::preview(&call.params));
+        }
+        let decision = match gate.decision {
+            Decision::Allow { scope } if must_review => Decision::Ask { scope },
+            other => other,
+        };
+        let scope = match decision {
             Decision::Allow { scope } => scope,
             Decision::Deny { scope, reason } => {
                 self.audit.record(&self.channel, action, &call.params, "denied", &json!({ "scope": scope }));
                 return error_envelope(action, "PERMISSION_DENIED", &reason, started);
             }
-            Decision::Ask { scope } => match self.ask(call, scope, tainted).await {
+            Decision::Ask { scope } => match self.ask(&call, scope, tainted, preview).await {
                 Answer::Deny => {
                     self.audit.record(&self.channel, action, &call.params, "denied_by_user", &json!({ "scope": scope }));
                     return error_envelope(action, "PERMISSION_DENIED", "o usuário negou esta ação", started);
@@ -258,6 +312,12 @@ impl Dispatcher for GuardedDispatcher {
             a if a.starts_with("dev.") => self.dev_action(a, &call.params).await,
             "cursor.point" => self.screen_action(action, &call.params).await,
             "self.diagnose" => Ok(crate::diagnostics::run(&self.app).await),
+            "clipboard.transform" => {
+                use tauri::Manager;
+                let ollama = self.app.state::<crate::AppState>().ollama.clone();
+                crate::clipboard_ai::transform(ollama.as_ref(), &call.params).await
+            }
+            a if a.starts_with("docs.") => crate::docs::action(&self.app, &self.store, a, &call.params).await,
             a if a.starts_with("memory.") || a == "reminder.add" => Ok(self.memory_action(a, &call.params)),
             // Modos e layouts (ver `routines`): cada passo volta a passar por aqui.
             a if crate::routines::ROUTINE_ACTIONS.contains(&a) => self.routine_action(a, &call.params).await,
@@ -356,6 +416,9 @@ pub const APP_ACTIONS: &[&str] = &[
     "layout.restore",
     "layout.list",
     "layout.delete",
+    "docs.index",
+    "docs.search",
+    "clipboard.transform",
 ];
 
 /// Win32 bloqueante fora do runtime async.
@@ -800,21 +863,26 @@ impl GuardedDispatcher {
         }
     }
 
-    /// Emite o pedido para a UI e espera a resposta (30 s → negado).
-    async fn ask(&self, call: &ToolCall, scope: &'static str, tainted: bool) -> Answer {
+    /// Emite o pedido para a UI e espera a resposta (30 s → negado; 120 s
+    /// quando há prévia para conferir).
+    async fn ask(&self, call: &ToolCall, scope: &'static str, tainted: bool, preview: Option<Value>) -> Answer {
         let (id, rx) = self.approvals.open();
+        let timeout = if preview.is_some() { PREVIEW_APPROVAL_TIMEOUT } else { APPROVAL_TIMEOUT };
         let req = ApprovalRequest {
             id,
             conversation: self.conversation.clone(),
             channel: self.channel.clone(),
             action: call.action.clone(),
             scope,
-            params: call.params.clone(),
+            // Com prévia, o plano inteiro (pode ter milhares de arquivos) não vai
+            // para a tela: a prévia já resume.
+            params: if preview.is_some() { json!({}) } else { call.params.clone() },
             tainted,
+            preview,
         };
         crate::windows::show_chat(&self.app);
         let _ = self.app.emit("lilith://approval", &req);
-        match tokio::time::timeout(APPROVAL_TIMEOUT, rx).await {
+        match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(a)) => a,
             _ => {
                 self.approvals.drop_pending(id);
@@ -837,6 +905,10 @@ fn action_timeout(action: &str) -> std::time::Duration {
         // Abrir o Vincular ao Celular e esperar ele falar com o celular.
         "phone.status" | "phone.notifications" | "phone.messages" | "phone.calls" => 60,
         "download.file" | "file.find" | "web.fetch" | "web.search" => 120,
+        // Hash de duplicados numa pasta grande (dezenas de GB) leva tempo.
+        "file.duplicates" | "file.dedupe" => 300,
+        // Varrer pastas, mover muitos arquivos, modelo local.
+        "file.big" | "file.organize" | "file.organize_undo" | "docs.search" | "docs.index" | "clipboard.transform" => 120,
         "ui.type" | "ui.open_chat" => 90,
         // Um modo roda vários passos (cada um com o próprio limite) e pode
         // esperar aprovações; restaurar layout abre apps e espera as janelas.
@@ -955,7 +1027,7 @@ mod tests {
         // Ler duas coisas seguidas não deveria travar — exceto web.fetch e
         // clipboard.get, que são canais de saída/privacidade.
         for src in TAINT_SOURCES {
-            assert!(OBSERVE_ONLY.contains(src) || matches!(*src, "web.fetch" | "clipboard.get"), "{src}");
+            assert!(OBSERVE_ONLY.contains(src) || matches!(*src, "web.fetch" | "clipboard.get" | "clipboard.transform"), "{src}");
         }
     }
 }

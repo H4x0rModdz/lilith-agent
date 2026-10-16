@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { mountDocsSettings } from "./docs-settings";
 import { hydrateIcons, icon } from "./icons";
 import { mountVoiceInputSettings } from "./voice_input";
 import { mountRoutines } from "./routines";
@@ -170,6 +171,8 @@ export function mountSettings(view: HTMLElement) {
   form.querySelector(".settings-card")!.after(voiceIn.el);
   // Modos, layouts de janelas e avisos (seções próprias, no fim).
   const routines = mountRoutines(form);
+  // Busca nos documentos: pastas, índice e modelo de embeddings.
+  mountDocsSettings(form);
   const saved = view.querySelector<HTMLElement>(".settings-saved")!;
   const factsEl = view.querySelector<HTMLUListElement>(".facts")!;
   const keyIn = view.querySelector<HTMLInputElement>(".fact-key")!;
