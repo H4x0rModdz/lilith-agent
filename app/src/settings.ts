@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { mountDocsSettings } from "./docs-settings";
 import { hydrateIcons, icon } from "./icons";
+import { mountVoiceInputSettings } from "./voice_input";
+import { mountRoutines } from "./routines";
 
 interface Settings {
   user_name: string;
@@ -10,6 +13,7 @@ interface Settings {
   auto_update: boolean;
   voice: boolean;
   voice_engine: "kokoro" | "serena";
+  gestures: boolean;
 }
 
 interface VoiceStatus {
@@ -26,6 +30,8 @@ interface Reminder {
   due: string;
   at: string;
   text: string;
+  /// "todo dia", "toda segunda"… (vazio = uma vez só).
+  repeat_label?: string;
 }
 
 interface AppInfo {
@@ -98,13 +104,21 @@ export function mountSettings(view: HTMLElement) {
           </span>
         </div>
         <label class="switch">
+          <input name="gestures" type="checkbox" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span>Gestos na forma 3D (acenar, apontar, sim/não)</span>
+        </label>
+        <label class="switch">
           <input name="autostart" type="checkbox" />
           <span class="switch-track"><span class="switch-thumb"></span></span>
           <span>Iniciar com o Windows</span>
         </label>
         <div class="update-row">
           <small class="hint update-status"></small>
-          <button type="button" class="neon-soft update-btn">Procurar atualização</button>
+          <span class="voice-actions">
+            <button type="button" class="neon-soft logs-btn">Abrir logs</button>
+            <button type="button" class="neon-soft update-btn">Procurar atualização</button>
+          </span>
         </div>
         <div class="settings-actions">
           <small class="settings-saved" hidden>Salvo ✓</small>
@@ -124,7 +138,7 @@ export function mountSettings(view: HTMLElement) {
 
       <section class="settings-card">
         <h3><span data-icon="sparkles" data-size="16"></span>Lembretes</h3>
-        <small class="hint">Peça no chat: “me lembra dia 12/10 de abrir o discord”. Ela avisa quando o chat abrir naquele dia.</small>
+        <small class="hint">Peça no chat: “me lembra dia 12/10 de abrir o discord” ou, para repetir, “me lembra todo dia às 9h de tomar remédio” (também: de segunda a sexta, toda segunda, todo dia 5).</small>
         <ul class="facts reminders-list"></ul>
       </section>
 
@@ -152,6 +166,13 @@ export function mountSettings(view: HTMLElement) {
   hydrateIcons(view);
 
   const form = view.querySelector<HTMLFormElement>(".settings")!;
+  // Voz de entrada (push-to-talk): seção própria, salva na hora.
+  const voiceIn = mountVoiceInputSettings();
+  form.querySelector(".settings-card")!.after(voiceIn.el);
+  // Modos, layouts de janelas e avisos (seções próprias, no fim).
+  const routines = mountRoutines(form);
+  // Busca nos documentos: pastas, índice e modelo de embeddings.
+  mountDocsSettings(form);
   const saved = view.querySelector<HTMLElement>(".settings-saved")!;
   const factsEl = view.querySelector<HTMLUListElement>(".facts")!;
   const keyIn = view.querySelector<HTMLInputElement>(".fact-key")!;
@@ -280,7 +301,10 @@ export function mountSettings(view: HTMLElement) {
         li.className = "fact";
         li.innerHTML = `<div class="fact-text"><strong></strong><span></span></div>`;
         const [y, m, d] = r.due.split("-");
-        li.querySelector("strong")!.textContent = r.at === "00:00" ? `${d}/${m}/${y}` : `${d}/${m}/${y} ${r.at}`;
+        const time = r.at === "00:00" ? "" : ` às ${r.at}`;
+        li.querySelector("strong")!.textContent = r.repeat_label
+          ? `${r.repeat_label}${time} · próxima: ${d}/${m}`
+          : `${d}/${m}/${y}${r.at === "00:00" ? "" : ` ${r.at}`}`;
         li.querySelector(".fact-text span")!.textContent = r.text;
         const del = document.createElement("button");
         del.type = "button";
@@ -362,6 +386,7 @@ export function mountSettings(view: HTMLElement) {
   // Versão, início com o Windows e atualização.
   const updateStatus = view.querySelector<HTMLElement>(".update-status")!;
   const updateBtn = view.querySelector<HTMLButtonElement>(".update-btn")!;
+  view.querySelector(".logs-btn")!.addEventListener("click", () => void invoke("open_logs_folder"));
   let version = "";
   const setStatus = (text: string) => (updateStatus.textContent = text);
 
@@ -400,7 +425,9 @@ export function mountSettings(view: HTMLElement) {
     field("auto_update").checked = s.auto_update;
     field("voice").checked = s.voice;
     field("voice_engine").value = s.voice_engine;
+    field("gestures").checked = s.gestures !== false;
     await loadVoice();
+    await voiceIn.load();
     const info = await invoke<AppInfo>("app_info");
     version = info.version;
     field("autostart").checked = info.autostart;
@@ -410,6 +437,7 @@ export function mountSettings(view: HTMLElement) {
     renderPrompts();
     await loadFacts();
     await loadTerms();
+    await routines.load();
   }
 
   async function loadFacts() {
@@ -453,6 +481,7 @@ export function mountSettings(view: HTMLElement) {
       auto_update: field("auto_update").checked,
       voice: field("voice").checked,
       voice_engine: field("voice_engine").value === "serena" ? "serena" : "kokoro",
+      gestures: field("gestures").checked,
     };
     field("autostart").checked = await invoke<boolean>("set_autostart", { on: field("autostart").checked });
     await invoke("save_settings", { settings });

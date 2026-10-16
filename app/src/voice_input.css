@@ -1,0 +1,85 @@
+/* Voz de entrada: microfone do chat, "ouvindo…" na orb e seção das Configurações. */
+
+.chat-input .mic {
+  --level: 0;
+  flex: none;
+  width: 42px;
+  height: 42px;
+  touch-action: none;
+  user-select: none;
+}
+.chat-input .mic[hidden] {
+  display: none;
+}
+.chat-input .mic.listening {
+  border-color: rgba(255, 140, 200, 0.9);
+  background: linear-gradient(135deg, rgba(255, 95, 168, 0.55), rgba(232, 69, 143, 0.35));
+  color: #fff;
+  /* O brilho acompanha o volume da voz. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 0 calc(6px + var(--level) * 16px) rgba(255, 95, 168, 0.85),
+    0 0 calc(14px + var(--level) * 30px) rgba(255, 95, 168, 0.35);
+  transform: scale(calc(1 + var(--level) * 0.12));
+  animation: mic-breathe 1.4s ease-in-out infinite;
+}
+.chat-input .mic.processing {
+  border-color: rgba(155, 123, 255, 0.8);
+  animation: mic-breathe 0.7s ease-in-out infinite;
+}
+.chat-input.listening textarea::placeholder {
+  color: rgba(255, 170, 210, 0.95);
+}
+@keyframes mic-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.78;
+  }
+}
+
+.voice-in-card .choice-title,
+.voice-in-settings h3 {
+  align-items: center;
+}
+.voice-in-icon {
+  display: inline-grid;
+  place-items: center;
+  color: var(--pink);
+}
+.voice-in-settings h3 .voice-in-icon {
+  margin-right: 6px;
+}
+.voice-in-card .approval-buttons {
+  margin-top: 4px;
+}
+
+.vi-hotkey {
+  min-width: 132px;
+  font-variant-numeric: tabular-nums;
+}
+.vi-hotkey.capturing {
+  border-color: rgba(255, 140, 200, 0.9);
+  box-shadow: var(--specular), 0 0 10px rgba(255, 95, 168, 0.6);
+}
+
+/* Orb: anel rosa pulsando com o volume enquanto ouve; girando ao entender. */
+.orb-stage .orb.listening,
+.orb-stage .orb.hearing {
+  transform: scale(1);
+  opacity: 1;
+}
+.orb-stage .orb.listening .orb-ring {
+  opacity: 1;
+  border-color: var(--pink);
+  box-shadow: 0 0 calc(4px + var(--level, 0) * 18px) var(--pink-glow);
+  transform: scale(calc(1 + var(--level, 0) * 0.15));
+  transition: transform 0.08s linear, box-shadow 0.08s linear;
+}
+.orb-stage .orb.hearing .orb-ring {
+  opacity: 1;
+  border-color: var(--pink) transparent var(--pink) transparent;
+  animation: ring-spin 0.8s linear infinite;
+}

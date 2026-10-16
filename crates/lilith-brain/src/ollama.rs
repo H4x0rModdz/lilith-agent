@@ -178,10 +178,40 @@ fn strip_think(text: &str) -> String {
     }
 }
 
+/// Saúde do Ollama (autodiagnóstico): versão do servidor e modelos baixados.
+pub async fn health(cfg: &OllamaConfig) -> Result<(String, Vec<String>), String> {
+    let base = normalize_host(&cfg.host);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let version: serde_json::Value = client
+        .get(format!("{base}/api/version"))
+        .send()
+        .await
+        .map_err(|_| format!("o Ollama não respondeu em {base} (está aberto?)"))?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    let tags: serde_json::Value = client
+        .get(format!("{base}/api/tags"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    let models = tags["models"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|m| m["name"].as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    Ok((version["version"].as_str().unwrap_or("?").to_string(), models))
+}
+
 /// `OLLAMA_HOST` costuma estar no formato de bind do servidor
 /// (`0.0.0.0:11434`, sem esquema). Converte para uma URL de cliente, como o
 /// próprio CLI do Ollama faz.
-fn normalize_host(raw: &str) -> String {
+pub fn normalize_host(raw: &str) -> String {
     let raw = raw.trim().trim_end_matches('/');
     let with_scheme = if raw.contains("://") {
         raw.to_string()

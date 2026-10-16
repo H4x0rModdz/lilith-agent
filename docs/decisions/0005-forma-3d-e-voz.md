@@ -28,7 +28,6 @@ médio, sem depender de mais modelos grandes).
    se usa e sai depois de 5 minutos parado. O volume da fala abre a boca do modelo
    (`lilith://mouth`). Os arquivos (≈150 MB) são baixados no primeiro uso para
    `%APPDATA%\Lilith\voice\`, conferidos por SHA-256, e nunca vão no instalador.
-   Voz de entrada (fase 2c): whisper.cpp, push-to-talk.
 6. **Voz opcional "Serena" (GPU NVIDIA): Qwen3-TTS CustomVoice 1.7B** (Apache-2.0).
    Escolhida de ouvido entre as vozes femininas prontas do modelo (clonar o `mp3`
    de referência, com o Qwen Base, Kokoro+OpenVoice e outros, soou pior). Roda como
@@ -39,6 +38,21 @@ médio, sem depender de mais modelos grandes).
    fala é gerada em pedaços maiores e, enquanto o modelo carrega, a primeira
    resposta sai com o Kokoro. Descarrega da GPU depois de 20 minutos parada. O
    Kokoro segue como padrão e plano B para qualquer PC.
+7. **Voz de entrada (fase 2c): Whisper small int8 no mesmo sherpa-onnx**, com o
+   idioma fixo em português. Sem whisper.cpp: o reconhecedor offline do
+   sherpa-onnx já vem na biblioteca que a voz de saída usa. Comparado com o
+   Kokoro falando frases conhecidas, o NeMo FastConformer pt (≈107 MB) errava a
+   grafia de nomes de apps ("Spotífer", "discorde") e o Parakeet v3 (≈490 MB)
+   virava inglês em frases curtas ("Oi, Lilith!" → "Oily leads"); o Whisper
+   small acertou os dois (WER médio ≈4 %, ≈0,2 s por segundo de fala na CPU).
+   Os três arquivos int8 (≈375 MB) são baixados no primeiro uso para
+   `%APPDATA%\Lilith\voice\asr\` (SHA-256), carregados ao apertar o atalho e
+   liberados depois de 3 minutos parado.
+   **Push-to-talk** (padrão Ctrl+Alt+Espaço, configurável): segurar e soltar
+   envia; um toque rápido ouve até uma pausa; Esc cancela. Também há o botão do
+   microfone no chat. O microfone (WASAPI, 16 kHz mono) só abre durante o uso;
+   o silêncio das pontas é cortado por energia; o texto vai para o chat como se
+   tivesse sido digitado (responde também cartões de escolha). Nada sai do PC.
 
 ## Fases
 
@@ -46,8 +60,8 @@ médio, sem depender de mais modelos grandes).
 |---|---|---|
 | 2a | Corpo 3D (cintura para cima), expressões, olhar, piscar | feita |
 | 2b | Voz de saída (Kokoro, feminina pt-BR) + lip-sync | feita |
-| 2c | Voz de entrada (whisper.cpp, push-to-talk) | a fazer |
-| 2d | Gestos (acenar, apontar para a tela), troca de modelo nas Configurações | a fazer |
+| 2c | Voz de entrada (Whisper no sherpa-onnx, push-to-talk) | feita |
+| 2d | Gestos (acenar, apontar para a tela), troca de modelo nas Configurações | gestos feitos (`app/src/gestures.ts`); troca de modelo a fazer |
 
 ## Riscos
 

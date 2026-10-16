@@ -3,18 +3,26 @@
 //! aplicado pelo app antes de chamar [`dispatch`].
 
 pub mod browsers;
+pub mod dev;
 pub mod discord;
+pub mod docs;
 mod error;
 mod handlers;
 mod paths;
 pub mod input;
+pub mod layout;
+pub mod organize;
+pub mod scan;
 pub mod ocr;
+pub mod phone;
+pub mod vitals;
 pub mod ui_map;
 pub mod uia;
 pub mod window;
 
 pub use error::WinError;
-pub use paths::{is_personal_read, resolve as resolve_path};
+pub use handlers::tidy::{prepare, Prepared, PLANNED_ACTIONS};
+pub use paths::{is_personal_read, looks_sensitive, resolve as resolve_path};
 use serde_json::Value;
 
 /// Ações que este crate sabe executar.
@@ -32,6 +40,11 @@ pub const ACTIONS: &[&str] = &[
     "file.move",
     "file.copy",
     "file.delete",
+    "file.organize",
+    "file.organize_undo",
+    "file.duplicates",
+    "file.dedupe",
+    "file.big",
     "download.file",
     "desktop.set_wallpaper",
     "audio.set_volume",
@@ -41,6 +54,8 @@ pub const ACTIONS: &[&str] = &[
     "clipboard.get",
     "screen.read",
     "system.status",
+    "system.checkup",
+    "screen.capture",
     "media.control",
     "media.now_playing",
     "audio.app_volume",
@@ -65,6 +80,15 @@ pub const ACTIONS: &[&str] = &[
     "ui.click",
     "ui.type",
     "ui.open_chat",
+    "dev.errors",
+    "dev.git_status",
+    "phone.status",
+    "phone.notifications",
+    "phone.messages",
+    "phone.calls",
+    "phone.send_sms",
+    "settings.open",
+    "screen.snip",
 ];
 
 pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
@@ -83,6 +107,11 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "file.move" => files::move_(params).await,
         "file.copy" => files::copy(params).await,
         "file.delete" => files::delete(params).await,
+        "file.organize" => tidy::organize(params).await,
+        "file.organize_undo" => tidy::organize_undo(params).await,
+        "file.duplicates" => tidy::duplicates(params).await,
+        "file.dedupe" => tidy::dedupe(params).await,
+        "file.big" => tidy::big(params).await,
         "download.file" => download::file(params).await,
         "desktop.set_wallpaper" => desktop::set_wallpaper(params).await,
         "audio.set_volume" => audio::set_volume(params).await,
@@ -93,11 +122,29 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "system.power" => power::run(params).await,
         "screen.read" => screen::read(params).await,
         "system.status" => system::status(params).await,
+        "system.checkup" => checkup::checkup(params).await,
+        "screen.capture" => capture::capture(params).await,
         "media.control" => media::control(params).await,
         "media.now_playing" => media::now_playing(params).await,
         "audio.app_volume" => media::app_volume(params).await,
         "web.search" => web::search(params).await,
         "web.fetch" => web::fetch(params).await,
+        "dev.errors" => handlers::blocking(move || dev::read_errors(&params)).await,
+        "dev.git_status" => dev::git_status(&params).await,
+        "settings.open" => native::settings_open(params).await,
+        "screen.snip" => native::screen_snip(params).await,
+        a if a.starts_with("phone.") => {
+            let a = a.to_string();
+            handlers::blocking(move || match a.as_str() {
+                "phone.status" => phone::status(&params),
+                "phone.notifications" => phone::notifications(&params),
+                "phone.messages" => phone::messages(&params),
+                "phone.calls" => phone::calls(&params),
+                "phone.send_sms" => phone::send_sms(&params),
+                other => Err(WinError::NotFound(format!("ação '{other}'"))),
+            })
+            .await
+        }
         "ui.find" | "ui.click" | "ui.type" | "ui.open_chat" => {
             let a = action.to_string();
             handlers::blocking(move || ui_action(&a, &params)).await

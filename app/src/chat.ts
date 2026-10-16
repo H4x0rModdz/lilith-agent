@@ -6,6 +6,8 @@ import { mountElectric } from "./electric";
 import { call } from "./ipc";
 import { type IconName, actionIcon, hydrateIcons, icon } from "./icons";
 import { actionLabel, actionVerb } from "./labels";
+import { mountMic } from "./voice_input";
+import { type Preview, renderPreview } from "./preview";
 
 interface Reply {
   conversation: string;
@@ -22,6 +24,8 @@ interface Approval {
   scope: string;
   params: Record<string, unknown>;
   tainted: boolean;
+  /// Plano calculado pelo código (organizar pasta, limpar duplicados…).
+  preview?: Preview;
 }
 
 interface Summary {
@@ -117,6 +121,8 @@ export async function mountChat(root: HTMLElement) {
   const open = new Map<string, Conversation>();
   // Menu da orb (botão direito → Nova conversa).
   listen("lilith://new-chat", () => void openTab());
+  // Notas do sistema (ex.: "Atualizei para a versão X").
+  listen<string>("lilith://notice", (e) => note(e.payload, "sparkles"));
 
   // Lembretes com data: aparecem quando o chat abre (ou volta ao foco) a
   // partir do dia combinado, uma vez só.
@@ -131,6 +137,9 @@ export async function mountChat(root: HTMLElement) {
   window.addEventListener("focus", () => void showDueReminders());
   listen("lilith://reminders-due", () => void showDueReminders());
   void showDueReminders();
+  // Avisos proativos (download terminou, disco, bateria, CPU) e resultados
+  // de rotinas rodadas pelo painel.
+  listen<{ text: string; icon?: IconName }>("lilith://notice", (e) => note(e.payload.text, e.payload.icon ?? "sparkles"));
   let active!: Conversation;
   let counter = 0;
 
@@ -392,6 +401,20 @@ export async function mountChat(root: HTMLElement) {
     { name: "tasks", arg: "", help: "tarefas delegadas a agentes", run: () => void invoke("show_panel_tab", { tab: "jobs" }) },
     { name: "permissions", arg: "", help: "permissões salvas (“Sempre”)", run: () => void invoke("show_panel_tab", { tab: "rules" }) },
     { name: "settings", arg: "", help: "configurações e o que ela sabe sobre você", run: () => void invoke("show_panel_tab", { tab: "settings" }) },
+    {
+      name: "diagnose",
+      arg: "",
+      help: "checkup da Lilith (cérebro, voz, 3D, atualização, falhas recentes)",
+      run: async () => {
+        note("Fazendo um checkup em mim…", "sparkles");
+        type Check = { name: string; level: "ok" | "warn" | "problem"; detail: string; fix: string };
+        const r = await invoke<{ overall: string; checks: Check[]; logs: string }>("run_diagnostics");
+        const tag = (l: string) => (l === "ok" ? "OK" : l === "warn" ? "Atenção" : "Problema");
+        const lines = r.checks.map((c) => `${tag(c.level)} · ${c.name}: ${c.detail}${c.fix ? ` → ${c.fix}` : ""}`);
+        lines.push(`Logs: ${r.logs}`);
+        note(lines.join("\n"), r.overall === "ok" ? "check" : "warn");
+      },
+    },
     {
       name: "help",
       arg: "",
@@ -873,6 +896,15 @@ export async function mountChat(root: HTMLElement) {
     }
     li.querySelector(".approval-action")!.textContent = actionLabel(req.action);
     li.querySelector(".approval-params")!.textContent = formatParams(req.params);
+    // Com prévia, o cartão mostra o que vai acontecer arquivo por arquivo em
+    // vez dos parâmetros crus; e não oferece "Sempre": cada vez é revisada.
+    if (req.preview) {
+      li.querySelector(".approval-params")!.replaceWith(renderPreview(req.preview));
+      li.querySelector(".approval-action")!.textContent = req.preview.title;
+      if (!req.preview.allow_always) li.querySelector('[data-answer="always"]')?.remove();
+      if (req.preview.confirm) li.querySelector('[data-answer="once"]')!.textContent = req.preview.confirm;
+      li.querySelector('[data-answer="deny"]')!.textContent = "Cancelar";
+    }
     li.querySelector(".approval-scope")!.textContent =
       `permissão: ${req.scope}${req.channel !== "local" ? ` · via ${req.channel}` : ""}`;
     li.querySelectorAll<HTMLButtonElement>("[data-answer]").forEach((btn) =>
@@ -911,6 +943,21 @@ export async function mountChat(root: HTMLElement) {
       add(conv, "lilith", body ? `${head}:\n${body}` : head);
       notify(conv);
     }
+  });
+
+  // Voz de entrada: microfone no campo de mensagem; o que ela ouviu vai como
+  // mensagem do usuário, pelo mesmo caminho do texto digitado.
+  void mountMic({
+    form,
+    input,
+    before: sendBtn,
+    statusEl: status,
+    send: (text) => send(active, text),
+    note: (text) => note(text, "volume"),
+    card: (li) => {
+      active.log.append(li);
+      active.log.scrollTop = active.log.scrollHeight;
+    },
   });
 
   makeCarousel(quickTrack);

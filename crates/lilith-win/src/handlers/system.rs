@@ -56,7 +56,7 @@ pub struct Snapshot {
 
 const GB: f64 = 1024.0 * 1024.0 * 1024.0;
 
-fn measure() -> Snapshot {
+pub(crate) fn measure() -> Snapshot {
     let mut sys = System::new();
     sys.refresh_memory();
     sys.refresh_cpu_usage();
@@ -118,7 +118,7 @@ fn round1(x: f64) -> f64 {
     (x * 10.0).round() / 10.0
 }
 
-fn battery() -> Option<Battery> {
+pub(crate) fn battery() -> Option<Battery> {
     use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
     let mut s = SYSTEM_POWER_STATUS::default();
     unsafe { GetSystemPowerStatus(&mut s).ok()? };
@@ -139,7 +139,7 @@ fn internet() -> Option<bool> {
 }
 
 /// Placa NVIDIA (se houver): uso, memória e temperatura pelo `nvidia-smi`.
-async fn gpu() -> Option<Gpu> {
+pub(crate) async fn gpu() -> Option<Gpu> {
     let out = hidden_command("nvidia-smi")
         .args([
             "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",

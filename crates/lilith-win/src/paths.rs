@@ -110,7 +110,7 @@ pub fn is_personal_read(input: &str) -> bool {
 }
 
 /// Nomes que costumam guardar credenciais ou chaves.
-fn looks_sensitive(path: &Path) -> bool {
+pub fn looks_sensitive(path: &Path) -> bool {
     const NAME_HINTS: &[&str] = &["credential", "secret", "password", "senha", "token", "id_rsa", "id_ed25519", "id_ecdsa"];
     const EXTS: &[&str] = &["pem", "key", "pfx", "p12", "kdbx", "ppk", "ovpn", "rdp", "keychain", "gpg", "asc"];
     path.components().any(|c| {

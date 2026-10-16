@@ -4,7 +4,8 @@ import { VRMLoaderPlugin, VRMUtils, type VRM } from "@pixiv/three-vrm";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Menu } from "@tauri-apps/api/menu";
-import { cursorPosition, getCurrentWindow } from "@tauri-apps/api/window";
+import { cursorPosition, getCurrentWindow, Window } from "@tauri-apps/api/window";
+import { GesturePlayer, gestureForReply, isPointingStep, sideOf, type Bone, type Pose, type Vec3 } from "./gestures";
 
 /// Forma 3D da Lilith: o modelo VRM (`%APPDATA%\Lilith\lilith.vrm`) da cintura
 /// para cima. O modelo não vai no repositório nem no instalador (a licença
@@ -105,6 +106,8 @@ export async function mountAvatar(root: HTMLElement) {
   let topY = 1;
   const lookTarget = new THREE.Object3D();
   scene.add(lookTarget);
+  /// Gestos (aceno, sim/não, apontar…), somados por cima da pose de cada quadro.
+  const gestures = new GesturePlayer();
 
   try {
     const bytes = await invoke<ArrayBuffer>("avatar_model");
@@ -120,6 +123,8 @@ export async function mountAvatar(root: HTMLElement) {
     if (vrm.lookAt) vrm.lookAt.target = lookTarget;
     relaxArms(vrm);
     frame(vrm);
+    // Chegou: acena (depois das faíscas de entrada).
+    window.setTimeout(() => gestures.play("wave"), 500);
   } catch (e) {
     const msg = String(e);
     console.warn("sem modelo 3D", e);
@@ -172,6 +177,8 @@ export async function mountAvatar(root: HTMLElement) {
   let face: Face = { ...FACES.neutral };
   let target: Face = FACES.neutral;
   let thinking = false;
+  /// Ouvindo o usuário (push-to-talk): inclina a cabeça para o outro lado.
+  let listening = false;
   let emotionTimer: number | undefined;
   /// Boca aberta (0..1), alimentada pela voz (lip-sync).
   let mouth = 0;
@@ -182,11 +189,18 @@ export async function mountAvatar(root: HTMLElement) {
 
   void listen<{ state: string }>("lilith://state", (e) => {
     thinking = e.payload.state === "thinking";
+    gestures.hold("think", thinking);
     if (thinking) applyTarget("thinking");
     else if (!emotionTimer) applyTarget("neutral");
   });
-  void listen<{ emotion?: string }>("lilith://reply", (e) => {
+  void listen<{ state: string }>("lilith://listening", (e) => {
+    listening = e.payload.state === "start";
+  });
+  void listen<{ emotion?: string; reply?: string; action?: string | null }>("lilith://reply", (e) => {
     thinking = false;
+    gestures.hold("think", false);
+    const g = gestureForReply(e.payload);
+    if (g) gestures.play(g);
     applyTarget(e.payload.emotion ?? "neutral");
     window.clearTimeout(emotionTimer);
     emotionTimer = window.setTimeout(() => {
@@ -205,9 +219,17 @@ export async function mountAvatar(root: HTMLElement) {
     badge.title = approvals.size > 0 ? `${approvals.size} pedido(s) esperando sua aprovação` : `${jobs.size} tarefa(s) rodando`;
   }
   void listen<{ id: number }>("lilith://approval", (e) => (approvals.add(e.payload.id), refreshBadge()));
-  void listen<{ id: number }>("lilith://approval-resolved", (e) => (approvals.delete(e.payload.id), refreshBadge()));
+  void listen<{ id: number }>("lilith://approval-resolved", (e) => {
+    approvals.delete(e.payload.id);
+    refreshBadge();
+    gestures.play("nod"); // "entendido"
+  });
   void listen<number>("lilith://approval-expired", (e) => (approvals.delete(e.payload), refreshBadge()));
-  void listen("lilith://cancelled", () => (approvals.clear(), refreshBadge()));
+  void listen("lilith://cancelled", () => {
+    approvals.clear();
+    refreshBadge();
+    gestures.hold("think", false);
+  });
   void listen<{ kind: string; job?: { id: number; status: string } }>("lilith://job", (e) => {
     const job = e.payload.job;
     if (e.payload.kind !== "updated" || !job) return;
@@ -216,6 +238,77 @@ export async function mountAvatar(root: HTMLElement) {
     refreshBadge();
   });
   void listen<number>("lilith://mouth", (e) => (mouth = Math.max(0, Math.min(1, Number(e.payload) || 0))));
+
+  // ── gestos (decididos pelo código, por eventos) ───────────────────────
+
+  void invoke<{ gestures?: boolean }>("get_settings")
+    .then((s) => setGestures(s.gestures !== false))
+    .catch(() => {});
+  void listen<boolean>("lilith://gestures", (e) => setGestures(e.payload !== false));
+  function setGestures(on: boolean) {
+    gestures.enabled = on;
+    if (!on) gestures.stopAll();
+    else if (thinking) gestures.hold("think", true);
+  }
+  // Ação barrada pelos guardrails: "não" com a cabeça.
+  void listen("lilith://blocked", () => gestures.play("shake"));
+  // O cursor dela vai até uma janela: aponta para o lado da tela onde isso acontece.
+  void listen<{ action: string }>("lilith://step", (e) => {
+    if (isPointingStep(e.payload.action)) void pointAtAction();
+  });
+  // Voz de entrada (se existir): pose de quem está ouvindo.
+  void listen<unknown>("lilith://listening", (e) => {
+    const p = e.payload as { listening?: boolean; active?: boolean; state?: string } | boolean | null;
+    const on = typeof p === "boolean" ? p : !!p && (p.listening ?? p.active ?? p.state === "listening");
+    gestures.hold("listen", on);
+  });
+
+  /// Acompanha a seta rosa (janela "cursor") até ela parar no alvo e aponta
+  /// para aquele lado em relação ao centro da janela do avatar.
+  let pointSeq = 0;
+  async function pointAtAction() {
+    const seq = ++pointSeq;
+    const cursor = await Window.getByLabel("cursor").catch(() => null);
+    if (!cursor) return;
+    try {
+      const start = await cursor.outerPosition();
+      let prev = start;
+      let target: { x: number } | null = null;
+      for (let i = 0; i < 20 && seq === pointSeq && !paused; i++) {
+        await new Promise((r) => window.setTimeout(r, 120));
+        const p = await cursor.outerPosition();
+        const moved = Math.hypot(p.x - start.x, p.y - start.y) > 30;
+        if (moved && Math.hypot(p.x - prev.x, p.y - prev.y) < 4) {
+          target = p;
+          break;
+        }
+        prev = p;
+      }
+      if (!target || seq !== pointSeq || paused) return;
+      const [wp, ws] = await Promise.all([win.outerPosition(), win.outerSize()]);
+      const side = sideOf(target.x, wp.x + ws.width / 2);
+      if (side) gestures.play("point", side);
+    } catch {
+      /* janela fechando */
+    }
+  }
+
+  /// O que foi somado no último quadro: tirado antes da pose base do quadro
+  /// seguinte, para os gestos virarem camada (sem brigar com o olhar e a respiração).
+  let applied: Pose = { rot: {}, lift: 0 };
+  function addPose(v: VRM, p: Pose, sign: number) {
+    const h = v.humanoid;
+    for (const [bone, r] of Object.entries(p.rot) as [Bone, Vec3][]) {
+      const n = h.getNormalizedBoneNode(bone);
+      if (!n) continue;
+      // VRM 0.x: X e Z espelhados (ver `flip`).
+      n.rotation.x += sign * r[0] * flip;
+      n.rotation.y += sign * r[1];
+      n.rotation.z += sign * r[2] * flip;
+    }
+    const hips = h.getNormalizedBoneNode("hips");
+    if (hips && p.lift) hips.position.y += sign * p.lift;
+  }
 
   // Olha para o cursor do usuário (consulta global ~12x por segundo).
   let lookX = 0;
@@ -270,6 +363,8 @@ export async function mountAvatar(root: HTMLElement) {
     if (!vrm) return;
     const h = vrm.humanoid;
     const em = vrm.expressionManager;
+    // Tira os gestos do quadro anterior: a pose base segue sozinha.
+    addPose(vrm, applied, -1);
 
     // Respiração e balanço leve.
     const chest = h.getNormalizedBoneNode("chest");
@@ -280,7 +375,7 @@ export async function mountAvatar(root: HTMLElement) {
     // Cabeça: segue o cursor e inclina um pouco ao pensar.
     const head = h.getNormalizedBoneNode("head");
     const neck = h.getNormalizedBoneNode("neck");
-    const tiltZ = thinking ? 0.07 : 0;
+    const tiltZ = thinking ? 0.07 : listening ? -0.06 : 0;
     const yaw = lookX * 0.32 + Math.sin(t * 0.45) * 0.03;
     const pitch = flip * (-lookY * 0.16 + (thinking ? -0.05 : 0));
     if (head) {
@@ -318,6 +413,9 @@ export async function mountAvatar(root: HTMLElement) {
       // Boca (voz): "aa" proporcional ao volume.
       em.setValue("aa", mouth);
     }
+    // Gestos por cima de tudo (camada somada).
+    applied = gestures.update(dt);
+    addPose(vrm, applied, 1);
     vrm.update(dt);
     renderer.render(scene, camera);
   }
@@ -325,8 +423,14 @@ export async function mountAvatar(root: HTMLElement) {
   // toca a animação de entrada de novo.
   void listen<boolean>("lilith://avatar-visible", (e) => {
     paused = !e.payload;
-    if (!e.payload) return;
+    if (!e.payload) {
+      // Escondida: some com os gestos (o próximo quadro tira o que estava somado).
+      gestures.reset();
+      return;
+    }
     leaving = false;
+    window.setTimeout(() => gestures.play("wave"), 500);
+    if (thinking) gestures.hold("think", true);
     dockHint.hidden = true;
     stage.classList.remove("outro", "near-corner");
     stage.classList.add("intro");

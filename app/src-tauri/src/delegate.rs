@@ -5,7 +5,7 @@
 
 /// Regras valem para QUALQUER tarefa delegada: o agente edita arquivos do
 /// usuário (`acceptEdits`); git fica por conta do usuário.
-const SAFETY_RULES: &str = "\
+pub(crate) const SAFETY_RULES: &str = "\
 Rules from Lilith (the user's assistant) — follow them exactly:
 - Do NOT touch git at all: no branch, commit, checkout, stash, reset, clean, push, pull or merge. Only edit files in the working folder. (The user reviews the changes with their own git tools.)
 - Do not delete files or run other destructive commands (rm -rf and similar).

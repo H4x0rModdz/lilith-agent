@@ -9,9 +9,15 @@
 //! - **configurações** (`settings`): comportamento escolhido no painel.
 
 use rusqlite::{params, Connection, OptionalExtension};
+
+mod docs;
+pub use docs::{cosine, DocFile, DocHit, DocStats};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
+
+mod routines;
+pub use routines::{clean_name, Launch, Layout, Mode, ModeStep, MAX_MODE_STEPS};
 
 pub const DEFAULT_TITLE: &str = "Nova conversa";
 const MAX_TITLE: usize = 60;
@@ -111,6 +117,10 @@ pub struct Reminder {
     /// Horário (HH:MM); "00:00" = o dia todo (avisa assim que o dia começa).
     pub at: String,
     pub text: String,
+    /// Repetição ("" = uma vez só; ver `routines`): "daily", "weekdays",
+    /// "weekly:1,3" (1 = segunda … 7 = domingo) ou "monthly:15".
+    #[serde(default)]
+    pub repeat: String,
 }
 
 /// Id vindo do frontend: curto e sem nada que vire caminho ou SQL estranho.
@@ -209,6 +219,9 @@ impl Memory {
         // Bancos criados antes do horário/notificação dos lembretes.
         let _ = conn.execute("ALTER TABLE reminders ADD COLUMN at TEXT NOT NULL DEFAULT '00:00'", []);
         let _ = conn.execute("ALTER TABLE reminders ADD COLUMN notified INTEGER NOT NULL DEFAULT 0", []);
+        routines::migrate(&conn);
+        // Índice dos documentos (busca nos documentos).
+        docs::init(&conn);
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -560,14 +573,15 @@ impl Memory {
 
     /// Lembretes pendentes (do mais próximo ao mais distante).
     pub fn reminders(&self) -> Vec<Reminder> {
-        self.reminders_where("done = 0", &[])
+        // Ocorrências de um lembrete repetido são só o aviso do chat.
+        self.reminders_where("done = 0 AND occurrence = 0", &[])
     }
 
     /// Já na hora (data/horário <= agora) e ainda sem notificação na tela;
     /// marca como notificados para a notificação sair uma vez só.
     pub fn take_to_notify(&self, today: &str, now: &str) -> Vec<Reminder> {
         let due = self.reminders_where(
-            "notified = 0 AND done = 0 AND (due < ?1 OR (due = ?1 AND at <= ?2))",
+            "notified = 0 AND done = 0 AND recur = '' AND (due < ?1 OR (due = ?1 AND at <= ?2))",
             &[today, now],
         );
         let conn = self.conn.lock().unwrap();
@@ -579,7 +593,8 @@ impl Memory {
 
     /// Já na hora e ainda não mostrados no chat; marca como mostrados.
     pub fn take_due_reminders(&self, today: &str, now: &str) -> Vec<Reminder> {
-        let due = self.reminders_where("done = 0 AND (due < ?1 OR (due = ?1 AND at <= ?2))", &[today, now]);
+        // Os repetidos nunca acabam: o agendador cria uma ocorrência por aviso.
+        let due = self.reminders_where("done = 0 AND recur = '' AND (due < ?1 OR (due = ?1 AND at <= ?2))", &[today, now]);
         let conn = self.conn.lock().unwrap();
         for r in &due {
             let _ = conn.execute("UPDATE reminders SET done = 1 WHERE id = ?1", params![r.id]);
@@ -594,10 +609,10 @@ impl Memory {
 
     fn reminders_where(&self, cond: &str, args: &[&str]) -> Vec<Reminder> {
         let conn = self.conn.lock().unwrap();
-        let sql = format!("SELECT id, due, at, text FROM reminders WHERE {cond} ORDER BY due, at, id");
+        let sql = format!("SELECT id, due, at, text, recur FROM reminders WHERE {cond} ORDER BY due, at, id");
         let rows = conn.prepare(&sql).and_then(|mut s| {
             s.query_map(rusqlite::params_from_iter(args.iter()), |r| {
-                Ok(Reminder { id: r.get(0)?, due: r.get(1)?, at: r.get(2)?, text: r.get(3)? })
+                Ok(Reminder { id: r.get(0)?, due: r.get(1)?, at: r.get(2)?, text: r.get(3)?, repeat: r.get(4)? })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()
         });

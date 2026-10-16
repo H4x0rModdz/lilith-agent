@@ -22,6 +22,13 @@ pub struct Settings {
     pub voice: bool,
     /// "kokoro" (leve, CPU) ou "serena" (GPU NVIDIA).
     pub voice_engine: String,
+    /// Gestos da forma 3D (acenar, sim/não, apontar…).
+    #[serde(default = "yes")]
+    pub gestures: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 const USER_NAME: &str = "user_name";
@@ -31,6 +38,7 @@ const CHAT_MINUTES: &str = "chat_minutes";
 const AUTO_UPDATE: &str = "auto_update";
 const VOICE: &str = "voice";
 const VOICE_ENGINE: &str = "voice_engine";
+const GESTURES: &str = "gestures";
 
 impl Settings {
     pub fn load(m: &Memory) -> Self {
@@ -42,6 +50,7 @@ impl Settings {
             auto_update: m.setting(AUTO_UPDATE).map(|v| v != "false").unwrap_or(true),
             voice: m.setting(VOICE).map(|v| v != "false").unwrap_or(true),
             voice_engine: m.setting(VOICE_ENGINE).filter(|v| v == "serena" || v == "kokoro").unwrap_or_else(|| "kokoro".into()),
+            gestures: m.setting(GESTURES).map(|v| v != "false").unwrap_or(true),
         }
     }
 
@@ -54,6 +63,7 @@ impl Settings {
         m.set_setting(AUTO_UPDATE, if self.auto_update { "true" } else { "false" });
         m.set_setting(VOICE, if self.voice { "true" } else { "false" });
         m.set_setting(VOICE_ENGINE, if self.voice_engine == "serena" { "serena" } else { "kokoro" });
+        m.set_setting(GESTURES, if self.gestures { "true" } else { "false" });
     }
 }
 
@@ -169,7 +179,7 @@ mod tests {
         let m = Memory::in_memory().unwrap();
         assert!(context(&m).starts_with("Hoje é "), "só a data de hoje quando não há mais nada");
         assert!(!context(&m).contains("Chame"));
-        Settings { user_name: "Alex".into(), persona: "fala com gírias".into(), auto_learn: true, chat_minutes: 5, auto_update: true, voice: true, voice_engine: "kokoro".into() }.save(&m);
+        Settings { user_name: "Alex".into(), persona: "fala com gírias".into(), auto_learn: true, chat_minutes: 5, auto_update: true, voice: true, voice_engine: "kokoro".into(), gestures: true }.save(&m);
         m.remember("time", "Corinthians", "learned");
         let ctx = context(&m);
         assert!(ctx.contains("Chame o usuário de \"Alex\""));
@@ -204,10 +214,12 @@ mod tests {
         let s = Settings::load(&m);
         assert!(s.auto_learn);
         assert_eq!(s.chat_minutes, 5);
-        Settings { user_name: "x".repeat(100), persona: String::new(), auto_learn: false, chat_minutes: 99999, auto_update: false, voice: false, voice_engine: "serena".into() }.save(&m);
+        assert!(s.gestures, "gestos ligados por padrão");
+        Settings { user_name: "x".repeat(100), persona: String::new(), auto_learn: false, chat_minutes: 99999, auto_update: false, voice: false, voice_engine: "serena".into(), gestures: false }.save(&m);
         let s = Settings::load(&m);
         assert_eq!(s.user_name.chars().count(), 40);
         assert!(!s.auto_learn);
+        assert!(!s.gestures);
         assert_eq!(s.chat_minutes, 1440);
     }
 }

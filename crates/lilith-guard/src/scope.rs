@@ -55,6 +55,19 @@ const SAFE_SCOPES: &[&str] = &[
     "media.control",
     // Medir o PC (CPU, memória, discos, processos): só leitura.
     "system.read",
+    // Tirar um print e salvar no próprio PC, como a tecla Print Screen.
+    "screen.capture",
+    // Ajudante de dev: erros de build (só o que o parser reconhece, de janelas
+    // de desenvolvimento) e git SÓ LEITURA (comandos fixos no código).
+    "dev.read",
+    // Estado do celular no Vincular ao Celular (conectado, bateria, sinal).
+    "phone.status",
+    // Rotinas do usuário: rodar um modo é seguro porque CADA passo passa de
+    // novo pelo guard; criar/apagar modo ou layout mostra prévia e pede
+    // confirmação no próprio app.
+    "routine.run",
+    "routine.read",
+    "routine.write",
 ];
 
 const DANGEROUS_SCOPES: &[&str] = &[
@@ -88,6 +101,11 @@ const DANGEROUS_SCOPES: &[&str] = &[
     // Fechar um app/janela pode perder trabalho não salvo — e um modelo
     // pequeno já confundiu "joga o WhatsApp pro lado" com fechar.
     "app.terminate",
+    // Notificações, SMS e chamadas do celular: conversas e códigos de
+    // verificação (2FA) passam por ali — como ler a tela, pergunta.
+    "phone.read",
+    // Mandar SMS fala em nome do usuário.
+    "phone.send",
 ];
 
 /// Scope exigido por cada ação. Ação sem mapeamento vira `unknown` (negada) —
@@ -119,6 +137,14 @@ pub fn scope_for(action: &str) -> &'static str {
         "file.move" | "file.copy" => "filesystem.write",
         "download.file" => "filesystem.write.downloads",
         "file.delete" => "filesystem.delete",
+        // Varrer pastas (duplicados, maiores arquivos) e o índice de
+        // documentos: só leitura. Indexar pasta fora das pessoais é escalado
+        // pelo app para leitura protegida.
+        "file.duplicates" | "file.big" | "docs.index" | "docs.search" => "filesystem.read",
+        // Organizar (e desfazer) move arquivos do usuário: pede, com a prévia.
+        "file.organize" | "file.organize_undo" => "filesystem.write",
+        // Mandar as cópias duplicadas para a Lixeira: pede, com a prévia.
+        "file.dedupe" => "filesystem.delete",
         "desktop.set_wallpaper" => "desktop.modify",
         "audio.set_volume" | "audio.get_volume" | "audio.set_mute" | "audio.app_volume" => "audio.control",
         // Microfone, áudio, dispositivos, status e conta do Discord: o que o
@@ -129,15 +155,36 @@ pub fn scope_for(action: &str) -> &'static str {
         // Tocar/pausar/pular e ler o que toca: reversível e inofensivo.
         "media.control" | "media.now_playing" => "media.control",
         // Medir CPU/memória/discos: só leitura, nada pessoal.
-        "system.status" => "system.read",
+        "system.status" | "system.checkup" | "self.diagnose" => "system.read",
+        // Print salvo no PC do usuário a pedido dele (o modelo não vê a imagem).
+        "screen.capture" => "screen.capture",
         // OCR da tela pode entregar senhas e conversas, como window.read.
         "screen.read" => "screen.read",
         "clipboard.set" => "clipboard.write",
         "clipboard.get" => "clipboard.read",
+        // Traduzir/resumir/corrigir o que foi copiado lê o clipboard.
+        "clipboard.transform" => "clipboard.read",
         "web.search" | "web.fetch" => "web.access",
         "system.power" => "system.power",
         "agent.delegate" => "agent.delegate",
         "agent.jobs" => "agent.read",
+        // Erros de build e resumo do git: só leitura.
+        "dev.errors" | "dev.git_status" => "dev.read",
+        // Pedir a um agente de código para corrigir os erros = delegar.
+        "dev.fix" => "agent.delegate",
+        // Celular (Vincular ao Celular): estado é livre; ler conteúdo e enviar perguntam.
+        "phone.status" => "phone.status",
+        "phone.notifications" | "phone.messages" | "phone.calls" => "phone.read",
+        "phone.send_sms" => "phone.send",
+        // Páginas das Configurações e recorte de tela: só abrem um app nativo.
+        "settings.open" | "screen.snip" => "app.launch",
+        // Modos: os passos passam um a um pelo guard ao rodar.
+        "mode.run" => "routine.run",
+        "mode.list" | "layout.list" => "routine.read",
+        "mode.save" | "mode.delete" | "layout.save" | "layout.delete" => "routine.write",
+        // Restaurar um layout move janelas; abrir os apps que faltam passa
+        // pelo guard como app.open.
+        "layout.restore" => "window.control",
         _ => "unknown",
     }
 }
@@ -159,6 +206,19 @@ mod tests {
         assert_eq!(classify(scope_for("ui.click")), Verdict::Safe);
         assert_eq!(classify(scope_for("ui.click_effect")), Verdict::Dangerous);
         assert_eq!(classify(scope_for("memory.write_unrequested")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("dev.errors")), Verdict::Safe);
+        assert_eq!(classify(scope_for("dev.git_status")), Verdict::Safe);
+        assert_eq!(classify(scope_for("dev.fix")), Verdict::Dangerous, "corrigir = delegar: pede aprovação");
+        assert_eq!(classify(scope_for("phone.status")), Verdict::Safe);
+        assert_eq!(classify(scope_for("phone.messages")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("phone.send_sms")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("settings.open")), Verdict::Safe);
+        assert_eq!(classify(scope_for("file.organize")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("file.organize_undo")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("file.dedupe")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("clipboard.transform")), Verdict::Dangerous);
+        assert_eq!(classify(scope_for("file.duplicates")), Verdict::Safe);
+        assert_eq!(classify(scope_for("docs.search")), Verdict::Safe);
     }
 
     #[test]
@@ -192,6 +252,14 @@ mod tests {
             "file.move",
             "file.copy",
             "file.delete",
+            "file.organize",
+            "file.organize_undo",
+            "file.duplicates",
+            "file.dedupe",
+            "file.big",
+            "docs.index",
+            "docs.search",
+            "clipboard.transform",
             "download.file",
             "desktop.set_wallpaper",
             "audio.set_volume",
@@ -227,12 +295,33 @@ mod tests {
             "media.control",
             "media.now_playing",
             "system.status",
+            "self.diagnose",
+            "system.checkup",
+            "screen.capture",
             "screen.read",
             "memory.search",
             "memory.remember",
             "reminder.add",
             "memory.forget",
             "memory.write_unrequested",
+            "dev.errors",
+            "dev.git_status",
+            "dev.fix",
+            "phone.status",
+            "phone.notifications",
+            "phone.messages",
+            "phone.calls",
+            "phone.send_sms",
+            "settings.open",
+            "screen.snip",
+            "mode.run",
+            "mode.save",
+            "mode.list",
+            "mode.delete",
+            "layout.save",
+            "layout.restore",
+            "layout.list",
+            "layout.delete",
         ] {
             let scope = scope_for(action);
             assert_ne!(scope, "unknown", "{action} sem scope");

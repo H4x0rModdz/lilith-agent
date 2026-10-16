@@ -69,6 +69,13 @@ const SEEDS: &[(&str, &[&str])] = &[
     ("lista o que tem em Documentos", &["file.list"]),
     ("onde está o arquivo planilha.xlsx?", &["file.find"]),
     ("roda o setup.exe que tá em downloads", &["file.run"]),
+    ("dá uma arrumada nos arquivos soltos da área de trabalho", &["file.organize"]),
+    ("volta os arquivos pro lugar de antes da organização", &["file.organize_undo"]),
+    ("será que tenho fotos repetidas nas imagens?", &["file.duplicates"]),
+    ("limpa as cópias repetidas dos downloads", &["file.dedupe"]),
+    ("o que mais pesa na minha pasta de vídeos?", &["file.big"]),
+    ("acha nos meus documentos aquele orçamento da reforma", &["docs.search"]),
+    ("me explica o texto que eu copiei", &["clipboard.transform"]),
     // navegador e web
     ("abre o instagram", &["browser.open"]),
     ("vai pro site do reddit", &["browser.open"]),
@@ -84,6 +91,15 @@ const SEEDS: &[(&str, &[&str])] = &[
     ("lê esse link pra mim: https://example.com/artigo", &["web.fetch"]),
     ("baixa esse pdf https://example.com/guia.pdf", &["download.file"]),
     ("baixa o instalador do 7zip", &["web.search", "download.file"]),
+    // celular e Configurações do Windows
+    ("quanto de bateria tem meu celular agora?", &["phone.status"]),
+    ("chegou alguma notificação no telefone?", &["phone.notifications"]),
+    ("vê se tem sms novo no celular", &["phone.messages"]),
+    ("alguém me ligou no celular?", &["phone.calls"]),
+    ("manda um sms pro user x falando que tô saindo", &["phone.send_sms"]),
+    ("abre as configurações de wi-fi", &["settings.open"]),
+    ("quero mudar o brilho da tela nas configurações", &["settings.open"]),
+    ("tira um print de uma parte da tela", &["screen.snip"]),
     // chats
     ("manda um oi pro user x no telegram", &["ui.open_chat", "ui.type"]),
     ("diz pro user y no discord que eu já chego", &["ui.open_chat", "ui.type"]),
@@ -109,6 +125,11 @@ const SEEDS: &[(&str, &[&str])] = &[
     ("pede pro codex consertar os testes do projeto", &["agent.delegate"]),
     ("corrige a vulnerabilidade desse pacote no projeto", &["file.find", "agent.delegate"]),
     ("já acabou aquela tarefa do claude?", &["agent.jobs"]),
+    // ajudante de dev
+    ("tem erro de compilação no projeto?", &["dev.errors"]),
+    ("me explica o erro que deu no build", &["dev.errors"]),
+    ("pede pro claude arrumar o que quebrou no build", &["dev.fix"]),
+    ("o que tem de mudança no git do projeto?", &["dev.git_status"]),
     // conversa (não usa ferramenta)
     ("e aí, tudo certo?", &[]),
     ("me explica o que é uma API", &[]),

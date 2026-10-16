@@ -24,7 +24,7 @@ fn obj(props: Value, required: &[&str]) -> Value {
 /// `lilith-guard::scope_for` e de handler em `lilith-win::dispatch` — o teste
 /// `catalog_is_wired` no app garante isso.
 pub fn all_tools() -> Vec<Tool> {
-    vec![
+    let mut tools = vec![
         // ── apps ────────────────────────────────────────────────────────
         Tool {
             action: "app.open",
@@ -122,7 +122,8 @@ pub fn all_tools() -> Vec<Tool> {
         },
         Tool {
             action: "file.read",
-            description: "Lê o conteúdo de um ARQUIVO de texto no disco (txt, md, json, csv, código…). \
+            description: "Lê o conteúdo de um ARQUIVO de texto no disco (txt, md, json, csv, código… e o \
+                          texto de PDF e Word). Use também para resumir um documento. \
                           Use quando o usuário citar um arquivo pelo nome ou caminho. Para o que está \
                           aberto na tela num programa, use window.read.",
             schema: obj(json!({ "path": { "type": "string" } }), &["path"]),
@@ -152,6 +153,60 @@ pub fn all_tools() -> Vec<Tool> {
             action: "file.delete",
             description: "Manda um arquivo/pasta para a Lixeira.",
             schema: obj(json!({ "path": { "type": "string" } }), &["path"]),
+        },
+        Tool {
+            action: "file.organize",
+            description: "ORGANIZA uma pasta (padrão: Downloads): cada arquivo solto vai para uma subpasta pelo \
+                          tipo (Imagens, Documentos, Instaladores, Compactados, Vídeos, Áudio, Outros). O app \
+                          calcula o plano e mostra a prévia para o usuário aprovar; downloads incompletos e \
+                          arquivos abertos ficam. `folder`: nome da pasta ('Downloads', 'Área de Trabalho').",
+            schema: obj(json!({ "folder": { "type": "string" } }), &[]),
+        },
+        Tool {
+            action: "file.organize_undo",
+            description: "Desfaz a última organização de pasta (file.organize): os arquivos voltam para onde estavam.",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "file.duplicates",
+            description: "Acha arquivos DUPLICADOS (conteúdo idêntico) numa pasta e subpastas e quanto espaço dá \
+                          para liberar. Só lista. `folder` (padrão: Downloads; 'home' = pasta do usuário inteira).",
+            schema: obj(
+                json!({ "folder": { "type": "string" }, "min_size_kb": { "type": "integer" } }),
+                &[],
+            ),
+        },
+        Tool {
+            action: "file.dedupe",
+            description: "Manda para a Lixeira as cópias DUPLICADAS de uma pasta, mantendo uma de cada (o app \
+                          escolhe qual fica e mostra a prévia). Para apagar UMA cópia específica, use file.delete.",
+            schema: obj(json!({ "folder": { "type": "string" } }), &[]),
+        },
+        Tool {
+            action: "file.big",
+            description: "Lista os MAIORES arquivos de uma pasta e subpastas, com tamanhos (padrão: pasta do \
+                          usuário). Use para 'o que tá ocupando espaço', 'arquivos mais pesados'.",
+            schema: obj(
+                json!({ "folder": { "type": "string" }, "limit": { "type": "integer", "minimum": 1, "maximum": 50 } }),
+                &[],
+            ),
+        },
+        Tool {
+            action: "docs.search",
+            description: "Procura nos DOCUMENTOS do usuário (txt, md, pdf, docx das pastas indexadas) pelo \
+                          assunto/sentido: devolve os documentos mais parecidos, com um trecho de cada. Use \
+                          para 'qual documento fala de X', 'acha nos meus documentos…'. Para resumir um \
+                          deles, leia com file.read.",
+            schema: obj(
+                json!({ "query": { "type": "string" }, "limit": { "type": "integer", "minimum": 1, "maximum": 10 } }),
+                &["query"],
+            ),
+        },
+        Tool {
+            action: "docs.index",
+            description: "Indexa os documentos (txt, md, pdf, docx) de uma pasta para a busca nos documentos; \
+                          roda em segundo plano. Sem `folder`, atualiza as pastas já escolhidas.",
+            schema: obj(json!({ "folder": { "type": "string" } }), &[]),
         },
         Tool {
             action: "download.file",
@@ -263,6 +318,32 @@ pub fn all_tools() -> Vec<Tool> {
             schema: obj(json!({}), &[]),
         },
         Tool {
+            action: "screen.capture",
+            description: "Tira um print e salva em Imagens\\Capturas de Tela (e copia para a área de \
+                          transferência): sem parâmetros = todos os monitores; `monitor` = só aquele monitor; \
+                          `target` = só aquela janela/app ('tira um print do discord').",
+            schema: obj(
+                json!({ "monitor": { "type": "integer", "minimum": 1 }, "target": { "type": "string" } }),
+                &[],
+            ),
+        },
+        Tool {
+            action: "system.checkup",
+            description: "Checkup COMPLETO do PC (~15 s): Windows (atualizações, reinício pendente), processador, \
+                          memória (velocidade, pentes), drivers de vídeo, saúde dos discos, programas na \
+                          inicialização, energia/bateria, antivírus, estabilidade (desligamentos, telas azuis, \
+                          erros de hardware/disco) e internet. Já vem com `findings` decididos por regras. Use \
+                          para 'diagnóstico completo', 'checkup do pc', 'por que o pc tá lento/travando'.",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "self.diagnose",
+            description: "Autodiagnóstico da própria Lilith: checa o cérebro (Ollama e modelo), a voz, a forma \
+                          3D, a atualização, a memória e as ações que falharam nas últimas 24 h. Use para \
+                          'você tá funcionando direito?', 'faz um checkup de você', 'por que você não respondeu'.",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
             action: "screen.read",
             description: "Lê o texto que aparece NA TELA por imagem (OCR): de um monitor (`monitor`: 1, 2…) ou \
                           de uma janela (`target`). Use para 'o que tem na minha tela', 'lê o monitor 2', ou \
@@ -282,6 +363,21 @@ pub fn all_tools() -> Vec<Tool> {
             action: "clipboard.get",
             description: "Lê o texto da área de transferência.",
             schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "clipboard.transform",
+            description: "Traduz, resume, corrige ou explica o texto que o usuário COPIOU (Ctrl+C): lê a área de \
+                          transferência, transforma e, com `copy_back`, copia o resultado de volta. `op`: \
+                          translate, summarize, fix ou explain; `lang`: idioma de destino da tradução ('auto' = \
+                          inglês↔português); `copy_back`: só se o usuário pedir para copiar/colar de volta.",
+            schema: obj(
+                json!({
+                    "op": { "type": "string", "enum": ["translate", "summarize", "fix", "explain"] },
+                    "lang": { "type": "string" },
+                    "copy_back": { "type": "boolean" }
+                }),
+                &["op"],
+            ),
         },
         Tool {
             action: "system.power",
@@ -481,10 +577,17 @@ pub fn all_tools() -> Vec<Tool> {
             description: "Cria um LEMBRETE com data: a Lilith avisa no chat quando ele abrir naquele dia (ou \
                           depois). Use para 'me lembra dia 12/10 de…', 'lembra que amanhã eu preciso…'. \
                           `date`: se o usuário disse uma data numérica (dia/mês, formato BRASILEIRO: 12/10 = 12 de OUTUBRO), \n                          passe exatamente como ele disse (ex.: '12/10'); senão AAAA-MM-DD calculado da data de hoje. \n                          `time`: horário (HH:MM, 24h) quando o usuário disser ('às 15h' = '15:00'); sem \
-                          horário, avisa assim que o dia começa. `text`: o que lembrar.",
+                          horário, avisa assim que o dia começa. `text`: o que lembrar. \
+                          `repeat`: SÓ se o usuário pedir repetição, com as palavras dele ('todo dia', \
+                          'de segunda a sexta', 'toda segunda e quarta', 'todo dia 5'); aí `date` pode ficar vazio.",
             schema: obj(
-                json!({ "date": { "type": "string" }, "time": { "type": "string" }, "text": { "type": "string" } }),
-                &["date", "text"],
+                json!({
+                    "date": { "type": "string" },
+                    "time": { "type": "string" },
+                    "text": { "type": "string" },
+                    "repeat": { "type": "string", "description": "Repetição como o usuário disse (opcional)" }
+                }),
+                &["text"],
             ),
         },
         Tool {
@@ -510,6 +613,44 @@ pub fn all_tools() -> Vec<Tool> {
             description: "Lista as tarefas delegadas a agentes de código e o status/resultado de cada uma.",
             schema: obj(json!({}), &[]),
         },
+        // ── ajudante de dev ─────────────────────────────────────────────
+        Tool {
+            action: "dev.errors",
+            description: "Lê os ERROS DE BUILD/compilação que aparecem no Visual Studio (Lista de Erros, Saída), \
+                          no VS Code ou num terminal, já separados (código, arquivo, linha, mensagem). Sem \
+                          `target`, usa a janela de desenvolvimento aberta; `target`: 'terminal', 'devenv' \
+                          (Visual Studio) ou 'code' (VS Code). Use para 'quais erros tem no build', 'por que \
+                          não compila', 'explica esse erro' — explique em linguagem simples com base em \
+                          `errors`. Só vê o que está visível; se vier vazio, diga isso, não invente.",
+            schema: obj(json!({ "target": { "type": "string" } }), &[]),
+        },
+        Tool {
+            action: "dev.git_status",
+            description: "Resumo do GIT de um projeto, SÓ LEITURA: branch, commits à frente/atrás, arquivos \
+                          modificados/novos e os últimos commits. `folder`: pasta do projeto; `project`: nome \
+                          da pasta; sem os dois, usa o projeto aberto no Visual Studio/VS Code/terminal. Nunca \
+                          muda o repositório (commit, push, checkout ficam com o usuário).",
+            schema: obj(
+                json!({ "folder": { "type": "string" }, "project": { "type": "string" } }),
+                &[],
+            ),
+        },
+        Tool {
+            action: "dev.fix",
+            description: "Pede a um agente de código para CORRIGIR os erros de build que aparecem no Visual \
+                          Studio/VS Code/terminal. O app lê os erros, acha a pasta do projeto e monta o pedido \
+                          (o agente não mexe em git e roda o build/testes). `agent`: 'claude' (padrão) ou \
+                          'codex'; `folder` opcional. Pede aprovação. Nunca diga que corrigiu: o agente roda em \
+                          segundo plano e o resultado aparece no painel.",
+            schema: obj(
+                json!({
+                    "agent": { "type": "string" },
+                    "target": { "type": "string" },
+                    "folder": { "type": "string" }
+                }),
+                &[],
+            ),
+        },
         // ── web ─────────────────────────────────────────────────────────
         Tool {
             action: "web.search",
@@ -524,7 +665,12 @@ pub fn all_tools() -> Vec<Tool> {
             description: "Lê o texto de uma página web (para resumir ou extrair informação).",
             schema: obj(json!({ "url": { "type": "string" } }), &["url"]),
         },
-    ]
+    ];
+    // Modos e layouts de janelas (ver `routines`).
+    tools.extend(crate::routines::tools());
+    // Celular e apps nativos do Windows (ver `native`).
+    tools.extend(crate::native::tools());
+    tools
 }
 
 /// Formato do array `tools` do `/api/chat` do Ollama (compatível com OpenAI).

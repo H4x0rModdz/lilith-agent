@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Menu } from "@tauri-apps/api/menu";
 import { cursorPosition, getCurrentWindow } from "@tauri-apps/api/window";
+import { mountOrbListening } from "./voice_input";
 
 type Mood = "neutral" | "happy" | "concerned" | "sleepy";
 
@@ -32,6 +33,7 @@ export function mountOrb(root: HTMLElement) {
     </div>`;
   const stage = root.querySelector<HTMLElement>(".orb-stage")!;
   const orb = root.querySelector<HTMLButtonElement>(".orb")!;
+  mountOrbListening(orb);
   const face = root.querySelector<HTMLElement>(".orb-face")!;
   const badge = root.querySelector<HTMLElement>(".orb-badge")!;
   const win = getCurrentWindow();

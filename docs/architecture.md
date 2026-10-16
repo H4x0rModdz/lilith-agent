@@ -61,10 +61,21 @@ Toda ação é registrada em `%APPDATA%\Lilith\logs\audit.jsonl`.
 - Aprovação: *Negar / Permitir uma vez / Permitir sempre*. Sem resposta em 30 s → negado.
 - **Kill switch**: `Ctrl+Alt+Esc` cancela a ação em curso e congela o cursor rosa.
 
+## Rotinas
+
+- **Modos** (`mode.*`): sequências de chamadas do catálogo salvas no SQLite. Cada passo é decidido pelo código
+  (`lilith_brain::routines::parse_step`/`validate_step`) e mostrado numa prévia antes de salvar; ao rodar, cada passo
+  passa de novo pelo dispatcher guardado (aprovações valem).
+- **Layouts** (`layout.*`): fotografia das janelas (`lilith_win::layout`, cálculo puro); restaurar abre o que falta via
+  `app.open` e arrasta as janelas com o cursor da Lilith.
+- **Lembretes repetidos**: regra (`daily`, `weekdays`, `weekly:1,3`, `monthly:15`) decidida em `reminders.rs`; o agendador
+  cria uma ocorrência por aviso e reagenda.
+- **Avisos proativos** (`alerts.rs`) e **sugestão de modos** pela rotina (`habits.rs`), com chaves nas Configurações.
+
 ## Fases
 
 1. **MVP** — orb 2D + chat, brain portado, tools básicas do Windows, guardrails. ← *atual*
-2. **Forma 3D** — VRM (three-vrm), expressões, voz (whisper.cpp + piper/kokoro), lip-sync.
+2. **Forma 3D** — VRM (three-vrm), expressões, voz (Kokoro para falar, Whisper para ouvir, ambos no sherpa-onnx; push-to-talk), lip-sync.
 3. **Olhos e mãos** — percepção em camadas ([decisão 0002](decisions/0002-percepcao-local.md)), overlay e cursor rosa.
 4. **Remoto** — Discord + streaming de tela ([decisão 0003](decisions/0003-acesso-remoto.md)).
 5. **Extras** — ver [`new-features/`](new-features/).

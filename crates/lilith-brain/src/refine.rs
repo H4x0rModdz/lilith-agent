@@ -61,8 +61,18 @@ fn is_screen_request(t: &str) -> bool {
 /// Aplica as regras ao plano do intérprete para o pedido `text`.
 pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<String> {
     let t = text.to_lowercase();
+    // Arquivos, documentos e o que foi copiado: regras próprias (refine_files).
+    if let Some(files) = crate::refine_files::plan(&t, recent) {
+        return files;
+    }
     let mut plan = plan;
     let is = |plan: &[String], a: &str| plan.iter().any(|p| p == a);
+
+    // Criar/ativar modo, salvar/restaurar layout, lembrete repetido: uma
+    // ferramenta só (criar um modo NUNCA executa os passos dele agora).
+    if let Some(fixed) = crate::routines::refine(&t) {
+        return fixed;
+    }
 
     // "Lembra que…" é guardar um fato, mesmo que cite o Discord, uma pessoa ou
     // "me lembre quando eu abrir o chat": nunca é mandar mensagem.
@@ -81,6 +91,12 @@ pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<S
         return steps.to_vec();
     }
 
+    // Erros de build ("explica o erro do build", "arruma o que quebrou no
+    // build") e git só leitura: o ajudante de dev decide (ver `dev::plan`).
+    if let Some(steps) = crate::dev::plan(&t, recent) {
+        return steps;
+    }
+
     // "O que tem na minha tela?", "lê o monitor 2": OCR da tela (código decide).
     if is_screen_request(&t) {
         return vec!["screen.read".to_string()];
@@ -91,6 +107,11 @@ pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<S
     }
     if is_remember_request(&t) {
         return vec!["memory.remember".to_string()];
+    }
+
+    // Celular (SMS, notificações, chamadas) e páginas das Configurações.
+    if let Some(fixed) = crate::native::refine(&t, &plan) {
+        return fixed;
     }
 
     // Continuação de um pedido de chat ("e do user z?") herda o caminho.

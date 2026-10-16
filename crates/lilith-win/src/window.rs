@@ -64,6 +64,8 @@ pub struct Monitor {
     pub primary: bool,
     /// Área útil (sem a barra de tarefas).
     pub work: Rect,
+    /// O monitor inteiro (com a barra de tarefas) — para prints.
+    pub full: Rect,
     #[serde(skip)]
     handle: isize,
 }
@@ -124,6 +126,7 @@ pub fn monitors() -> Vec<Monitor> {
             index: n + 1,
             primary: info.dwFlags & 1 == 1,
             work: Rect::from_win(info.rcWork),
+            full: Rect::from_win(info.rcMonitor),
             handle,
         })
         .collect()
@@ -933,7 +936,7 @@ mod tests {
 
     #[test]
     fn monitor_specs() {
-        let m = |i, x| Monitor { index: i, primary: i == 1, work: Rect { x, y: 0, w: 100, h: 100 }, handle: i as isize };
+        let m = |i, x| Monitor { index: i, primary: i == 1, work: Rect { x, y: 0, w: 100, h: 100 }, full: Rect { x, y: 0, w: 100, h: 110 }, handle: i as isize };
         let mons = vec![m(1, 0), m(2, 100), m(3, 200)];
         assert_eq!(pick_monitor(&json!(2), 1, &mons).unwrap().index, 2);
         assert_eq!(pick_monitor(&json!("tela 3"), 1, &mons).unwrap().index, 3);

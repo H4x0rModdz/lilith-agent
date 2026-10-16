@@ -1,11 +1,19 @@
+mod alerts;
 mod config;
+mod habits;
 mod profile;
 mod reminders;
+mod routines;
 mod update;
 mod voice;
+mod voice_in;
 mod voice_qwen;
 mod choice;
+mod clipboard_ai;
 mod delegate;
+mod diagnostics;
+mod devhelp;
+mod docs;
 mod dispatcher;
 mod know;
 pub mod elevated;
@@ -189,8 +197,19 @@ fn due_reminders(state: State<'_, AppState>) -> Vec<lilith_memory::Reminder> {
 }
 
 #[tauri::command]
-fn list_reminders(state: State<'_, AppState>) -> Vec<lilith_memory::Reminder> {
-    state.store.reminders()
+fn list_reminders(state: State<'_, AppState>) -> Vec<Value> {
+    // Com o rótulo da repetição ("todo dia", "toda segunda") já em português.
+    state
+        .store
+        .reminders()
+        .into_iter()
+        .map(|r| {
+            let label = reminders::label_for_rule(&r.repeat);
+            let mut v = json!(r);
+            v["repeat_label"] = json!(label);
+            v
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -227,6 +246,20 @@ async fn check_update(install: bool, app: AppHandle) -> Result<Option<update::Up
 #[tauri::command]
 fn answer_choice(id: u64, value: Option<String>, state: State<'_, AppState>) -> bool {
     state.choices.answer(id, value)
+}
+
+/// Autodiagnóstico (Ollama, voz, 3D, atualização, banco, ações que falharam).
+#[tauri::command]
+async fn run_diagnostics(app: AppHandle) -> Value {
+    diagnostics::run(&app).await
+}
+
+/// Abre a pasta de logs no Explorer.
+#[tauri::command]
+fn open_logs_folder() {
+    let dir = config::data_dir().join("logs");
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::process::Command::new("explorer").arg(dir).spawn();
 }
 
 #[tauri::command]
@@ -269,9 +302,11 @@ fn get_settings(state: State<'_, AppState>) -> profile::Settings {
 }
 
 #[tauri::command]
-fn save_settings(settings: profile::Settings, state: State<'_, AppState>) {
+fn save_settings(settings: profile::Settings, app: AppHandle, state: State<'_, AppState>) {
     settings.save(&state.store);
     voice::set_engine(&settings.voice_engine);
+    // A forma 3D liga/desliga os gestos na hora.
+    let _ = app.emit("lilith://gestures", settings.gestures);
 }
 
 #[tauri::command]
@@ -474,6 +509,7 @@ fn kill_switch(app: &AppHandle, state: &AppState) {
     // Interrompe uma digitação em andamento (ui.type) na próxima letra.
     lilith_win::input::cancel();
     voice::stop(app);
+    voice_in::cancel(app);
     let running: Vec<(String, TurnHandle)> = state.running.lock().unwrap().drain().collect();
     let mut stopped = 0;
     for (conversation, task) in running {
@@ -520,12 +556,35 @@ fn open_memory(data: &std::path::Path) -> lilith_memory::Memory {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Mantém o gravador do log em arquivo vivo enquanto o app roda.
+static LOG_GUARD: std::sync::OnceLock<tracing_appender::non_blocking::WorkerGuard> = std::sync::OnceLock::new();
+
+/// Log no terminal e em arquivo (`%APPDATA%\Lilith\logs\lilith.AAAA-MM-DD.log`,
+/// um por dia, últimos 7): erros de atualização, Ollama, voz e ações não somem.
+fn init_logging() {
+    use tracing_subscriber::prelude::*;
+    let filter = || tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    let file = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("lilith")
+        .filename_suffix("log")
+        .max_log_files(7)
+        .build(config::data_dir().join("logs"));
+    let registry = tracing_subscriber::registry().with(tracing_subscriber::fmt::layer().with_filter(filter()));
+    match file {
+        Ok(appender) => {
+            let (writer, guard) = tracing_appender::non_blocking(appender);
+            let _ = LOG_GUARD.set(guard);
+            registry
+                .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer).with_filter(filter()))
+                .init();
+        }
+        Err(_) => registry.init(),
+    }
+}
+
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    init_logging();
 
     let cfg = config::Config::load();
     let data = config::data_dir();
@@ -586,6 +645,9 @@ pub fn run() {
                         if let Some(state) = app.try_state::<AppState>() {
                             kill_switch(app, &state);
                         }
+                    } else {
+                        // Push-to-talk (e o Esc enquanto ouve).
+                        voice_in::on_shortcut(app, shortcut, event.state());
                     }
                 })
                 .build(),
@@ -600,6 +662,8 @@ pub fn run() {
             if let Err(e) = app.global_shortcut().register(panic_key) {
                 tracing::warn!(error = %e, "não registrei o kill switch Ctrl+Alt+Esc");
             }
+            // Voz de entrada: atalho de push-to-talk salvo nas Configurações.
+            voice_in::init(app.handle(), &app.state::<AppState>().store);
             // Primeira execução: sem layout salvo, posiciona orb e painel nos
             // cantos padrão. Depois o window-state restaura onde o usuário deixou.
             let saved_layout = app
@@ -629,6 +693,9 @@ pub fn run() {
                 }
             }
 
+            // Atualizou desde a última vez? Conta para o usuário.
+            update::announce_if_updated(app.handle(), &app.state::<AppState>().store);
+
             // Início com o Windows (só na primeira execução instalada) e
             // busca de atualização a cada abertura.
             {
@@ -644,6 +711,12 @@ pub fn run() {
                 }
             }
 
+            // Documentos: reindexa sozinha o que mudou nas pastas escolhidas.
+            {
+                let store = app.state::<AppState>().store.clone();
+                docs::schedule(app.handle().clone(), store);
+            }
+
             // Lembretes: confere a cada 30 s; na hora, notificação do Windows e
             // aviso no chat (o chat busca os vencidos ao receber o evento).
             {
@@ -653,10 +726,16 @@ pub fn run() {
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     loop {
                         let now = chrono::Local::now();
-                        let due = handle.state::<AppState>().store.take_to_notify(
+                        let store = handle.state::<AppState>().store.clone();
+                        let mut due = store.take_to_notify(
                             &now.format("%Y-%m-%d").to_string(),
                             &now.format("%H:%M").to_string(),
                         );
+                        // Repetidos ("todo dia às 9h"): avisa e já agenda a próxima vez.
+                        due.extend(reminders::fire_recurring(&store, now.naive_local()));
+                        if due.iter().any(|r| !r.repeat.is_empty()) {
+                            let _ = handle.emit("lilith://reminders", ());
+                        }
                         for r in &due {
                             let _ = handle.notification().builder().title("Lilith").body(&r.text).show();
                         }
@@ -667,6 +746,10 @@ pub fn run() {
                     }
                 });
             }
+
+            // Avisos proativos (downloads, disco, bateria, CPU) e o registro
+            // dos programas abertos para sugerir modos.
+            alerts::start(app.handle().clone());
 
             // Ícone na área de notificação: clique esquerdo abre o painel,
             // direito mostra o menu.
@@ -736,6 +819,8 @@ pub fn run() {
             lilith_avatar,
             toggle_avatar,
             js_log,
+            run_diagnostics,
+            open_logs_folder,
             answer_choice,
             voice_status,
             voice_install,
@@ -743,12 +828,35 @@ pub fn run() {
             voice_warm,
             voice_test,
             voice_stop,
+            voice_in::voice_in_status,
+            voice_in::voice_in_install,
+            voice_in::voice_in_press,
+            voice_in::voice_in_release,
+            voice_in::voice_in_cancel,
+            voice_in::voice_in_configure,
             avatar_model,
             list_jobs,
             cancel_job,
             recent_activity,
             list_rules,
             revoke_rule,
+            routines::list_modes,
+            routines::preview_mode,
+            routines::save_mode_lines,
+            routines::remove_mode,
+            routines::run_mode,
+            routines::list_layouts,
+            routines::save_layout_now,
+            routines::restore_layout,
+            routines::remove_layout,
+            alerts::get_alert_settings,
+            alerts::save_alert_settings,
+            docs::commands::docs_status,
+            docs::commands::docs_add_folder,
+            docs::commands::docs_remove_folder,
+            docs::commands::docs_reindex,
+            docs::commands::docs_pull_model,
+            docs::commands::docs_set_model,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a Lilith");

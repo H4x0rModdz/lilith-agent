@@ -21,7 +21,7 @@ fn re(cell: &'static OnceLock<Regex>, pattern: &str) -> &'static Regex {
 }
 
 /// Minúsculas, sem pontuação final nem educação ("por favor", "pra mim"…).
-fn normalize(text: &str) -> String {
+pub(crate) fn normalize(text: &str) -> String {
     let mut t = text.trim().to_lowercase();
     t = t.split_whitespace().collect::<Vec<_>>().join(" ");
     loop {
@@ -155,9 +155,18 @@ fn call(action: &str, params: serde_json::Value) -> ToolCall {
 }
 
 pub fn parse(text: &str) -> Option<Shortcut> {
+    // Rotinas (modos, layouts, lembretes repetidos): frases mais longas.
+    if let Some(sc) = crate::routines::parse(text) {
+        return Some(sc);
+    }
     let t = normalize(text);
     if t.is_empty() || t.chars().count() > 60 {
         return None;
+    }
+
+    // Arquivos, documentos e o que foi copiado (ver `shortcut_files`).
+    if let Some(sc) = crate::shortcut_files::parse(&t) {
+        return Some(sc);
     }
 
     // Volume com número: "volume 30", "coloca o volume em 25%", "set the volume to 40".
@@ -261,6 +270,11 @@ pub fn parse(text: &str) -> Option<Shortcut> {
         return Some(discord("discord.voice", json!({ key: if target.is_empty() { "ask" } else { target } })));
     }
 
+    // ── celular, Configurações e recorte de tela (ver `native`) ───────────
+    if let Some(sc) = crate::native::parse(&t) {
+        return Some(sc);
+    }
+
     // ── mídia: decidido por código ────────────────────────────────────────
     static MEDIA_PAUSE: OnceLock<Regex> = OnceLock::new();
     static MEDIA_PLAY: OnceLock<Regex> = OnceLock::new();
@@ -297,6 +311,55 @@ pub fn parse(text: &str) -> Option<Shortcut> {
         return Some(Shortcut { calls: vec![call("media.now_playing", json!({}))], reply: "Pronto!".into() });
     }
 
+    // ── autodiagnóstico: decidido por código ──────────────────────────────
+    static SELF_CHECK: OnceLock<Regex> = OnceLock::new();
+    if re(
+        &SELF_CHECK,
+        r"^(?:(?:voc[eê]|vc)\s+(?:t[aá]|est[aá])\s+(?:funcionando|ok|bem)(?:\s+direito)?|faz\s+(?:um\s+)?(?:checkup|diagn[oó]stico|autodiagn[oó]stico)(?:\s+(?:de|em)\s+(?:voc[eê]|vc|si\s+mesma))?|autodiagn[oó]stico|(?:o\s+)?que\s+(?:t[aá]|est[aá])\s+errado\s+com\s+(?:voc[eê]|vc)|diagnose)$",
+    )
+    .is_match(&t)
+    {
+        return Some(Shortcut { calls: vec![call("self.diagnose", json!({}))], reply: "Pronto!".into() });
+    }
+
+    // ── print: decidido por código ────────────────────────────────────────
+    static PRINT: OnceLock<Regex> = OnceLock::new();
+    if let Some(c) = re(
+        &PRINT,
+        r"^(?:tira|faz|bate|me\s+manda)\s+(?:um\s+|uma\s+)?(?:print(?:screen)?|screenshot|captura(?:\s+de\s+tela)?)(?:\s+(?:da|de|do|dos)\s+(.+))?$",
+    )
+    .captures(&t)
+    {
+        let what = c.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+        static MONITOR_N: OnceLock<Regex> = OnceLock::new();
+        let params = if what.is_empty() || matches!(what, "tela" | "tela toda" | "tela inteira" | "tudo" | "todos os monitores" | "todas as telas" | "monitores") {
+            json!({})
+        } else if let Some(m) = re(&MONITOR_N, r"^(?:monitor|tela)\s*(\d)$").captures(what) {
+            json!({ "monitor": m[1].parse::<u32>().unwrap_or(1) })
+        } else if matches!(what, "uma parte" | "uma area" | "uma área" | "parte da tela" | "uma parte da tela") {
+            // Recorte com seleção de área: o modelo escolhe a ferramenta de recorte.
+            return None;
+        } else {
+            let target = what.trim_start_matches("janela do ").trim_start_matches("janela da ").trim_start_matches("o ").trim_start_matches("a ");
+            json!({ "target": alias(target) })
+        };
+        return Some(Shortcut { calls: vec![call("screen.capture", params)], reply: "Pronto!".into() });
+    }
+
+    // ── checkup completo do PC: decidido por código ───────────────────────
+    static PC_CHECKUP: OnceLock<Regex> = OnceLock::new();
+    let pcx = r"(?:o\s+|meu\s+|do\s+|no\s+)?(?:pc|computador|note|notebook)";
+    if re(
+        &PC_CHECKUP,
+        &format!(
+            r"^(?:(?:por\s*que|pq|porque)\s+{pcx}\s+(?:t[aá]|est[aá])\s+(?:t[aã]o\s+)?(?:lento|travando|pesado|esquentando|quente|reiniciando|desligando)|(?:faz\s+(?:um\s+)?)?(?:checkup|diagn[oó]stico)\s+completo(?:\s+{pcx})?|(?:faz\s+(?:um\s+)?)?checkup\s+{pcx}|diagn[oó]stico\s+(?:geral|detalhado)(?:\s+{pcx})?)$"
+        ),
+    )
+    .is_match(&t)
+    {
+        return Some(Shortcut { calls: vec![call("system.checkup", json!({}))], reply: "Pronto!".into() });
+    }
+
     // ── status do PC: decidido por código ─────────────────────────────────
     static PC_STATUS: OnceLock<Regex> = OnceLock::new();
     let pc = r"(?:o\s+|meu\s+)?(?:pc|computador|note|notebook)";
@@ -309,6 +372,11 @@ pub fn parse(text: &str) -> Option<Shortcut> {
     .is_match(&t)
     {
         return Some(Shortcut { calls: vec![call("system.status", json!({}))], reply: "Pronto!".into() });
+    }
+
+    // ── ajudante de dev (erros de build, git): decidido por código ───────
+    if let Some(sc) = crate::dev::shortcut(&t) {
+        return Some(sc);
     }
 
     // ── volume de um app: decidido por código ─────────────────────────────
@@ -478,6 +546,66 @@ pub fn render(action: &str, result: &serde_json::Value) -> Option<String> {
                 _ => "Pronto!".into(),
             })
         }
+        "screen.capture" => Some(if result["copied"] == true {
+            format!("Print tirado ({}): salvei em {} e copiei para a área de transferência — é só colar.", text("source"), text("path"))
+        } else {
+            format!("Print tirado ({}): salvei em {}.", text("source"), text("path"))
+        }),
+        "system.checkup" => {
+            let findings = result["findings"].as_array().cloned().unwrap_or_default();
+            let section = |level: &str, title: &str| {
+                let items: Vec<String> = findings
+                    .iter()
+                    .filter(|x| x["level"] == level)
+                    .map(|x| {
+                        let fix = x["fix"].as_str().filter(|f| !f.is_empty()).map(|f| format!(" → {f}")).unwrap_or_default();
+                        format!("- {}{fix}", x["text"].as_str().unwrap_or(""))
+                    })
+                    .collect();
+                if items.is_empty() { String::new() } else { format!("\n{title}:\n{}", items.join("\n")) }
+            };
+            let (p, w, t) = (result["problems"].as_u64().unwrap_or(0), result["warnings"].as_u64().unwrap_or(0), result["tips"].as_u64().unwrap_or(0));
+            let head = if p + w + t == 0 {
+                "Checkup completo: seu PC está saudável, não achei nada para corrigir.".to_string()
+            } else {
+                format!("Checkup completo do PC: {p} problema(s), {w} ponto(s) de atenção e {t} dica(s).")
+            };
+            let overview: Vec<String> = result["overview"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| format!("- {s}"))).collect())
+                .unwrap_or_default();
+            Some(format!(
+                "{head}{}{}{}\nVisão geral:\n{}",
+                section("problem", "Problemas"),
+                section("warn", "Atenção"),
+                section("tip", "Dicas"),
+                overview.join("\n")
+            ))
+        }
+        "self.diagnose" => {
+            let checks = result["checks"].as_array().cloned().unwrap_or_default();
+            let mut lines = Vec::new();
+            for c in &checks {
+                let tag = match c["level"].as_str().unwrap_or("") {
+                    "ok" => "OK",
+                    "warn" => "Atenção",
+                    _ => "Problema",
+                };
+                let mut line = format!("- {}: {} — {}", c["name"].as_str().unwrap_or(""), tag, c["detail"].as_str().unwrap_or(""));
+                if let Some(fix) = c["fix"].as_str().filter(|f| !f.is_empty()) {
+                    line.push_str(&format!(" → {fix}"));
+                }
+                lines.push(line);
+            }
+            let head = match result["overall"].as_str().unwrap_or("") {
+                "ok" => "Fiz um checkup em mim: tudo funcionando.",
+                "warn" => "Fiz um checkup em mim: funcionando, mas com pontos de atenção.",
+                _ => "Fiz um checkup em mim e achei problemas:",
+            };
+            Some(format!("{head}
+{}", lines.join("
+")))
+        }
         "system.status" => {
             let findings: Vec<String> =
                 result["findings"].as_array().map(|f| f.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
@@ -491,7 +619,9 @@ pub fn render(action: &str, result: &serde_json::Value) -> Option<String> {
                 Some(format!("Olhei o PC e achei isto:\n- {}", findings.join("\n- ")))
             }
         }
-        _ => None,
+        a if a.starts_with("dev.") => crate::dev::render(a, result),
+        a if a.starts_with("mode.") || a.starts_with("layout.") || a == "reminder.add" => crate::routines::render(a, result),
+        other => crate::native::render(other, result).or_else(|| crate::shortcut_files::render(other, result)),
     }
 }
 
@@ -601,6 +731,48 @@ mod tests {
     }
 
     #[test]
+    fn prints_are_decided_by_code() {
+        assert_eq!(one("tira um print"), Some(("screen.capture".into(), json!({}))));
+        assert_eq!(one("tira um print da tela toda").unwrap().1, json!({}));
+        assert_eq!(one("tira um print do monitor 1").unwrap().1, json!({ "monitor": 1 }));
+        assert_eq!(one("faz uma captura de tela do monitor 2").unwrap().1, json!({ "monitor": 2 }));
+        assert_eq!(one("tira um print do discord").unwrap().1, json!({ "target": "discord" }));
+        assert_eq!(one("tira um print da janela do google").unwrap().1, json!({ "target": "google" }));
+        assert_eq!(one("tira um print de uma parte da tela").unwrap().0, "screen.snip", "recorte com seleção");
+        let r = json!({ "source": "monitor 1", "path": "C:\\x\\a.png", "copied": true });
+        assert!(render("screen.capture", &r).unwrap().contains("copiei para a área de transferência"));
+    }
+
+    #[test]
+    fn checkup_report_is_rendered_by_code() {
+        let r = json!({ "problems": 1, "warnings": 0, "tips": 1, "findings": [
+            { "level": "problem", "text": "O disco X reporta saúde \"Warning\"", "fix": "Faça backup." },
+            { "level": "tip", "text": "12 GB em arquivos temporários", "fix": "" }
+        ], "overview": ["Windows build 1", "2 disco(s), 1 saudável(is)"] });
+        let text = render("system.checkup", &r).unwrap();
+        assert!(text.starts_with("Checkup completo do PC: 1 problema(s), 0 ponto(s) de atenção e 1 dica(s)."));
+        assert!(text.contains("Problemas:\n- O disco X reporta saúde \"Warning\" → Faça backup."));
+        assert!(text.contains("Dicas:\n- 12 GB em arquivos temporários"));
+        assert!(!text.contains("Atenção:"), "seção vazia não aparece");
+        assert!(text.ends_with("Visão geral:\n- Windows build 1\n- 2 disco(s), 1 saudável(is)"));
+    }
+
+    #[test]
+    fn self_diagnosis_is_decided_by_code() {
+        assert_eq!(one("você tá funcionando direito?").unwrap().0, "self.diagnose");
+        assert_eq!(one("faz um checkup de você").unwrap().0, "self.diagnose");
+        assert_eq!(one("o que tá errado com você").unwrap().0, "self.diagnose");
+        let report = json!({ "overall": "problem", "checks": [
+            { "name": "Cérebro (Ollama)", "level": "problem", "detail": "não respondeu", "fix": "Abra o Ollama." },
+            { "name": "Voz", "level": "ok", "detail": "instalada", "fix": "" }
+        ] });
+        let text = render("self.diagnose", &report).unwrap();
+        assert!(text.starts_with("Fiz um checkup em mim e achei problemas:"));
+        assert!(text.contains("- Cérebro (Ollama): Problema — não respondeu → Abra o Ollama."));
+        assert!(text.contains("- Voz: OK — instalada"));
+    }
+
+    #[test]
     fn media_status_and_app_volume_are_decided_by_code() {
         assert_eq!(one("pausa a música"), Some(("media.control".into(), json!({ "action": "pause" }))));
         assert_eq!(one("dá play").unwrap().1, json!({ "action": "play" }));
@@ -609,7 +781,9 @@ mod tests {
         assert_eq!(one("música anterior").unwrap().1, json!({ "action": "previous" }));
         assert_eq!(one("o que tá tocando?").unwrap().0, "media.now_playing");
         assert_eq!(one("que música é essa").unwrap().0, "media.now_playing");
-        assert_eq!(one("por que o pc tá tão lento?").unwrap().0, "system.status");
+        assert_eq!(one("por que o pc tá tão lento?").unwrap().0, "system.checkup", "lento → checkup completo");
+        assert_eq!(one("faz um diagnóstico completo do pc").unwrap().0, "system.checkup");
+        assert_eq!(one("checkup do computador").unwrap().0, "system.checkup");
         assert_eq!(one("como está meu computador").unwrap().0, "system.status");
         assert_eq!(one("o que tá pesando no pc").unwrap().0, "system.status");
         assert_eq!(
