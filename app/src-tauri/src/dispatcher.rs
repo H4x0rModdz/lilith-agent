@@ -199,6 +199,19 @@ impl Dispatcher for GuardedDispatcher {
         *self.chat_intent.lock().unwrap() = Some(tools.to_vec());
     }
 
+    /// "Entendi assim": as tarefas numeradas e o que ela ainda não sabe, num
+    /// cartão, antes de agir. Só no chat local (pelo Discord não há onde clicar).
+    async fn confirm_plan(&self, steps: &[String], missing: &[String]) -> bool {
+        if self.channel != lilith_guard::CHANNEL_LOCAL {
+            return true;
+        }
+        let title = plan_card_title(steps, missing);
+        const GO: &str = "Pode fazer";
+        const STOP: &str = "Não, espera";
+        let go = if missing.is_empty() { GO } else { "Pode fazer o resto" };
+        self.choices.ask(&self.app, &self.conversation, &title, vec![go.into(), STOP.into()]).await.as_deref() == Some(go)
+    }
+
     async fn dispatch(&self, call: &ToolCall) -> Value {
         let started = Instant::now();
         let action = call.action.as_str();
@@ -312,6 +325,9 @@ impl Dispatcher for GuardedDispatcher {
             a if a.starts_with("dev.") => self.dev_action(a, &call.params).await,
             "cursor.point" => self.screen_action(action, &call.params).await,
             "self.diagnose" => Ok(crate::diagnostics::run(&self.app).await),
+            "self.report" => Ok(crate::report::report_now(&self.app, &self.conversation).await),
+            // Serviços do Windows: escolha do serviço + ajudante elevado (service.rs).
+            "service.control" => self.service_control(&call.params).await,
             "clipboard.transform" => {
                 use tauri::Manager;
                 let ollama = self.app.state::<crate::AppState>().ollama.clone();
@@ -381,6 +397,10 @@ impl Dispatcher for GuardedDispatcher {
             Err(e) => error_envelope(action, e.code(), &e.to_string(), started),
         };
         let outcome = envelope["status"].as_str().unwrap_or("error").to_string();
+        if outcome == "error" {
+            let error = &envelope["error"];
+            crate::report::note_failure(&self.conversation, action, error["code"].as_str().unwrap_or(""), error["message"].as_str().unwrap_or(""));
+        }
         self.audit.record(&self.channel, action, &call.params, &outcome, &json!({ "scope": scope, "response": envelope }));
         envelope
     }
@@ -399,6 +419,8 @@ fn is_tab_close(params: &Value) -> bool {
 /// Ações que o próprio app executa (não o `lilith-win`).
 pub const APP_ACTIONS: &[&str] = &[
     "self.diagnose",
+    "self.report",
+    "service.control",
     "agent.delegate",
     "agent.jobs",
     "cursor.point",
@@ -899,6 +921,11 @@ fn action_timeout(action: &str) -> std::time::Duration {
     let secs = match action {
         "discord.voice" => 180, // pode esperar a escolha do dispositivo
         "system.checkup" => 90,
+        // Espera o "Enviar" no cartão (até 2 min) e o envio.
+        "self.report" => 150,
+        // Instalar baixa e roda o instalador; serviço espera parar e voltar.
+        "app.install" => 900,
+        "service.control" => 150,
         // Lê janelas/disco e pode esperar cartão de escolha + aprovação.
         "dev.errors" | "dev.fix" | "dev.git_status" => 300,
         "phone.send_sms" => 180, // pode esperar a escolha do contato
@@ -1029,5 +1056,29 @@ mod tests {
         for src in TAINT_SOURCES {
             assert!(OBSERVE_ONLY.contains(src) || matches!(*src, "web.fetch" | "clipboard.get" | "clipboard.transform"), "{src}");
         }
+    }
+}
+
+/// Texto do cartão "entendi assim", montado pelo código.
+pub(crate) fn plan_card_title(steps: &[String], missing: &[String]) -> String {
+    let mut lines = vec!["Entendi assim:".to_string()];
+    lines.extend(steps.iter().enumerate().map(|(i, s)| format!("{}. {}", i + 1, s.trim())));
+    if !missing.is_empty() {
+        lines.push(format!("Isso eu ainda não sei fazer: {}.", missing.join("; ")));
+    }
+    lines.join("\n")
+}
+
+#[cfg(test)]
+mod plan_card_tests {
+    #[test]
+    fn plan_card_lists_steps_and_gaps() {
+        let steps = vec!["instalar o Chrome".to_string(), "abrir o Chrome".into(), "pesquisar 'batata' no Chrome".into()];
+        assert_eq!(
+            super::plan_card_title(&steps, &[]),
+            "Entendi assim:\n1. instalar o Chrome\n2. abrir o Chrome\n3. pesquisar 'batata' no Chrome"
+        );
+        let t = super::plan_card_title(&steps[..1], &["editar planilhas do Excel".into()]);
+        assert!(t.ends_with("Isso eu ainda não sei fazer: editar planilhas do Excel."));
     }
 }

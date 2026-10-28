@@ -1,5 +1,5 @@
 use lilith_agents::AgentSpec;
-use lilith_brain::OllamaConfig;
+use lilith_brain::{ClaudeCodeConfig, OllamaConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -54,15 +54,22 @@ pub fn avatar_model_bytes() -> Result<Vec<u8>, String> {
 #[serde(default)]
 pub struct Config {
     pub ollama: OllamaConfig,
+    /// Modelos e limites quando o cérebro escolhido é o Claude Code.
+    pub claude: ClaudeCodeConfig,
     /// Agentes de código para `agent.delegate`. Adicione outros CLIs aqui.
     pub agents: BTreeMap<String, AgentSpec>,
+    /// API dos relatórios de bug (troca o endereço publicado; ex.: o `wrangler dev`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_url: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             ollama: OllamaConfig::default(),
+            claude: ClaudeCodeConfig::default(),
             agents: lilith_agents::default_agents(),
+            report_url: None,
         }
     }
 }
