@@ -97,9 +97,28 @@ fn has(t: &str, words: &[&str]) -> bool {
     words.iter().any(|w| t.contains(w))
 }
 
+/// "Cria uma landing page em C:\dev\x", "desenvolve uma API de pagamentos":
+/// programar é trabalho do agente de código. Sem isso o intérprete às vezes
+/// planejava abrir o Bloco de Notas e sair clicando em menus.
+fn is_build_request(t: &str) -> bool {
+    let words: Vec<&str> = t.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let create = ["cria", "crie", "criar", "desenvolve", "desenvolva", "desenvolver", "implementa", "implemente", "implementar", "programa", "programe", "programar", "constroi", "constrói", "construa", "construir", "monta", "monte", "montar", "gera", "gere", "faz", "faça", "faca", "fazer"];
+    let software = [
+        "site", "landing", "página", "pagina", "app", "aplicativo", "api", "sistema", "script", "programa", "código", "codigo", "backend",
+        "frontend", "gateway", "bot", "jogo", "componente", "endpoint", "dashboard", "crud",
+    ];
+    // "programa" é verbo E substantivo: precisa de outro verbo junto ou ser o primeiro.
+    let verb = words.iter().position(|w| create.contains(w));
+    let noun = words.iter().enumerate().any(|(i, w)| software.contains(w) && verb.is_some_and(|v| i > v));
+    noun && !has(t, &["lembr", "modo ", "layout", "playlist", "pasta ", "atalho"])
+}
+
 /// Plano para pedidos livres sobre build/git (o intérprete erra por pouco:
 /// manda ler a janela ou delegar sem os erros). `None` = não é sobre isso.
 pub fn plan(t: &str, recent: &[(String, String)]) -> Option<Vec<String>> {
+    if is_build_request(t) {
+        return Some(vec!["agent.delegate".into()]);
+    }
     let about_build = has(t, &["build", "compila", "compilar", "lista de erros", "não compila", "nao compila"])
         || recent.iter().any(|(_, r)| r.contains("de build"));
     let errors = has(t, &["erro", "quebr"]);
@@ -374,5 +393,25 @@ mod tests {
         assert_eq!(render("dev.git_status", &clean).unwrap(), "Git do demo: branch dev, em dia com origin/dev. Nada modificado.");
         let detached = json!({ "repo": "demo", "branch": null, "upstream": null, "clean": true });
         assert_eq!(render("dev.git_status", &detached).unwrap(), "Git do demo: HEAD destacado (fora de um branch), sem branch remoto configurado. Nada modificado.");
+    }
+}
+
+#[cfg(test)]
+mod build_tests {
+    use super::*;
+
+    #[test]
+    fn building_software_is_delegated() {
+        // Caso real (27/10): virou Bloco de Notas + cliques em menus.
+        let t = r"preciso que você crie uma landing page sobre você mesma e seu funcionamento, de forma inovadora e com animações pela página em c:\dev\gateway";
+        assert_eq!(plan(t, &[]), Some(vec!["agent.delegate".to_string()]));
+        assert!(is_build_request("crie o gateway de pagamentos do mercado pago em c:/dev/gateway"));
+        assert!(is_build_request(r"desenvolve uma api de tarefas em c:\dev\todo"));
+        assert!(is_build_request("faz um site de receitas"));
+        // Não é programar.
+        assert!(!is_build_request("abre o site do github"));
+        assert!(!is_build_request("cria uma pasta chamada fotos"));
+        assert!(!is_build_request("cria o modo foco: abre o vs code"));
+        assert!(!is_build_request("fecha o programa do discord"));
     }
 }

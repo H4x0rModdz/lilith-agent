@@ -5,6 +5,8 @@
 //! companion. O LLM é sempre local (Ollama).
 
 pub mod agent;
+pub mod brain;
+pub mod claude_code;
 pub mod dev;
 pub mod embed;
 pub mod emotion;
@@ -24,5 +26,7 @@ pub mod tools;
 
 pub use agent::{Agent, Dispatcher, Reply, Sink};
 pub use knowledge::{Example, Knowledge};
+pub use brain::Brain;
+pub use claude_code::ClaudeCodeConfig;
 pub use ollama::{Ollama, OllamaClient, OllamaConfig};
 pub use tools::{all_tools, Tool, ToolCall};

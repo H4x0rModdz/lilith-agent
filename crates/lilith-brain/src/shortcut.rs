@@ -154,6 +154,25 @@ fn call(action: &str, params: serde_json::Value) -> ToolCall {
     ToolCall { action: action.into(), params }
 }
 
+/// "cria uma issue disso", "reporta esse erro", "avisa o time": pedir para ELA
+/// reportar uma falha dela. Issue de outro projeto ("cria uma issue no repo
+/// do gateway") não é — essa vai para o agente de código.
+fn is_report_request(t: &str) -> bool {
+    static ISSUE: OnceLock<Regex> = OnceLock::new();
+    static OTHER_REPO: OnceLock<Regex> = OnceLock::new();
+    static REPORT: OnceLock<Regex> = OnceLock::new();
+    let issue = re(
+        &ISSUE,
+        r"\b(?:cri[aeo]r?|abr[aeio]r?|mand[aeo]r?|envi[aeo]r?|report[aeo]r?|registr[aeo]r?|faz(?:er)?|fa[cç]a|ger[aeo]r?)\b.*\b(?:issue|bug\s*report|relat[oó]rio\s+(?:de|do)\s+(?:bug|erro))\b",
+    );
+    let other_repo = re(&OTHER_REPO, r"\b(?:n[oa]|d[oa]|pr[oa]|para\s+[oa]|em)\s+(?:meu\s+|minha\s+)?(?:repo|reposit[oó]rio|projeto|github|gitlab)\b");
+    let report = re(
+        &REPORT,
+        r"^(?:reporta|reportar|manda|envia)\s+(?:isso|esse\s+(?:erro|bug|problema)|o\s+(?:erro|bug))(?:\s+(?:pro|para\s+o)\s+(?:time|devs?|desenvolvedor(?:es)?))?$|\bavisa\s+(?:o\s+time|os?\s+devs?|quem\s+te\s+(?:fez|criou|desenvolve))\b",
+    );
+    (issue.is_match(t) && !other_repo.is_match(t)) || report.is_match(t)
+}
+
 pub fn parse(text: &str) -> Option<Shortcut> {
     // Rotinas (modos, layouts, lembretes repetidos): frases mais longas.
     if let Some(sc) = crate::routines::parse(text) {
@@ -309,6 +328,12 @@ pub fn parse(text: &str) -> Option<Shortcut> {
     .is_match(&t)
     {
         return Some(Shortcut { calls: vec![call("media.now_playing", json!({}))], reply: "Pronto!".into() });
+    }
+
+    // ── relatório de bug dela: decidido por código ────────────────────────
+    // (sem isso o modelo mandava "cria uma issue" para o agente de código).
+    if is_report_request(&t) {
+        return Some(Shortcut { calls: vec![call("self.report", json!({}))], reply: "Pronto!".into() });
     }
 
     // ── autodiagnóstico: decidido por código ──────────────────────────────
@@ -582,6 +607,8 @@ pub fn render(action: &str, result: &serde_json::Value) -> Option<String> {
                 overview.join("\n")
             ))
         }
+        // O texto já vem decidido pelo app (enviado, recusado, sem falha…).
+        "self.report" => result["text"].as_str().map(str::to_string),
         "self.diagnose" => {
             let checks = result["checks"].as_array().cloned().unwrap_or_default();
             let mut lines = Vec::new();
@@ -755,6 +782,20 @@ mod tests {
         assert!(text.contains("Dicas:\n- 12 GB em arquivos temporários"));
         assert!(!text.contains("Atenção:"), "seção vazia não aparece");
         assert!(text.ends_with("Visão geral:\n- Windows build 1\n- 2 disco(s), 1 saudável(is)"));
+    }
+
+    #[test]
+    fn bug_report_requests_are_decided_by_code() {
+        // A frase real que virou delegação ao Claude.
+        assert_eq!(one("isso não é motivo para criar um issue? quero criar um").unwrap().0, "self.report");
+        assert_eq!(one("cria uma issue disso").unwrap().0, "self.report");
+        assert_eq!(one("reporta esse erro").unwrap().0, "self.report");
+        assert_eq!(one("manda um relatório de bug").unwrap().0, "self.report");
+        assert_eq!(one("avisa o time").unwrap().0, "self.report");
+        // Issue de outro projeto é trabalho do agente de código.
+        assert!(parse("cria uma issue no repo do gateway").is_none_or(|s| s.calls[0].action != "self.report"));
+        assert!(parse("abre uma issue no meu projeto").is_none_or(|s| s.calls[0].action != "self.report"));
+        assert_eq!(render("self.report", &json!({ "status": "sent", "text": "Pronto, avisei o time (#59)." })).unwrap(), "Pronto, avisei o time (#59).");
     }
 
     #[test]

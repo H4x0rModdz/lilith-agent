@@ -28,7 +28,9 @@ pub fn all_tools() -> Vec<Tool> {
         // ── apps ────────────────────────────────────────────────────────
         Tool {
             action: "app.open",
-            description: "Abre um aplicativo pelo nome (ex.: 'spotify', 'discord', 'bloco de notas'). \
+            description: "Abre um aplicativo pelo nome (ex.: 'spotify', 'discord', 'bloco de notas'), inclusive \
+                          ferramentas do Windows pelo nome em português ('gerenciador de dispositivos', 'serviços', \
+                          'gerenciamento de disco', 'visualizador de eventos', 'painel de controle'). \
                           Se ele JÁ estiver aberto, só traz a janela para frente — não abre outra. \
                           Use `new_window: true` só se o usuário pedir outra janela.",
             schema: obj(
@@ -47,6 +49,31 @@ pub fn all_tools() -> Vec<Tool> {
                     "force": { "type": "boolean", "description": "Forçar encerramento" }
                 }),
                 &["app"],
+            ),
+        },
+        Tool {
+            action: "app.install",
+            description: "INSTALA um programa pelo winget (ex.: 'chrome', 'vlc', 'discord'). O app escolhe o pacote \
+                          e mostra qual é antes de instalar; se já estiver instalado, avisa. Use para 'instala o X'. \
+                          Depois de instalar, abra com app.open se o usuário pediu.",
+            schema: obj(json!({ "app": { "type": "string", "description": "Nome do programa" } }), &["app"]),
+        },
+        Tool {
+            action: "service.status",
+            description: "Mostra o estado (rodando/parado) de um serviço do Windows pelo nome falado (ex.: 'docker', \
+                          'spooler', 'sql server').",
+            schema: obj(json!({ "service": { "type": "string" } }), &["service"]),
+        },
+        Tool {
+            action: "service.control",
+            description: "PARA, INICIA ou REINICIA um serviço do Windows pelo nome falado (ex.: 'para o serviço do \
+                          docker'). O Windows pede permissão de administrador. Não precisa abrir a tela de Serviços.",
+            schema: obj(
+                json!({
+                    "service": { "type": "string" },
+                    "op": { "type": "string", "enum": ["stop", "start", "restart"] }
+                }),
+                &["service", "op"],
             ),
         },
         Tool {
@@ -334,6 +361,14 @@ pub fn all_tools() -> Vec<Tool> {
                           inicialização, energia/bateria, antivírus, estabilidade (desligamentos, telas azuis, \
                           erros de hardware/disco) e internet. Já vem com `findings` decididos por regras. Use \
                           para 'diagnóstico completo', 'checkup do pc', 'por que o pc tá lento/travando'.",
+            schema: obj(json!({}), &[]),
+        },
+        Tool {
+            action: "self.report",
+            description: "Reporta para quem desenvolve a Lilith a última falha DELA nesta conversa (abre uma \
+                          issue no repositório da Lilith, com a ficha do PC; o usuário confirma num cartão). \
+                          Use para 'cria uma issue disso', 'reporta esse erro', 'avisa o time'. NÃO use \
+                          agent.delegate para isso; issue de um projeto do usuário é com agent.delegate.",
             schema: obj(json!({}), &[]),
         },
         Tool {

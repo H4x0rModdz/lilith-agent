@@ -25,6 +25,14 @@ pub struct Interpretation {
     /// lê o chat do usuário, então isto nunca vem de conteúdo externo.
     #[serde(default)]
     pub message: String,
+    /// As tarefas do pedido, uma por item, na ordem ("instalar o Chrome",
+    /// "abrir o Chrome", "pesquisar 'batata' no Chrome").
+    #[serde(default)]
+    pub steps: Vec<String>,
+    /// Tarefas que nenhuma ferramenta do catálogo resolve, descritas de forma
+    /// genérica — ela diz que ainda não sabe em vez de improvisar.
+    #[serde(default)]
+    pub missing: Vec<String>,
 }
 
 /// JSON Schema enviado ao Ollama em `format` — força a forma da resposta.
@@ -37,9 +45,11 @@ pub fn schema(tools: &[Tool]) -> Value {
         "properties": {
             "intent": { "type": "string" },
             "tools": { "type": "array", "items": { "type": "string", "enum": names }, "maxItems": 12 },
-            "message": { "type": "string" }
+            "message": { "type": "string" },
+            "steps": { "type": "array", "items": { "type": "string" }, "maxItems": 12 },
+            "missing": { "type": "array", "items": { "type": "string" }, "maxItems": 6 }
         },
-        "required": ["intent", "tools", "message"]
+        "required": ["intent", "tools", "message", "steps", "missing"]
     })
 }
 
@@ -60,6 +70,15 @@ Se o usuário ditou o texto (entre aspas ou \"manda um oi\"), use exatamente iss
 descreveu o que quer dizer (\"chama ele pra jogar\", \"pergunta se ele vem\"), escreva você uma \
 mensagem curta e natural, na voz DO USUÁRIO, em primeira pessoa, falando COM a pessoa (nunca \
 sobre ela), sem inventar fatos. Se não há mensagem, deixe vazio.
+
+4. Em `steps`, as tarefas do pedido, uma por item, curtas e na ordem (\"instale o chrome, abra \
+e pesquise batata\" = [\"instalar o Chrome\", \"abrir o Chrome\", \"pesquisar 'batata' no Chrome\"]). \
+Conversa = lista vazia.
+
+5. Em `missing`, as tarefas que NENHUMA ferramenta do catálogo resolve, descritas de forma \
+genérica, sem nomes de pessoas, caminhos, números ou dados pessoais (ex.: \"editar planilhas do \
+Excel\"). Vazio se o catálogo resolve tudo. Nunca force uma ferramenta que não serve para a \
+tarefa (um programa do Windows não é um site) — a tarefa vai para `missing`.
 
 Regras: fechar/encerrar/apagar só se o usuário disser isso explicitamente. Mover, \
 arrastar, ajustar, organizar ou trocar de tela uma janela NUNCA é fechar. \
@@ -190,7 +209,19 @@ pub fn parse(raw: &Value, tools: &[Tool]) -> Option<Interpretation> {
 
 /// Dica injetada no loop principal como mensagem de sistema.
 pub fn hint(i: &Interpretation) -> String {
-    if i.tools.is_empty() {
+    // O que nenhuma ferramenta faz: ela admite em vez de improvisar.
+    let missing_note = if i.missing.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " Estas tarefas NÃO têm ferramenta: {}. Não improvise com outra ferramenta — faça o resto e diga, \
+             no final, que isso você ainda não sabe fazer.",
+            i.missing.join("; ")
+        )
+    };
+    if i.tools.is_empty() && !i.missing.is_empty() {
+        format!("Interpretação do pedido: {}.{missing_note}", i.intent)
+    } else if i.tools.is_empty() {
         format!("Interpretação do pedido: {}. (Parece conversa — responda em texto.)", i.intent)
     } else {
         let message = i.message.trim();
@@ -201,9 +232,10 @@ pub fn hint(i: &Interpretation) -> String {
             format!(" Mensagem a enviar (use EXATAMENTE este texto no `text` de ui.type ou phone.send_sms, sem mudar nada): «{message}».")
         };
         format!(
-            "Interpretação do pedido: {}. Plano completo, em ordem: {}. Faça TODAS as etapas, \
-             uma por vez, e só responda em texto no final. Use as ferramentas em vez de dizer \
-             que não é possível.{message_note}",
+            "Interpretação do pedido: {}. Plano completo, em ordem: {}. Faça TODAS as etapas que o plano \
+             cobre, uma por vez, e só responda em texto no final. Se uma etapa falhar, não faça as que \
+             dependem dela (ex.: não pesquisar em outro navegador se o pedido era no Chrome e ele não \
+             instalou) — conte o que fez e o que não fez.{missing_note}{message_note}",
             i.intent,
             i.tools.join(", ")
         )
@@ -312,9 +344,25 @@ mod tests {
 
     #[test]
     fn hint_mentions_tools() {
-        let h = hint(&Interpretation { intent: "mover o WhatsApp".into(), tools: vec!["window.move".into()], message: String::new() });
+        let h = hint(&Interpretation { intent: "mover o WhatsApp".into(), tools: vec!["window.move".into()], message: String::new(), steps: vec![], missing: vec![] });
         assert!(h.contains("window.move"));
         assert!(!h.contains("Mensagem a enviar"));
+    }
+
+    #[test]
+    fn hint_admits_what_has_no_tool() {
+        let i = Interpretation {
+            intent: "editar a planilha".into(),
+            tools: vec![],
+            message: String::new(),
+            steps: vec!["editar a planilha".into()],
+            missing: vec!["editar planilhas do Excel".into()],
+        };
+        let h = hint(&i);
+        assert!(h.contains("NÃO têm ferramenta: editar planilhas do Excel"));
+        assert!(!h.contains("Parece conversa"));
+        // O conselho antigo empurrava a improvisar.
+        assert!(!hint(&Interpretation { missing: vec![], tools: vec!["app.open".into()], ..i }).contains("em vez de dizer"));
     }
 
     #[test]
@@ -323,6 +371,8 @@ mod tests {
             intent: "convidar o user X para jogar".into(),
             tools: vec!["ui.open_chat".into(), "ui.type".into()],
             message: "Bora jogar comigo?".into(),
+            steps: vec![],
+            missing: vec![],
         };
         assert!(hint(&i).contains("«Bora jogar comigo?»"));
     }
