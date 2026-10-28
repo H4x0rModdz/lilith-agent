@@ -25,7 +25,7 @@ pub enum Prepared {
 }
 
 /// Ações com plano calculado pelo código antes da aprovação.
-pub const PLANNED_ACTIONS: &[&str] = &["file.organize", "file.organize_undo", "file.dedupe"];
+pub const PLANNED_ACTIONS: &[&str] = &["file.organize", "file.organize_undo", "file.dedupe", "app.install"];
 
 /// Pasta pedida ou a padrão (Downloads).
 fn folder_param(params: &Value, default: fn() -> Option<PathBuf>) -> Result<PathBuf, WinError> {
@@ -46,6 +46,7 @@ fn log_path() -> PathBuf {
 /// as outras ações. Sempre ignora qualquer plano vindo nos parâmetros.
 pub async fn prepare(action: &str, params: &Value) -> Result<Option<Prepared>, WinError> {
     match action {
+        "app.install" => super::install::prepare(params).await.map(Some),
         "file.organize" => {
             let folder = folder_param(params, dirs::download_dir)?;
             let plan = blocking(move || organize::plan(&folder)).await?;

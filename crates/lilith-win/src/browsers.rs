@@ -107,7 +107,7 @@ pub fn default_browser() -> Option<DefaultBrowser> {
     Some(DefaultBrowser { exe, family, id })
 }
 
-fn reg_query(key: &str, args: &[&str]) -> Option<String> {
+pub(crate) fn reg_query(key: &str, args: &[&str]) -> Option<String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let out = std::process::Command::new("reg")

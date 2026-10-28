@@ -103,6 +103,9 @@ pub async fn close(params: Value) -> Result<Value, WinError> {
 
 pub async fn browser_open(params: Value) -> Result<Value, WinError> {
     let raw = req_str(&params, "url")?;
+    if let Some(app) = program_not_site(raw) {
+        return Err(WinError::InvalidParams(format!("'{app}' é um programa do Windows, não um site: use app.open")));
+    }
     let raw = if raw.contains("://") { raw.to_string() } else { format!("https://{raw}") };
     let url = normalize_url(&raw)?;
     let mode = crate::browsers::Mode::parse(params["mode"].as_str());
@@ -142,6 +145,13 @@ pub(crate) fn search_url(query: &str, kind: &str) -> Result<String, WinError> {
 /// URL canônica http(s): espaços, aspas e afins saem codificados (%20,
 /// %22…). Ela vira argumento de linha de comando do navegador — sem isso,
 /// "https://a.com --gpu-launcher=calc" viraria uma flag do Chromium.
+/// "winmgmt.exe", "devmgmt.msc", "appwiz.cpl": o modelo tentou abrir um
+/// programa do Windows como site (virava https://winmgmt.exe/).
+fn program_not_site(raw: &str) -> Option<String> {
+    let host = raw.trim().trim_start_matches("https://").trim_start_matches("http://").split(['/', '?']).next()?.to_lowercase();
+    [".exe", ".msc", ".cpl", ".bat", ".cmd", ".lnk"].iter().any(|e| host.ends_with(e)).then_some(host)
+}
+
 pub(crate) fn normalize_url(raw: &str) -> Result<String, WinError> {
     let url = reqwest::Url::parse(raw.trim()).map_err(|e| WinError::InvalidParams(format!("url inválida: {e}")))?;
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
@@ -365,6 +375,18 @@ fn alias(name: &str) -> Option<&'static str> {
         "terminal" => "wt.exe",
         "prompt de comando" | "cmd" => "cmd.exe",
         "painel de controle" | "control panel" => "control.exe",
+        // Ferramentas do Windows: abrem pelo ShellExecute como qualquer app.
+        "gerenciador de dispositivos" | "device manager" | "devmgmt" => "devmgmt.msc",
+        "servicos" | "servicos do windows" | "services" => "services.msc",
+        "gerenciamento de disco" | "gerenciador de discos" | "disk management" => "diskmgmt.msc",
+        "gerenciamento do computador" | "computer management" => "compmgmt.msc",
+        "visualizador de eventos" | "event viewer" => "eventvwr.msc",
+        "agendador de tarefas" | "task scheduler" => "taskschd.msc",
+        "monitor de recursos" | "resource monitor" => "resmon.exe",
+        "informacoes do sistema" | "system information" | "msinfo" => "msinfo32.exe",
+        "editor de registro" | "regedit" => "regedit.exe",
+        "programas e recursos" | "desinstalar programas" | "adicionar ou remover programas" => "appwiz.cpl",
+        "conexoes de rede" | "network connections" => "ncpa.cpl",
         _ => return None,
     })
 }
@@ -524,5 +546,16 @@ mod tests {
     fn aliases_ignore_accents() {
         assert_eq!(alias("Configurações"), Some("ms-settings:"));
         assert_eq!(alias("Bloco de Notas"), Some("notepad.exe"));
+        assert_eq!(alias("Gerenciador de Dispositivos"), Some("devmgmt.msc"));
+        assert_eq!(alias("serviços"), Some("services.msc"));
+    }
+
+    #[test]
+    fn windows_programs_are_not_sites() {
+        // Caso real (27/10): virou https://winmgmt.exe/.
+        assert_eq!(program_not_site("winmgmt.exe").as_deref(), Some("winmgmt.exe"));
+        assert!(program_not_site("https://devmgmt.msc/").is_some());
+        assert!(program_not_site("github.com").is_none());
+        assert!(program_not_site("https://example.com/setup.exe").is_none(), "download de .exe num site é site");
     }
 }
