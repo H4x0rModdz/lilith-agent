@@ -13,6 +13,8 @@ pub mod input;
 pub mod layout;
 pub mod organize;
 pub mod scan;
+pub mod services;
+pub mod specs;
 pub mod ocr;
 pub mod phone;
 pub mod vitals;
@@ -29,6 +31,8 @@ use serde_json::Value;
 pub const ACTIONS: &[&str] = &[
     "app.open",
     "app.close",
+    "app.install",
+    "service.status",
     "browser.open",
     "browser.search",
     "browser.tab",
@@ -122,6 +126,8 @@ pub async fn dispatch(action: &str, params: Value) -> Result<Value, WinError> {
         "system.power" => power::run(params).await,
         "screen.read" => screen::read(params).await,
         "system.status" => system::status(params).await,
+        "app.install" => install::install(params).await,
+        "service.status" => crate::services::status(params).await,
         "system.checkup" => checkup::checkup(params).await,
         "screen.capture" => capture::capture(params).await,
         "media.control" => media::control(params).await,

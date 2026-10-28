@@ -3,6 +3,8 @@ mod config;
 mod habits;
 mod profile;
 mod reminders;
+mod service;
+mod report;
 mod routines;
 mod update;
 mod voice;
@@ -22,7 +24,7 @@ mod windows;
 
 use dispatcher::{Answer, Approvals, EventSink, GuardedDispatcher};
 use lilith_agents::{Job, JobEvent, Jobs};
-use lilith_brain::{Agent, Ollama, OllamaClient};
+use lilith_brain::{Agent, Brain, Ollama, OllamaClient};
 use lilith_guard::{AuditLog, Policy, CHANNEL_LOCAL};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -36,8 +38,11 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 type TurnHandle = tauri::async_runtime::JoinHandle<()>;
 
 struct AppState {
-    /// Um modelo (Ollama) compartilhado; uma memória por conversa (aba do chat).
+    /// O cérebro (Ollama local ou Claude Code, escolha do usuário), compartilhado;
+    /// uma memória por conversa (aba do chat).
     ollama: Arc<dyn Ollama>,
+    /// O mesmo cérebro, para trocar de Local para Claude Code na hora.
+    brain: Arc<Brain>,
     conversations: Mutex<HashMap<String, Arc<Agent>>>,
     /// Memória de longo prazo (SQLite): conversas, fatos e configurações.
     store: Arc<lilith_memory::Memory>,
@@ -127,6 +132,12 @@ fn send_message(text: String, conversation: String, app: AppHandle, state: State
         store.append(&conv, "lilith", &reply.reply);
         if profile::Settings::load(&store).voice {
             voice::speak(&app, &reply.reply);
+        }
+        // Algo falhou por bug dela neste turno: oferece avisar o time.
+        tauri::async_runtime::spawn(report::offer_after_turn(app.clone(), conv.clone()));
+        // Ela disse que não sabe fazer parte do pedido: oferece pedir como melhoria.
+        if !reply.missing.is_empty() {
+            tauri::async_runtime::spawn(report::offer_missing(app.clone(), conv.clone(), reply.missing.clone()));
         }
         // Aprende com o que o usuário DIGITOU (nunca com conteúdo lido).
         if profile::auto_learn(&store) {
@@ -221,6 +232,12 @@ fn remove_reminder(id: i64, app: AppHandle, state: State<'_, AppState>) -> bool 
     ok
 }
 
+/// Qual cérebro está em uso e se o Claude Code está instalado (Configurações).
+#[tauri::command]
+fn brain_status(state: State<'_, AppState>) -> Value {
+    json!({ "claude_code": state.brain.uses_claude_code(), "claude_code_found": state.brain.claude_code_found() })
+}
+
 /// Versão instalada e se inicia com o Windows.
 #[tauri::command]
 fn app_info(app: AppHandle) -> Value {
@@ -304,6 +321,7 @@ fn get_settings(state: State<'_, AppState>) -> profile::Settings {
 #[tauri::command]
 fn save_settings(settings: profile::Settings, app: AppHandle, state: State<'_, AppState>) {
     settings.save(&state.store);
+    state.brain.set_claude_code(settings.brain == profile::BRAIN_CLAUDE_CODE);
     voice::set_engine(&settings.voice_engine);
     // A forma 3D liga/desliga os gestos na hora.
     let _ = app.emit("lilith://gestures", settings.gestures);
@@ -612,10 +630,14 @@ pub fn run() {
         }
     });
     let audit_path = data.join("logs").join("audit.jsonl");
+    let store = Arc::new(open_memory(&data));
+    let use_claude = profile::Settings::load(&store).brain == profile::BRAIN_CLAUDE_CODE;
+    let brain = Arc::new(Brain::new(OllamaClient::new(cfg.ollama), cfg.claude, data.join("brain"), use_claude));
     let state = AppState {
-        ollama: Arc::new(OllamaClient::new(cfg.ollama)),
+        ollama: brain.clone(),
+        brain,
         conversations: Mutex::new(HashMap::new()),
-        store: Arc::new(open_memory(&data)),
+        store,
         policy: Arc::new(Policy::load(&data.join("permissions.json"))),
         audit: Arc::new(AuditLog::new(&audit_path)),
         audit_path,
@@ -785,6 +807,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             send_message,
+            brain_status,
             answer_approval,
             cancel,
             reset_conversation,

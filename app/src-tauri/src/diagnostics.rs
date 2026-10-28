@@ -100,10 +100,23 @@ pub async fn run(app: &tauri::AppHandle) -> Value {
     let settings = crate::profile::Settings::load(&store);
     let mut checks = Vec::new();
 
-    // Cérebro.
+    // Cérebro: o escolhido nas Configurações.
     let cfg = crate::config::Config::load();
-    let health = lilith_brain::ollama::health(&cfg.ollama).await;
-    checks.push(ollama_check(&health, &cfg.ollama.model));
+    if state.brain.uses_claude_code() {
+        checks.push(if state.brain.claude_code_found() {
+            check("Cérebro (Claude Code)", Level::Ok, format!("Claude Code encontrado; modelo {}", cfg.claude.agent_model), "")
+        } else {
+            check(
+                "Cérebro (Claude Code)",
+                Level::Problem,
+                "o Claude Code foi escolhido mas não está instalado — estou usando o cérebro local",
+                "Instale o Claude Code e rode `claude` uma vez para fazer login, ou troque para Local nas Configurações.",
+            )
+        });
+    } else {
+        let health = lilith_brain::ollama::health(&cfg.ollama).await;
+        checks.push(ollama_check(&health, &cfg.ollama.model));
+    }
 
     // Voz.
     let voice = if !settings.voice {

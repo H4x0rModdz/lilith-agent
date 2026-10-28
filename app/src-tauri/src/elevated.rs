@@ -22,7 +22,8 @@ use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCL
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
 pub const FLAG: &str = "--lilith-elevated-window-ops";
-const TIMEOUT_MS: u32 = 60_000;
+// Reiniciar um serviço espera ele parar e voltar (até 30 s cada).
+const TIMEOUT_MS: u32 = 90_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -31,18 +32,25 @@ pub enum Op {
     State { id: isize, state: String },
     Close { id: isize },
     Focus { id: isize },
+    /// Parar/iniciar/reiniciar um serviço do Windows (nome validado de novo
+    /// dentro do ajudante).
+    Service { name: String, action: lilith_win::services::ServiceOp },
 }
 
 impl Op {
-    fn id(&self) -> isize {
+    fn id(&self) -> Option<isize> {
         match self {
-            Op::Frame { id, .. } | Op::State { id, .. } | Op::Close { id } | Op::Focus { id } => *id,
+            Op::Frame { id, .. } | Op::State { id, .. } | Op::Close { id } | Op::Focus { id } => Some(*id),
+            Op::Service { .. } => None,
         }
     }
 
     fn apply(&self) -> Result<(), WinError> {
-        if !window::exists(self.id()) {
-            return Err(WinError::NotFound(format!("janela {}", self.id())));
+        if let Op::Service { name, action } = self {
+            return lilith_win::services::control_blocking(name, *action);
+        }
+        if let Some(id) = self.id().filter(|id| !window::exists(*id)) {
+            return Err(WinError::NotFound(format!("janela {id}")));
         }
         match self {
             Op::Frame { id, rect, maximize_after } => {
@@ -55,6 +63,7 @@ impl Op {
             Op::State { id, state } => window::set_state(*id, state),
             Op::Close { id } => window::close(*id),
             Op::Focus { id } => window::focus(*id),
+            Op::Service { .. } => unreachable!("tratado no começo"),
         }
     }
 }

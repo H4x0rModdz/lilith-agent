@@ -23,6 +23,13 @@ pub trait Dispatcher: Send + Sync {
     /// conteúdo externo. O dispatcher usa isso para recusar ações que só
     /// apareceram depois de ler algo (prompt injection).
     fn authorize_from_chat(&self, _tools: &[String]) {}
+
+    /// Pedido longo (3+ tarefas) ou com algo que ela não sabe fazer: mostra
+    /// "entendi assim" antes de começar. `false` = o usuário não quer que siga.
+    /// Sem tela para perguntar (Discord, testes), segue.
+    async fn confirm_plan(&self, _steps: &[String], _missing: &[String]) -> bool {
+        true
+    }
 }
 
 /// Recebe o progresso do turno para a UI (tokens em streaming, tool em curso).
@@ -37,6 +44,9 @@ pub struct Reply {
     pub reply: String,
     pub action: Option<String>,
     pub emotion: &'static str,
+    /// Tarefas do pedido que ela ainda não sabe fazer (o app oferece registrar
+    /// como pedido de melhoria).
+    pub missing: Vec<String>,
 }
 
 const HISTORY_TURNS: usize = 8;
@@ -67,6 +77,9 @@ fn result_signature(response: &Value) -> String {
 /// Quantas vezes, no máximo, cobra o plano quando o modelo responde em texto.
 const MAX_NUDGES: usize = 3;
 
+/// Passos do plano que o agente nunca cobra (ver o laço em `process_with_context`).
+const NEVER_FORCED: &[&str] = &["ui.click", "file.run"];
+
 /// Etapas do plano do intérprete que ainda faltam, na ordem. O plano pode
 /// repetir ferramentas (duas mensagens = open_chat, type, open_chat, type):
 /// cada ocorrência consome uma chamada já feita.
@@ -90,7 +103,12 @@ pub struct Agent {
     memory: SessionMemory,
     /// Planos aprendidos e glossário pessoal (opcional).
     knowledge: Option<Arc<dyn Knowledge>>,
+    /// O que o intérprete disse que falta no pedido em andamento (vai na Reply).
+    missing: std::sync::Mutex<Vec<String>>,
 }
+
+/// A partir de quantas tarefas o "entendi assim" aparece antes de agir.
+const CONFIRM_FROM_STEPS: usize = 3;
 
 impl Agent {
     pub fn new(ollama: Arc<dyn Ollama>) -> Self {
@@ -98,6 +116,7 @@ impl Agent {
             ollama,
             memory: SessionMemory::new(32),
             knowledge: None,
+            missing: Default::default(),
         }
     }
 
@@ -134,6 +153,7 @@ impl Agent {
         dispatcher: &dyn Dispatcher,
         sink: Arc<dyn Sink>,
     ) -> Reply {
+        self.missing.lock().unwrap_or_else(|e| e.into_inner()).clear();
         // Comando curto e inequívoco: executa direto, sem chamar o modelo.
         if let Some(reply) = self.try_shortcut(text, dispatcher).await {
             return reply;
@@ -170,6 +190,13 @@ impl Agent {
             let last = messages.len() - 1;
             messages.insert(last, serde_json::json!({ "role": "system", "content": interpret::hint(&i) }));
             tools = interpret::narrow(tools, &i.tools);
+            *self.missing.lock().unwrap_or_else(|e| e.into_inner()) = i.missing.clone();
+            // Entendeu um pedido longo (ou com algo que ela não sabe): confere
+            // com o usuário ANTES de mexer em qualquer coisa.
+            let long_or_partial = i.steps.len() >= CONFIRM_FROM_STEPS || !i.missing.is_empty();
+            if !i.tools.is_empty() && long_or_partial && !dispatcher.confirm_plan(&i.steps, &i.missing).await {
+                return self.finish(text, None, Vec::new(), "Tudo bem, não fiz nada. Me diz como prefere que eu faça.".into());
+            }
         }
         let mut last_call: Option<ToolCall> = None;
         let mut calls: Vec<ToolCall> = Vec::new();
@@ -233,16 +260,20 @@ impl Agent {
             let reply = match result {
                 Ok(r) => r,
                 Err(e) => {
-                    tracing::warn!(step, "falha no Ollama: {e}");
+                    tracing::warn!(step, "falha no cérebro: {e}");
                     let text_out = match e {
+                        // O erro do Claude Code já vem explicado ("não está instalado", "Not logged in"…).
+                        LilithError::OllamaUnreachable(m) if m.contains("Claude Code") => {
+                            format!("Não consigo pensar agora — {m}. Confere o Claude Code (ou troque para o cérebro local nas Configurações).")
+                        }
                         LilithError::OllamaUnreachable(_) => {
-                            "Não consigo falar com o meu modelo de IA agora — o Ollama está aberto?"
+                            "Não consigo falar com o meu modelo de IA agora — o Ollama está aberto?".to_string()
                         }
                         LilithError::OllamaInvalid(_) => {
-                            "O Ollama respondeu com erro. Confere se o modelo configurado está baixado."
+                            "O meu modelo de IA respondeu com erro. Confere se o modelo configurado está baixado.".to_string()
                         }
                     };
-                    return self.finish(text, last_call, calls, text_out.to_string());
+                    return self.finish(text, last_call, calls, text_out);
                 }
             };
 
@@ -253,7 +284,11 @@ impl Agent {
                 // sem abri-lo, e abrir o chat e PARAR, "respondendo" que vai
                 // mandar a mensagem em vez de mandar. Descarta o texto e cobra
                 // o próximo passo do plano.
-                let pending = pending_tools(&needs_tools, &calls);
+                // Clicar e executar arquivo nunca são cobrados: o intérprete às
+                // vezes põe cliques a mais no plano e, cobrado, o modelo inventava
+                // onde clicar ("botão gravar", "Arquivo Novo" no Bloco de Notas).
+                let pending: Vec<String> =
+                    pending_tools(&needs_tools, &calls).into_iter().filter(|p| !NEVER_FORCED.contains(&p.as_str())).collect();
                 if !pending.is_empty() && !answer_only && nudges < MAX_NUDGES {
                     nudges += 1;
                     tracing::warn!(step, pending = ?pending, "resposta sem cumprir o plano descartada");
@@ -410,6 +445,7 @@ impl Agent {
             emotion: emotion::classify(&reply),
             reply,
             action,
+            missing: std::mem::take(&mut *self.missing.lock().unwrap_or_else(|e| e.into_inner())),
         }
     }
 }

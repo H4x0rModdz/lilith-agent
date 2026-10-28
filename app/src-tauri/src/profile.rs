@@ -25,10 +25,24 @@ pub struct Settings {
     /// Gestos da forma 3D (acenar, sim/não, apontar…).
     #[serde(default = "yes")]
     pub gestures: bool,
+    /// Oferecer avisar o time quando um pedido falha por bug dela.
+    #[serde(default = "yes")]
+    pub bug_reports: bool,
+    /// Cérebro: "local" (Ollama, 100% no PC) ou "claude_code" (o Claude Code
+    /// instalado, na assinatura de quem usa).
+    #[serde(default = "local_brain")]
+    pub brain: String,
 }
 
 fn yes() -> bool {
     true
+}
+
+pub const BRAIN_LOCAL: &str = "local";
+pub const BRAIN_CLAUDE_CODE: &str = "claude_code";
+
+fn local_brain() -> String {
+    BRAIN_LOCAL.into()
 }
 
 const USER_NAME: &str = "user_name";
@@ -39,6 +53,8 @@ const AUTO_UPDATE: &str = "auto_update";
 const VOICE: &str = "voice";
 const VOICE_ENGINE: &str = "voice_engine";
 const GESTURES: &str = "gestures";
+const BUG_REPORTS: &str = "bug_reports";
+const BRAIN: &str = "brain";
 
 impl Settings {
     pub fn load(m: &Memory) -> Self {
@@ -51,6 +67,8 @@ impl Settings {
             voice: m.setting(VOICE).map(|v| v != "false").unwrap_or(true),
             voice_engine: m.setting(VOICE_ENGINE).filter(|v| v == "serena" || v == "kokoro").unwrap_or_else(|| "kokoro".into()),
             gestures: m.setting(GESTURES).map(|v| v != "false").unwrap_or(true),
+            bug_reports: m.setting(BUG_REPORTS).map(|v| v != "false").unwrap_or(true),
+            brain: m.setting(BRAIN).filter(|v| v == BRAIN_CLAUDE_CODE).unwrap_or_else(local_brain),
         }
     }
 
@@ -64,6 +82,8 @@ impl Settings {
         m.set_setting(VOICE, if self.voice { "true" } else { "false" });
         m.set_setting(VOICE_ENGINE, if self.voice_engine == "serena" { "serena" } else { "kokoro" });
         m.set_setting(GESTURES, if self.gestures { "true" } else { "false" });
+        m.set_setting(BUG_REPORTS, if self.bug_reports { "true" } else { "false" });
+        m.set_setting(BRAIN, if self.brain == BRAIN_CLAUDE_CODE { BRAIN_CLAUDE_CODE } else { BRAIN_LOCAL });
     }
 }
 
@@ -179,7 +199,7 @@ mod tests {
         let m = Memory::in_memory().unwrap();
         assert!(context(&m).starts_with("Hoje é "), "só a data de hoje quando não há mais nada");
         assert!(!context(&m).contains("Chame"));
-        Settings { user_name: "Alex".into(), persona: "fala com gírias".into(), auto_learn: true, chat_minutes: 5, auto_update: true, voice: true, voice_engine: "kokoro".into(), gestures: true }.save(&m);
+        Settings { user_name: "Alex".into(), persona: "fala com gírias".into(), auto_learn: true, chat_minutes: 5, auto_update: true, voice: true, voice_engine: "kokoro".into(), gestures: true, bug_reports: true, brain: "claude_code".into() }.save(&m);
         m.remember("time", "Corinthians", "learned");
         let ctx = context(&m);
         assert!(ctx.contains("Chame o usuário de \"Alex\""));
@@ -215,11 +235,14 @@ mod tests {
         assert!(s.auto_learn);
         assert_eq!(s.chat_minutes, 5);
         assert!(s.gestures, "gestos ligados por padrão");
-        Settings { user_name: "x".repeat(100), persona: String::new(), auto_learn: false, chat_minutes: 99999, auto_update: false, voice: false, voice_engine: "serena".into(), gestures: false }.save(&m);
+        assert_eq!(s.brain, BRAIN_LOCAL, "cérebro local por padrão");
+        Settings { user_name: "x".repeat(100), persona: String::new(), auto_learn: false, chat_minutes: 99999, auto_update: false, voice: false, voice_engine: "serena".into(), gestures: false, bug_reports: false, brain: "outro".into() }.save(&m);
         let s = Settings::load(&m);
         assert_eq!(s.user_name.chars().count(), 40);
         assert!(!s.auto_learn);
         assert!(!s.gestures);
+        assert!(!s.bug_reports);
+        assert_eq!(s.brain, BRAIN_LOCAL, "valor desconhecido volta para o local");
         assert_eq!(s.chat_minutes, 1440);
     }
 }

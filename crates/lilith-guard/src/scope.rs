@@ -78,6 +78,8 @@ const DANGEROUS_SCOPES: &[&str] = &[
     "settings.modify",
     "terminal.execute",
     "system.power",
+    // Parar/iniciar serviços do Windows (Docker, SQL Server…).
+    "system.service",
     "microphone.listen",
     "camera.access",
     // Clipboard e tela podem entregar senhas, conversas, banco.
@@ -116,6 +118,12 @@ pub fn scope_for(action: &str) -> &'static str {
         // Navegar entre abas é só mexer na janela; fechar aba é decidido pelo app.
         "browser.tab" => "window.control",
         "app.close" | "window.close" => "app.terminate",
+        // Instalar programa: a prévia mostra o pacote exato (winget) antes.
+        "app.install" => "app.install",
+        // Ver o estado de um serviço é só leitura; parar/iniciar pede aprovação
+        // (e o UAC do Windows, que é quem dá o admin).
+        "service.status" => "system.read",
+        "service.control" => "system.service",
         "window.list" | "window.focus" | "window.minimize" | "window.maximize" | "window.restore" | "window.move"
         | "window.tile" | "cursor.point" | "ui.find" => "window.control",
         "ui.click" | "ui.open_chat" => "ui.interact",
@@ -156,6 +164,9 @@ pub fn scope_for(action: &str) -> &'static str {
         "media.control" | "media.now_playing" => "media.control",
         // Medir CPU/memória/discos: só leitura, nada pessoal.
         "system.status" | "system.checkup" | "self.diagnose" => "system.read",
+        // Relatório de bug: a ação mostra o que vai e só envia com o "Enviar"
+        // do próprio cartão — o consentimento é ali, não numa aprovação a mais.
+        "self.report" => "system.read",
         // Print salvo no PC do usuário a pedido dele (o modelo não vê a imagem).
         "screen.capture" => "screen.capture",
         // OCR da tela pode entregar senhas e conversas, como window.read.
@@ -239,6 +250,9 @@ mod tests {
         for action in [
             "app.open",
             "app.close",
+            "app.install",
+            "service.status",
+            "service.control",
             "browser.open",
             "browser.search",
             "browser.tab",
@@ -296,6 +310,7 @@ mod tests {
             "media.now_playing",
             "system.status",
             "self.diagnose",
+            "self.report",
             "system.checkup",
             "screen.capture",
             "screen.read",

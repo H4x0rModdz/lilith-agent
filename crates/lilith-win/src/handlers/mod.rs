@@ -6,6 +6,7 @@ pub mod clipboard;
 pub mod desktop;
 pub mod download;
 pub mod files;
+pub mod install;
 pub mod media;
 pub mod native;
 pub mod power;

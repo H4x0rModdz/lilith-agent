@@ -2455,6 +2455,7 @@ name = "lilith-brain"
 version = "0.4.1"
 dependencies = [
  "async-trait",
+ "dirs 6.0.0",
  "futures-util",
  "regex",
  "reqwest 0.12.28",

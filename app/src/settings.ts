@@ -14,6 +14,8 @@ interface Settings {
   voice: boolean;
   voice_engine: "kokoro" | "serena";
   gestures: boolean;
+  bug_reports: boolean;
+  brain: "local" | "claude_code";
 }
 
 interface VoiceStatus {
@@ -68,6 +70,14 @@ export function mountSettings(view: HTMLElement) {
           <textarea name="persona" maxlength="800" rows="3"
             placeholder="ex.: carinhosa e meio provocadora, usa gírias, respostas curtas"></textarea>
         </label>
+        <label class="field">
+          <span>Cérebro</span>
+          <select name="brain">
+            <option value="local">Local (Ollama): 100% no seu PC, de graça</option>
+            <option value="claude_code">Claude Code: mais esperta, usa a sua assinatura do Claude</option>
+          </select>
+        </label>
+        <small class="hint brain-status"></small>
         <label class="field inline">
           <span>Ler mensagens dos últimos</span>
           <input name="chat_minutes" type="number" min="1" max="1440" />
@@ -107,6 +117,11 @@ export function mountSettings(view: HTMLElement) {
           <input name="gestures" type="checkbox" />
           <span class="switch-track"><span class="switch-thumb"></span></span>
           <span>Gestos na forma 3D (acenar, apontar, sim/não)</span>
+        </label>
+        <label class="switch">
+          <input name="bug_reports" type="checkbox" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span>Quando algo der erro, oferecer avisar o time (só a ficha do PC, nada pessoal)</span>
         </label>
         <label class="switch">
           <input name="autostart" type="checkbox" />
@@ -326,6 +341,21 @@ export function mountSettings(view: HTMLElement) {
 
   const serenaInstall = view.querySelector<HTMLButtonElement>(".voice-install-serena")!;
 
+  const brainStatus = view.querySelector<HTMLElement>(".brain-status")!;
+
+  /// Diz, já na escolha, se o Claude Code está instalado neste PC.
+  async function loadBrain() {
+    const st = await invoke<{ claude_code_found: boolean }>("brain_status").catch(() => ({ claude_code_found: false }));
+    if (field("brain").value !== "claude_code") {
+      brainStatus.textContent = "Tudo roda no seu PC pelo Ollama. Nada sai daqui.";
+    } else if (st.claude_code_found) {
+      brainStatus.textContent = "Claude Code encontrado. Os pedidos vão para o Claude (Haiku 5.5) pela sua conta; as ações continuam rodando no seu PC, com as mesmas permissões.";
+    } else {
+      brainStatus.textContent = "Não achei o Claude Code neste PC. Instale e faça login (rode “claude” uma vez no terminal); até lá ela usa o cérebro local.";
+    }
+  }
+  field("brain").addEventListener("change", () => void loadBrain());
+
   async function loadVoice() {
     const st = await invoke<VoiceStatus>("voice_status");
     const serena = field("voice_engine").value === "serena";
@@ -426,6 +456,9 @@ export function mountSettings(view: HTMLElement) {
     field("voice").checked = s.voice;
     field("voice_engine").value = s.voice_engine;
     field("gestures").checked = s.gestures !== false;
+    field("bug_reports").checked = s.bug_reports !== false;
+    field("brain").value = s.brain === "claude_code" ? "claude_code" : "local";
+    await loadBrain();
     await loadVoice();
     await voiceIn.load();
     const info = await invoke<AppInfo>("app_info");
@@ -482,6 +515,8 @@ export function mountSettings(view: HTMLElement) {
       voice: field("voice").checked,
       voice_engine: field("voice_engine").value === "serena" ? "serena" : "kokoro",
       gestures: field("gestures").checked,
+      bug_reports: field("bug_reports").checked,
+      brain: field("brain").value === "claude_code" ? "claude_code" : "local",
     };
     field("autostart").checked = await invoke<boolean>("set_autostart", { on: field("autostart").checked });
     await invoke("save_settings", { settings });

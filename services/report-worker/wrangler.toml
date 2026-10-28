@@ -1,0 +1,35 @@
+name = "lilith-reports"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+# Sem domínio próprio: responde em lilith-reports.<conta>.workers.dev.
+# Com um domínio no Cloudflare, prefira a rota abaixo + workers_dev = false:
+# aí a regra de rate limiting do WAF (grátis) barra excesso antes de o Worker
+# rodar, e nem a cota de requisições é gasta.
+workers_dev = true
+# routes = [{ pattern = "reports.SEU-DOMINIO/v1/report", zone_name = "SEU-DOMINIO" }]
+
+[vars]
+GITHUB_OWNER = "H4x0rModdz"
+GITHUB_REPO = "lilith-agent"
+GITHUB_APP_ID = "5502748"
+GITHUB_INSTALLATION_ID = "175987801"
+MAX_PER_ORIGIN_DAY = "5"
+MAX_REPORTS_DAY = "300"
+MAX_NEW_ISSUES_DAY = "15"
+# "1" = não chama o GitHub (devolve a issue que seria criada). Bom para testar.
+DRY_RUN = "0"
+# Segredos (wrangler secret put): GITHUB_APP_PRIVATE_KEY, IP_SALT
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lilith-reports"
+database_id = "cd7375b0-9611-4f14-8c43-345a8afdbf2d"
+
+# Limitador do próprio Workers (grátis): 3 relatórios por minuto por IP.
+[[ratelimits]]
+name = "PER_IP"
+namespace_id = "1001"
+simple = { limit = 3, period = 60 }
+
+[triggers]
+crons = ["17 3 * * *"]

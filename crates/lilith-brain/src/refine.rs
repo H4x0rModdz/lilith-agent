@@ -138,9 +138,20 @@ pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<S
     }
     plan.dedup_by(|b, a| *a == "window.tile" && *b == "window.tile");
 
-    // Pesquisa já abre a aba sozinha e escolhe Imagens/Notícias.
+    // Pesquisa já abre a aba sozinha e escolhe Imagens/Notícias. Só o
+    // app.open DO NAVEGADOR sai (um por pesquisa): "pesquisa batata e abre o
+    // gerenciador de dispositivos" continua abrindo o outro programa.
     if is(&plan, "browser.search") {
-        plan.retain(|p| !matches!(p.as_str(), "browser.open" | "browser.tab" | "app.open"));
+        let searches = plan.iter().filter(|p| *p == "browser.search").count();
+        let mut opens_to_drop = searches;
+        plan.retain(|p| match p.as_str() {
+            "browser.open" | "browser.tab" => false,
+            "app.open" if opens_to_drop > 0 => {
+                opens_to_drop -= 1;
+                false
+            }
+            _ => true,
+        });
     }
 
     // Baixar não abre programa.
@@ -164,8 +175,16 @@ pub fn plan(text: &str, plan: Vec<String>, recent: &[(String, String)]) -> Vec<S
         plan = plan.into_iter().map(|p| if p == "file.run" { "file.open".into() } else { p }).collect();
     }
 
-    // Listar uma pasta não clica em nada.
-    if is(&plan, "file.list") && !has(&t, &["clica", "aperta", "click"]) {
+    // Listar uma pasta, mover/organizar janelas e pesquisar não clicam em
+    // nada. O intérprete punha um ui.click a mais ("traz o streamlabs para o
+    // monitor 1" → mover + clicar) e o agente cobrava o plano até inventar um
+    // "botão gravar".
+    let no_click = ["file.list", "window.move", "window.tile", "window.minimize", "window.maximize", "window.restore", "browser.search"];
+    let click_words = [
+        "clica", "clique", "click", "aperta", "aperte", "pressiona", "botão", "botao", "seleciona", "marca", "ativa", "liga ", "desliga",
+        "stop", "play", "grava",
+    ];
+    if no_click.iter().any(|a| is(&plan, a)) && !has(&t, &click_words) {
         plan.retain(|p| p != "ui.click");
     }
 
@@ -342,6 +361,39 @@ mod tests {
         assert_eq!(plan(ask, p(&["ui.click", "window.read"])), p(&["ui.click", "window.read"]));
         // Clicar sem pedir para ver nada: não acrescenta leitura.
         assert_eq!(plan("clica em histórico no discord", p(&["ui.click"])), p(&["ui.click"]));
+    }
+
+    #[test]
+    fn building_a_site_in_a_folder_is_delegated_not_clicked() {
+        // Plano real do intérprete (27/10) para o pedido da landing page.
+        let bad = p(&["app.open", "ui.click", "window.focus", "file.read", "ui.find", "ui.click", "ui.find", "ui.click", "ui.find"]);
+        let t = r"preciso que você crie uma landing page sobre você mesma e seu funcionamento, de forma inovadora e com animações pela página em C:\dev\gateway";
+        assert_eq!(plan(t, bad), p(&["agent.delegate"]));
+    }
+
+    #[test]
+    fn search_drops_only_the_browser_open() {
+        let t = "instale o chrome, abra ele e pesquise batata. depois abra o gerenciador de dispositivos e pare o serviço do docker";
+        assert_eq!(
+            plan(t, p(&["app.install", "app.open", "browser.search", "app.open", "service.control"])),
+            p(&["app.install", "browser.search", "app.open", "service.control"])
+        );
+        assert_eq!(plan("abre o chrome e pesquisa batata", p(&["app.open", "browser.search"])), p(&["browser.search"]));
+    }
+
+    #[test]
+    fn moving_windows_or_searching_never_clicks_unless_asked() {
+        // Casos reais (27/10): o clique a mais virou "botão gravar" no Streamlabs.
+        let move_it = "traga a aba do streamlabs do monitor 2 para o monitor 1";
+        assert_eq!(plan(move_it, p(&["window.move", "ui.click"])), p(&["window.move"]));
+        assert_eq!(plan("pesquisa batata no google", p(&["browser.search", "ui.click", "ui.click"])), p(&["browser.search"]));
+        // Pediu o clique: fica.
+        assert_eq!(
+            plan("traz o streamlabs pro monitor 1 e aperta gravar", p(&["window.move", "ui.click"])),
+            p(&["window.move", "ui.click"])
+        );
+        // Navegar sem mover janela continua clicando.
+        assert_eq!(plan("vai na aba biblioteca do steam", p(&["ui.click"])), p(&["ui.click"]));
     }
 
     #[test]
